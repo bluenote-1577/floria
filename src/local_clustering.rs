@@ -1,4 +1,6 @@
 use crate::types_structs::Frag;
+extern crate time;
+use time::PreciseTime;
 use crate::utils_frags;
 use fnv::{FnvHashMap,FnvHashSet};
 
@@ -28,7 +30,9 @@ pub fn generate_hap_block<'a>(start : usize,
                           all_distances : &FnvHashMap<&Frag,FnvHashMap<&Frag,i32>>,
                           ploidy : usize) -> Vec<FnvHashSet<&'a Frag>>{
 
+    let start_t = PreciseTime::now();
     let all_reads = find_reads_in_interval(start,end,position_to_reads);
+    println!("Time taken get overlaps {:?}",start_t.to(PreciseTime::now()));
     let partition = cluster_reads(&all_reads,&all_distances,ploidy);
     partition
     
@@ -65,24 +69,37 @@ pub fn cluster_reads<'a>(all_reads : &FnvHashSet<&'a Frag>,
     let mut vec_all_edges = Vec::new();
     let mut adj_list_edges = FnvHashMap::default();
     let vec_all_reads : Vec<_> = all_reads.iter().collect();
+    println!("Computing edges for local cluster");
     for (i,r1) in vec_all_reads.iter().enumerate(){
-        for j in 0..vec_all_reads.len(){
+        for j in i+1..vec_all_reads.len(){
 
             let r2 = &vec_all_reads[j];
-            let dist_try = dist_from_graph(*r1,*r2,&all_distances);
-            let dist = match dist_try{
-                Some(x) => x,
-                None => continue,
-            };
+//            let dist_try = dist_from_graph(*r1,*r2,&all_distances);
+//            let dist = match dist_try{
+//                Some(x) => x,
+//                None => continue,
+//            };
+
+            let mut dist;
+            if !utils_frags::check_overlap(r1,r2){
+                continue;
+            }
+            else{
+                dist = utils_frags::distance(r1,r2);
+            }
 
             let i_type = i as i32;
             let j_type = j as i32;
             vec_all_edges.push(vec![dist,i_type,j_type]);
-            let edge_list = adj_list_edges.entry(i_type).or_insert(Vec::new());
-            edge_list.push(vec![dist,j_type]);
+            let edge_list1 = adj_list_edges.entry(i_type).or_insert(Vec::new());
+            edge_list1.push(vec![dist,j_type]);
+            let edge_list2 = adj_list_edges.entry(j_type).or_insert(Vec::new());
+            edge_list2.push(vec![dist,i_type]);
+
         }
     }
 
+    println!("Finding max clique");
     vec_all_edges.sort_by(|a,b| a[0].cmp(&b[0]));
     let best_edge = vec_all_edges.last().unwrap();
 //    println!("{:?}",vec_all_edges);
@@ -118,7 +135,7 @@ pub fn cluster_reads<'a>(all_reads : &FnvHashSet<&'a Frag>,
         }
         let mut sorted_dict_to_vec : Vec<_> = min_dist_map.into_iter().collect();
         sorted_dict_to_vec.sort_by(|a,b| a.1.cmp(&b.1));
-        println!("{:?}",sorted_dict_to_vec);
+//        println!("{:?}",sorted_dict_to_vec);
 //        println!("{:?}",vec_all_edges);
         let best_vertex = sorted_dict_to_vec.last().unwrap();
         used_vertices.insert(best_vertex.0);
@@ -131,6 +148,8 @@ pub fn cluster_reads<'a>(all_reads : &FnvHashSet<&'a Frag>,
         clusters.push(cluster);
     }
 
+
+    println!("Greedy partitioning...");
     //Once seed vertices for each cluster is found, greedily add edges to each cluster based on
     //minimizing the max dist over clusters
     
@@ -182,7 +201,7 @@ pub fn cluster_reads<'a>(all_reads : &FnvHashSet<&'a Frag>,
         }
         //Obtain sorted vertices 
         sorted_vec_overlap_reads.sort_by(|a,b| b.1.cmp(&a.1));
-        println!("{:?} sorted_vec_overlap",sorted_vec_overlap_reads);
+//        println!("{:?} sorted_vec_overlap",sorted_vec_overlap_reads);
 
         //Now greedily add vertices to the partition where the maximum distance to the cluster is
         //minimized. 
@@ -206,7 +225,7 @@ pub fn cluster_reads<'a>(all_reads : &FnvHashSet<&'a Frag>,
                     }
                 }
             }
-            println!("{:?},{:?} max_dist, overlap",max_dist,overlap);
+//            println!("{:?},{:?} max_dist, overlap",max_dist,overlap);
 
             //Find index of minimum distance cluster
             let mut min_index = 0;

@@ -1,9 +1,11 @@
 use std::fs::File;
+use std::io::Write;
+use std::io::LineWriter;
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use std::io::{self, BufRead};
 use std::path::Path;
-use crate::types_structs::Frag;
+use crate::types_structs::{Frag,HapBlock};
 
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
@@ -88,6 +90,8 @@ pub fn get_frags_container<P>(filename : P) -> Vec<Frag> where P: AsRef <Path>,{
     all_frags
 }
 
+//Read a vcf file to get the genotypes : TODO may have to refactor this method into a more general
+//vcf method 
 pub fn get_genotypes_from_vcf<P>(filename : P) -> FnvHashMap<usize,FnvHashMap<usize,usize>> where P: AsRef <Path>, {
     let mut genotype_dict = FnvHashMap::default();
     if let Ok(lines) = read_lines(filename){
@@ -126,4 +130,33 @@ pub fn get_genotypes_from_vcf<P>(filename : P) -> FnvHashMap<usize,FnvHashMap<us
         }
     }
     genotype_dict
+}
+
+//Write a vector of blocks into a file 
+pub fn write_blocks_to_file<P>(filename : P, blocks : &Vec<HapBlock>, lengths : &Vec<usize>) where P: AsRef <Path>, {
+    let ploidy = blocks[0].blocks.len();
+    let file = File::create(filename).expect("Can't create file");
+    let mut file = LineWriter::new(file);
+    let mut length_prev_block = 1;
+    let emptydict = FnvHashMap::default();
+    for (i,block) in blocks.iter().enumerate(){
+        file.write_all(b"**BLOCK**\n");
+        for pos in length_prev_block..length_prev_block+lengths[i]{
+            write!(file,"{}\t",pos);
+            for k in 0..ploidy{
+                let allele_map = block.blocks[k].get(&pos).unwrap_or(&emptydict);
+                if *allele_map == emptydict{
+                    file.write_all(b"-1\t");
+                }
+                else{
+                    let best_allele = allele_map.iter().max_by_key(|entry | entry.1).unwrap().0;
+                    write!(file,"{}\t",best_allele);
+                }
+            }
+            write!(file,"\n");
+        }
+        write!(file,"*****");
+        length_prev_block += lengths[i]
+    }
+
 }
