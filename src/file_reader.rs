@@ -1,8 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 use std::io::LineWriter;
-use fnv::FnvHashMap;
-use fnv::FnvHashSet;
+use fxhash::{FxHashMap,FxHashSet};
 use std::io::{self, BufRead};
 use std::path::Path;
 use crate::types_structs::{Frag,HapBlock};
@@ -33,9 +32,9 @@ pub fn get_frags_container<P>(filename : P) -> Vec<Frag> where P: AsRef <Path>,{
                 if let Ok(num_blocks) = v[0].parse::<i32>(){
 
 //                    println!("{}",num_blocks);
-                    let mut seqs = FnvHashMap::default();
-                    let mut quals = FnvHashMap::default();
-                    let mut positions = FnvHashSet::default();
+                    let mut seqs = FxHashMap::default();
+                    let mut quals = FxHashMap::default();
+                    let mut positions = FxHashSet::default();
                     let mut list_of_positions = Vec::new();
                     let mut first_position = 1;
                     let mut last_position = 1;
@@ -92,8 +91,9 @@ pub fn get_frags_container<P>(filename : P) -> Vec<Frag> where P: AsRef <Path>,{
 
 //Read a vcf file to get the genotypes : TODO may have to refactor this method into a more general
 //vcf method 
-pub fn get_genotypes_from_vcf<P>(filename : P) -> FnvHashMap<usize,FnvHashMap<usize,usize>> where P: AsRef <Path>, {
-    let mut genotype_dict = FnvHashMap::default();
+pub fn get_genotypes_from_vcf<P>(filename : P) -> (FxHashMap<usize,FxHashMap<usize,usize>>,usize) where P: AsRef <Path>, {
+    let mut genotype_dict = FxHashMap::default();
+    let mut ploidy = 0;
     if let Ok(lines) = read_lines(filename){
         let mut counter = 1;
         for line in lines{
@@ -117,7 +117,8 @@ pub fn get_genotypes_from_vcf<P>(filename : P) -> FnvHashMap<usize,FnvHashMap<us
                 else{
                     panic!("Genotype column not processed correctly : {}",genotypes);
                 }
-                let mut genotype_value = FnvHashMap::default();
+                ploidy = split_genotypes.len();
+                let mut genotype_value = FxHashMap::default();
                 for allele in split_genotypes.iter(){
                     let num_allele : usize = allele.parse().unwrap();
                     let val = genotype_value.entry(num_allele).or_insert(0);
@@ -129,7 +130,7 @@ pub fn get_genotypes_from_vcf<P>(filename : P) -> FnvHashMap<usize,FnvHashMap<us
             }
         }
     }
-    genotype_dict
+    (genotype_dict,ploidy)
 }
 
 //Write a vector of blocks into a file 
@@ -138,7 +139,7 @@ pub fn write_blocks_to_file<P>(filename : P, blocks : &Vec<HapBlock>, lengths : 
     let file = File::create(filename).expect("Can't create file");
     let mut file = LineWriter::new(file);
     let mut length_prev_block = 1;
-    let emptydict = FnvHashMap::default();
+    let emptydict = FxHashMap::default();
     for (i,block) in blocks.iter().enumerate(){
         file.write_all(b"**BLOCK**\n");
         for pos in length_prev_block..length_prev_block+lengths[i]{
