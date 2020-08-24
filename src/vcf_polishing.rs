@@ -155,7 +155,7 @@ fn get_best_perm(
             }
             rangeset.remove(&best_index);
             best_perm.push(best_index);
-            dbg!(best_index, best_score_i, &best_perm);
+//            dbg!(best_index, best_score_i, &best_perm);
         }
     }
 
@@ -240,7 +240,7 @@ fn fill_left_block<'a>(left_block : &mut Vec<FxHashSet<&'a Frag>>, reads_interva
         }
 
         max_distances.sort_by(|a,b| a.1.cmp(&b.1));
-        dbg!(&max_distances);
+//        dbg!(&max_distances);
         left_block[max_distances[0].0].insert(frag);
     }
 }
@@ -254,7 +254,7 @@ pub fn replace_with_filled_blocks<'a>(
 
     let mut corrected_vec = Vec::new();
     let outlier_score = get_iqr(all_scores,factor);
-    dbg!(all_scores,outlier_score);
+//    dbg!(all_scores,outlier_score);
 
     //Assume the leftmost block is good. Not a great assumption but
     //otherwise the algorithm would be a bit more painful. 

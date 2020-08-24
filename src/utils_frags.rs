@@ -115,4 +115,21 @@ pub fn hap_block_from_partition(part: &Vec<FxHashSet<&Frag>>) -> HapBlock {
     HapBlock { blocks: block_vec }
 }
 
+pub fn get_avg_length(all_frags : &Vec<Frag>) -> usize{
+   let mut length_vec = Vec::new(); 
+   for frag in all_frags.iter(){
+       length_vec.push(frag.last_position - frag.first_position);
+   }
+   length_vec.sort();
+   return length_vec[length_vec.len()/2];
+}
 
+pub fn get_length_gn(all_frags : &Vec<Frag>) -> usize{
+    let mut last_pos = 0;
+    for frag in all_frags.iter(){
+        if frag.last_position > last_pos{
+            last_pos = frag.last_position;
+        }
+    }
+    last_pos
+}

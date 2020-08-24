@@ -11,6 +11,10 @@ time = "*"
 fxhash="*"
 statrs="*"
 permute="*"
+rayon="*"
+rand="*"
+rand_pcg="*"
+rust-htslib="*"
 
 [profile.release]
 opt-level = 3
