@@ -7,6 +7,7 @@ use std::io::LineWriter;
 use std::io::Write;
 use std::io::{self, BufRead};
 use std::path::Path;
+use std::collections::BTreeMap;
 
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
@@ -262,10 +263,45 @@ where
 
 }
 
-//pub fn write_frags_file(frags : &Vec<Frag>,filename : String){
-//    let file = File::create(filename).expect("Can't create file");
-//    let mut file = LineWriter::new(file);
-//    let mut length_prev_block = 1;
+fn convert_dict_to_block(frag :&Frag) -> (Vec<usize>, Vec<Vec<usize>>) {
+    let d = frag.seq_dict;
+    let vec_d : BTreeMap<usize,usize> = d.into_iter().collect();
+    let mut prev_pos = 0;
+    let mut block_start_pos = Vec::new();
+    let mut blocks = Vec::new();
+    let mut block = Vec::new();
+    for (pos,var) in &vec_d{
+        if prev_pos == 0{
+            prev_pos = *pos;
+            block.push(*var);
+            block_start_pos.push(pos);
+        }
+        
+        else if pos-prev_pos > 1{
+            blocks.push(block);
+            block = vec![*var];
+            block_start_pos.push(pos);
+            prev_pos = *pos;
+        }
+
+        else if pos - prev_pos == {
+            block.push(*var);
+        }
+
+        else{
+            panic!("Something went wrong here");
+        }
+    }
+
+    blocks.push(block);
+    blocks
+}
+
+pub fn write_frags_file(frags : &Vec<Frag>,filename : String){
+    let file = File::create(filename).expect("Can't create file");
+    let mut file = LineWriter::new(file);
+    for frag in frags.iter(){
+    }
 //    let emptydict = FxHashMap::default();
 //    for (i, block) in blocks.iter().enumerate() {
 //        file.write_all(b"**BLOCK**\n").unwrap();
@@ -285,4 +321,4 @@ where
 //        write!(file, "*****").unwrap();
 //        length_prev_block += lengths[i]
 //    }
-//}
+}
