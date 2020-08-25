@@ -62,7 +62,7 @@ pub fn get_all_overlaps(frags: &Vec<Frag>) -> FxHashMap<usize, FxHashSet<&Frag>>
 }
 
 //Find all distances between fragments.
-//IMPORTANT!!! ASSUMES SORTED FRAGMENT .txt FILE BY STARTING POSITION!
+//Assumes sorted fragments by first position. 
 pub fn get_all_distances(frags: &Vec<Frag>) -> FxHashMap<&Frag, FxHashMap<&Frag, i32>> {
     let mut pairwise_distances = FxHashMap::default();
 

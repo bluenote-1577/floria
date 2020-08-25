@@ -17,7 +17,7 @@ pub fn find_reads_in_interval<'a>(
     all_frags: &'a Vec<Frag>,
 ) -> FxHashSet<&'a Frag> {
     let mut final_set = FxHashSet::default();
-    //This is slower than just iterating thorugh the entire fragment list. We can speed this up by
+    //Original method of doing this : This is slower than just iterating thorugh the entire fragment list. We can speed this up by
     //indexing the fragments as well.
 
     //    for i in (start..end+1).step_by(10){
@@ -28,6 +28,7 @@ pub fn find_reads_in_interval<'a>(
     //        }
     //    }
 
+    //Frags are sorted by first position so we can do this. 
     for frag in all_frags.iter() {
         if frag.last_position < start {
             continue;
@@ -48,17 +49,15 @@ pub fn generate_hap_block<'a>(
     ploidy: usize,
     all_frags: &'a Vec<Frag>,
 ) -> Vec<FxHashSet<&'a Frag>> {
-    let start_t = Instant::now();
     let all_reads = find_reads_in_interval(start, end, all_frags);
-//    println!(
-//        "Time taken get overlaps {:?}",
-//        start_t.elapsed().as_millis()
-//    );
     let partition = cluster_reads(&all_reads, ploidy);
     partition
 }
 
-//Compute distance between two reads from the precomputed hash map
+//Compute distance between two reads from the precomputed hash map which can be useful for speeding
+//up. We don't end up using this
+//method right now because there is some weirdness with hashmaps being slow, I think I fixed this
+//so maybe we'll reimplement in the future. 
 pub fn dist_from_graph(
     r1: &Frag,
     r2: &Frag,
@@ -79,7 +78,12 @@ pub fn dist_from_graph(
     }
 }
 
-//Local clustering method for a set of reads -> partition
+//Local clustering method for a set of reads -> partition. 
+//Given a set of reads covering an interval, we greedily find a max k-clique and break this
+//k-clique up iinto k different clusters. iteratively add reads to the best k-clique where the max
+//of the intracluster distances is minimized. 
+//Importantly, the order in which we itertively add reads is sorted by the minimum of the maximum
+//overlap of the read within the clusters. 
 pub fn cluster_reads<'a>(
     all_reads: &FxHashSet<&'a Frag>,
     ploidy: usize,
@@ -94,19 +98,21 @@ pub fn cluster_reads<'a>(
     for _i in 0..vec_all_reads.len() {
         adj_list_edges.push(Vec::new());
     }
-//    println!("Computing edges for local cluster");
-    let start_t = Instant::now();
+    
+    //Get local read-read graph, a.k.a the distance matrix. In the future, we can speed this up by precomputing a
+    //global read-read graph or precomputing the distances between reads.
     for (i, r1) in vec_all_reads.iter().enumerate() {
         for j in i + 1..vec_all_reads.len() {
             //
             let r2 = &vec_all_reads[j];
+            //Originally tried to use a precomputed read distance, this was much slower, however. 
             //            let dist_try = dist_from_graph(*r1,*r2,&all_distances);
             //            let dist = match dist_try{
             //                Some(x) => x,
             //                None => continue,
             //            };
             //
-            let mut dist;
+            let dist;
             if !utils_frags::check_overlap(r1, r2) {
                 continue;
             } else {
@@ -123,12 +129,7 @@ pub fn cluster_reads<'a>(
         }
     }
 
-//    println!(
-//        "Time edges local cluster {:?}",
-//        start_t.elapsed().as_millis()
-//    );
-//    println!("Finding max clique");
-    let start_t = Instant::now();
+    //Finding max clique
     vec_all_edges.sort_by(|a, b| a[0].cmp(&b[0]));
     let best_edge = vec_all_edges.last().unwrap();
     //    println!("{:?}",vec_all_edges);
@@ -137,8 +138,14 @@ pub fn cluster_reads<'a>(
     used_vertices.insert(best_edge[1]);
     used_vertices.insert(best_edge[2]);
 
-    //Greedily find a max clique once the first two vertices are found
+    //Greedily find a max clique once the first two vertices are found. Greedily do this by adding
+    //edges which maximizes the minimum of the distance between all other vertices in the putative clique. 
     for _i in 0..ploidy - 2 {
+        
+        //min_dist_map contains the minimum distance from each vertex in the putative clique to
+        //the other every other vertex. I.e. the key is a different vertex and the value is the
+        //minimum distance from the clique to the key.
+
         let mut min_dist_map = FxHashMap::default();
         for edge in vec_all_edges.iter() {
             if used_vertices.contains(&edge[1]) && !used_vertices.contains(&edge[2]) {
@@ -157,10 +164,9 @@ pub fn cluster_reads<'a>(
                 min_dist_map.insert(edge[1], edge[0]);
             }
         }
+
         let mut sorted_dict_to_vec: Vec<_> = min_dist_map.into_iter().collect();
         sorted_dict_to_vec.sort_by(|a, b| a.1.cmp(&b.1));
-//                println!("{:?}",sorted_dict_to_vec);
-//                println!("{:?}",vec_all_edges);
         let best_vertex = sorted_dict_to_vec.last().unwrap();
         used_vertices.insert(best_vertex.0);
     }
@@ -172,14 +178,19 @@ pub fn cluster_reads<'a>(
         clusters.push(cluster);
     }
 
-//    println!("Greedy partitioning...");
     //Once seed vertices for each cluster is found, greedily add edges to each cluster based on
     //minimizing the max dist over clusters
-
-    let mut relax = false;
+    //A read must overlap with the intial clusters at least this much in order for it to be processed. 
+    //Once all good reads are processed, we sort the vertices again based on overlap and update the
+    //read's overlap with the new clusters. 
     let min_overlap = 2;
     let mut prev_used = 0;
+    //If some reads just don't overlap super well, we need to relax the condition on the
+    //min_overlap. 
+    let mut relax = false;
     loop {
+        //First sort vertices by the minimum overlap for a read with all vertices in the clusters. 
+        //We do a loop here because once 
         if prev_used == used_vertices.len() {
             relax = true;
         }
@@ -223,9 +234,9 @@ pub fn cluster_reads<'a>(
                 *read_overlaps_between_clusters.iter().min().unwrap() as usize,
             ));
         }
-        //Obtain sorted vertices
+
+        //Obtained sorted vertices
         sorted_vec_overlap_reads.sort_by(|a, b| b.1.cmp(&a.1));
-        //        println!("{:?} sorted_vec_overlap",sorted_vec_overlap_reads);
 
         //Now greedily add vertices to the partition where the maximum distance to the cluster is
         //minimized.
@@ -265,10 +276,6 @@ pub fn cluster_reads<'a>(
             clusters[min_index].insert(vertex_i32);
         }
     }
-//    println!(
-//        "Time greedly local clustering {:?}",
-//        Instant::now() - start_t
-//    );
 
     //Turn the vertex indices into actual fragments -- could probably come up with a more elegant
     //solution using some sort of map function...
@@ -284,6 +291,15 @@ pub fn cluster_reads<'a>(
     partition
 }
 
+//Use the UPEM optimization procedure to optimize the partition by switching around reads to
+//optimize UPEM. 
+//
+//partition : the partition
+//epislon : read fragment error rate
+//genotype_dict : the known genotypes at positions
+//polish : if we polish or not 
+//max_iters : the maximum number of iterations we do. 
+//div_factor : a normalizing factor for the binomial test to make the sample size smaller. 
 pub fn optimize_clustering<'a>(
     partition: Vec<FxHashSet<&'a Frag>>,
     epsilon: f64,
@@ -302,6 +318,7 @@ pub fn optimize_clustering<'a>(
         }
     }
 
+    //We need a set of positions to polish if we are using the VCF polishing.
     let position_vec: Vec<usize> = set_of_positions.into_iter().collect();
 
     if polish {
@@ -310,13 +327,11 @@ pub fn optimize_clustering<'a>(
     }
 
     let (binom_vec, freq_vec) = get_partition_stats(&partition, &prev_hap_block);
-//    dbg!(&binom_vec,&freq_vec);
     let mut prev_score = get_upem_score(&binom_vec, &freq_vec, epsilon,div_factor);
     let mut best_part = partition;
 
-
-//    dbg!(prev_score,freq_vec,binom_vec);
-
+    //Iterate until an iteration yields a lower UPEM score -- return partition corresponding
+    //to the best UPEM score. 
     for _i in 0..max_iters {
         let new_part = opt_iterate(&best_part, &prev_hap_block,epsilon,div_factor);
         let mut new_block = utils_frags::hap_block_from_partition(&new_part);
@@ -350,6 +365,7 @@ fn chi_square_p(freqs: &Vec<usize>) -> f64 {
         chi_stat += ((*freq as f64) - mean).powf(2.0);
     }
     chi_stat /= mean;
+    //We have to handle the case where all frequencies are the same separately or rust crashes. 
     if chi_stat <= 0.00{
         return 0.000;
     }
@@ -358,7 +374,12 @@ fn chi_square_p(freqs: &Vec<usize>) -> f64 {
     return rv_res.ln();
 }
 
-//Get the log p-value for a 1-sided binomial test.
+//Get the log p-value for a 1-sided binomial test. This is a asymptotically tight large deviation
+//bound. It's super accurate when k/n << p, but relatively inaccurate when k/n is close to p. One
+//super nice thing about this approximation is that it is written as p = exp(A), so log(p) = A
+//hence it is extremely numerically stable. 
+//
+//I'm currently using this implementation. We can still mess around with using different approximations. 
 fn stable_binom_cdf_p_rev(n : usize, k : usize, p : f64, div_factor : f64) -> f64{
     let n64 = n as f64;
     let k64 = k as f64;
