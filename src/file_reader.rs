@@ -1,17 +1,18 @@
-use crate::types_structs::{Frag, HapBlock,build_frag,update_frag};
+use crate::types_structs::{build_frag, update_frag, Frag, HapBlock};
 use fxhash::{FxHashMap, FxHashSet};
+use rust_htslib::bcf::record::GenotypeAllele;
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
 use rust_htslib::{bcf, bcf::Read as DUMMY_NAME2};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::LineWriter;
 use std::io::Write;
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::collections::BTreeMap;
 
 // The output is wrapped in a Result to allow matching on errors
 // returns an Iterator to the Reader of the lines of the file.
-// 
+//
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
@@ -21,7 +22,7 @@ where
 }
 
 // Given a frags.txt file specified as in H-PoP, we return a collection
-// (vector) of fragments after processing it. 
+// (vector) of fragments after processing it.
 //
 pub fn get_frags_container<P>(filename: P) -> Vec<Frag>
 where
@@ -29,7 +30,6 @@ where
 {
     let mut all_frags = Vec::new();
     let mut counter = 0;
-    let mut prev_first_pos = 0;
 
     //Make sure file is able to be read
     if let Ok(lines) = read_lines(filename) {
@@ -65,7 +65,7 @@ where
                     let qual_string = v.last().unwrap().as_bytes();
                     for (i, key) in list_of_positions.iter().enumerate() {
                         //We usually have a 33 offset for phred qualities. Rust should throw an
-                        //error here if this result is negative. 
+                        //error here if this result is negative.
                         quals.insert(*key, qual_string[i] - 33);
                     }
 
@@ -91,63 +91,8 @@ where
     all_frags
 }
 
-//Read a vcf file to get the genotypes. We read genotypes into a dictionary of keypairs where the
-//keys are positions, and the values are dictionaries which encode the genotypes. E.g. the genotype
-//1 1 0 0 at position 5 would be (5,{1 : 2, 0 : 2}). 
-//TODO : This mthod takes indels, but get_frags_from_bam ignores them. This will definitely cause
-//issues. 
-pub fn get_genotypes_from_vcf<P>(filename: P) -> (FxHashMap<usize, FxHashMap<usize, usize>>, usize)
-where
-    P: AsRef<Path>,
-{
-    let mut genotype_dict = FxHashMap::default();
-    let mut ploidy = 0;
-    if let Ok(lines) = read_lines(filename) {
-        let mut counter = 1;
-        for line in lines {
-            if let Ok(l) = line {
-                //Skip the first few files of the VCF until we get to the genotypes.
-                if l.contains('#') {
-                    continue;
-                }
 
-                let v: Vec<&str> = l.split('\t').collect();
-                //We assume that the last column o the vcf file describes the genotypes. 
-                let v: Vec<&str> = v.last().unwrap().split(':').collect();
-
-                //The first : delimited token is the genotypes. 
-                let genotypes = v[0];
-                let mut split_genotypes = Vec::new();
-
-                //Genotypes deilmited by either / or | depending on if phased or not. 
-                if genotypes.contains('|') {
-                    split_genotypes = genotypes.split('|').collect();
-                } else if genotypes.contains('/') {
-                    split_genotypes = genotypes.split('/').collect();
-                } else {
-                    panic!("Genotype column not processed correctly : {}", genotypes);
-                }
-
-                //We get the ploidy for the entire program from the vcf file. If no vcf is given,
-                //we should get the user to input the ploidy. 
-                ploidy = split_genotypes.len();
-
-                let mut genotype_value = FxHashMap::default();
-                for allele in split_genotypes.iter() {
-                    let num_allele: usize = allele.parse().unwrap();
-                    let val = genotype_value.entry(num_allele).or_insert(0);
-                    *val += 1
-                }
-                //                println!("{:?}",genotype_value);
-                genotype_dict.insert(counter, genotype_value);
-                counter += 1;
-            }
-        }
-    }
-    (genotype_dict, ploidy)
-}
-
-//Write a vector of blocks into a file. 
+//Write a vector of blocks into a file.
 pub fn write_blocks_to_file<P>(filename: P, blocks: &Vec<HapBlock>, lengths: &Vec<usize>)
 where
     P: AsRef<Path>,
@@ -164,7 +109,7 @@ where
             write!(file, "{}\t", pos).unwrap();
             for k in 0..ploidy {
                 let allele_map = block.blocks[k].get(&pos).unwrap_or(&emptydict);
-                //If a block has no coverage at a position, we write -1. 
+                //If a block has no coverage at a position, we write -1.
                 if *allele_map == emptydict {
                     file.write_all(b"-1\t").unwrap();
                 } else {
@@ -179,17 +124,26 @@ where
     }
 }
 
-//Given a vcf file and a bam file, we get a vector of frags. 
+//Given a vcf file and a bam file, we get a vector of frags.
 pub fn get_frags_from_bamvcf<P>(vcf_file: P, bam_file: P) -> Vec<Frag>
 where
     P: AsRef<Path>,
 {
-    //Get which SNPS correspond to which positions on the genome. 
+    //Get which SNPS correspond to which positions on the genome.
     let mut vcf = bcf::Reader::from_path(vcf_file).unwrap();
     let mut snp_counter = 1;
     let mut set_of_pos = FxHashSet::default();
     let mut pos_allele_map = FxHashMap::default();
     let mut pos_to_snp_counter_map = FxHashMap::default();
+    let header = vcf.header();
+
+    if header.sample_count() > 1 {
+        panic!("More than 1 sample detected in header of vcf file; please use only 1 sample");
+    }
+
+    if header.contig_count() > 1 {
+        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
+    }
 
     for rec in vcf.records() {
         let unr = rec.unwrap();
@@ -206,28 +160,31 @@ where
         }
 
         if !is_snp {
-            println!("Variant at position {} is not a snp. Ignoring.", unr.pos());
+            println!(
+                "BAM : Variant at position {} is not a snp. Ignoring.",
+                unr.pos()
+            );
             continue;
         }
 
         set_of_pos.insert(unr.pos());
-        pos_to_snp_counter_map.insert(unr.pos(),snp_counter);
-        snp_counter +=1;
-        pos_allele_map.insert(unr.pos(),al_vec);
+        pos_to_snp_counter_map.insert(unr.pos(), snp_counter);
+        snp_counter += 1;
+        pos_allele_map.insert(unr.pos(), al_vec);
     }
 
     let mut bam = bam::Reader::from_path(bam_file).unwrap();
     //This may be important : We assume that distinct reads have different names. I can see this
-    //being a problem in some weird bad cases, so be careful. 
+    //being a problem in some weird bad cases, so be careful.
     let mut id_to_frag = FxHashMap::default();
     let mut counter_id = 0;
 
-    //Scan the pileup table for every position on the genome which contains a SNP to get the aligned reads corresponding to the SNP. TODO : There should be a way to index into the bam.pileup() object so we don't have to iterate through positions which we already know are not SNPs. 
+    //Scan the pileup table for every position on the genome which contains a SNP to get the aligned reads corresponding to the SNP. TODO : There should be a way to index into the bam.pileup() object so we don't have to iterate through positions which we already know are not SNPs.
     for p in bam.pileup() {
         let pileup = p.unwrap();
         let pos_genome = pileup.pos();
 
-        if !set_of_pos.contains(&(pos_genome as i64)){
+        if !set_of_pos.contains(&(pos_genome as i64)) {
             continue;
         }
 
@@ -235,31 +192,43 @@ where
 
         for alignment in pileup.alignments() {
             if !alignment.is_del() && !alignment.is_refskip() {
+                let flags = alignment.record().flags();
+                let errors_mask = 1796;
+                let secondary_mask = 256;
 
-                //Chimeric or secondary alignments have this weird issue when using minimap. 
-                if alignment.record().seq().len() == 0{
-                    continue
+                //Erroneous alignment, skip
+                if flags & errors_mask > 0 {
+                    continue;
+                }
+
+                //Secondary alignment, skip
+                if flags & secondary_mask > 0 {
+                    continue;
                 }
 
                 let id_string = String::from_utf8(alignment.record().qname().to_vec()).unwrap();
                 let id_string2 = id_string.clone();
 
-                if !id_to_frag.contains_key(&id_string){
+                if !id_to_frag.contains_key(&id_string) {
                     counter_id += 1;
                 }
 
-                let frag_to_ins = build_frag(id_string,counter_id);
-
+                let frag_to_ins = build_frag(id_string, counter_id);
 
                 let readbase = alignment.record().seq()[alignment.qpos().unwrap()];
                 let qualbase = alignment.record().qual()[alignment.qpos().unwrap()];
 
-                for (i,allele) in pos_allele_map.get(&(pos_genome as i64)).unwrap().iter().enumerate(){
-                    //Only build the frag if the base is one of the SNP alleles. 
-                    if readbase == *allele{
+                for (i, allele) in pos_allele_map
+                    .get(&(pos_genome as i64))
+                    .unwrap()
+                    .iter()
+                    .enumerate()
+                {
+                    //Only build the frag if the base is one of the SNP alleles.
+                    if readbase == *allele {
                         let mut frag = id_to_frag.entry(id_string2).or_insert(frag_to_ins);
-                        update_frag(&mut frag,i,qualbase,*snp_id);
-                        break
+                        update_frag(&mut frag, i, qualbase, *snp_id);
+                        break;
                     }
                 }
             }
@@ -267,81 +236,152 @@ where
     }
 
     let mut vec_frags = Vec::new();
-    for (_id,frag) in id_to_frag.into_iter(){
-        if frag.positions.len() > 1{
+    for (_id, frag) in id_to_frag.into_iter() {
+        if frag.positions.len() > 1 {
             vec_frags.push(frag);
         }
     }
 
     vec_frags
+}
 
+//Read a vcf file to get the genotypes. We read genotypes into a dictionary of keypairs where the
+//keys are positions, and the values are dictionaries which encode the genotypes. E.g. the genotype
+//1 1 0 0 at position 5 would be (5,{1 : 2, 0 : 2}).
+pub fn get_genotypes_from_vcf_hts<P>(vcf_file: P) -> (FxHashMap<usize, FxHashMap<usize, usize>>, usize)
+where
+    P: AsRef<Path>,
+{
+    let mut vcf = bcf::Reader::from_path(vcf_file).unwrap();
+    let mut genotype_dict = FxHashMap::default();
+    let header = vcf.header();
+    let mut snp_counter = 1;
+    let mut vcf_ploidy = 0;
+
+    if header.sample_count() > 1 {
+        panic!("More than 1 sample detected in header of vcf file; please use only 1 sample");
+    }
+
+    if header.contig_count() > 1 {
+        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
+    }
+
+    for rec in vcf.records() {
+        let mut unr = rec.unwrap();
+        let alleles = unr.alleles();
+        let mut is_snp = true;
+
+        for allele in alleles.iter() {
+            if allele.len() > 1 {
+                is_snp = false;
+                break;
+            }
+        }
+
+        if !is_snp {
+            println!(
+                "VCF : Variant at position {} is not a snp. Ignoring.",
+                unr.pos()
+            );
+            continue;
+        }
+
+        let genotypes = unr.genotypes().unwrap().get(0);
+        vcf_ploidy = genotypes.len();
+        let mut genotype_counter = FxHashMap::default();
+        for allele in genotypes.iter() {
+            match allele {
+                GenotypeAllele::Unphased(x) => {
+                    let count = genotype_counter.entry(*x as usize).or_insert(0);
+                    *count += 1
+                }
+                GenotypeAllele::Phased(x) => {
+                    let count = genotype_counter.entry(*x as usize).or_insert(0);
+                    *count += 1
+                }
+                GenotypeAllele::UnphasedMissing => {
+                    for i in 0..4 {
+                        let count = genotype_counter.entry(i).or_insert(0);
+                        *count += 1;
+                    }
+                }
+                GenotypeAllele::PhasedMissing => {
+                    for i in 0..4 {
+                        let count = genotype_counter.entry(i).or_insert(0);
+                        *count += 1;
+                    }
+                }
+            }
+        }
+
+        genotype_dict.insert(snp_counter,genotype_counter);
+        snp_counter += 1;
+    }
+
+    (genotype_dict,vcf_ploidy)
 }
 
 //Convert a fragment which stores sequences in a dictionary format to a block format which makes
-//writing to frag files easier. 
-fn convert_dict_to_block(frag :Frag) -> (Vec<usize>, Vec<Vec<usize>>, Vec<u8>) {
+//writing to frag files easier.
+fn convert_dict_to_block(frag: Frag) -> (Vec<usize>, Vec<Vec<usize>>, Vec<u8>) {
     let d = frag.seq_dict;
-    let vec_d : BTreeMap<usize,usize> = d.into_iter().collect();
-    let vec_q : BTreeMap<usize,u8> = frag.qual_dict.into_iter().collect();
+    let vec_d: BTreeMap<usize, usize> = d.into_iter().collect();
+    let vec_q: BTreeMap<usize, u8> = frag.qual_dict.into_iter().collect();
     let mut prev_pos = 0;
     let mut block_start_pos = Vec::new();
     let mut blocks = Vec::new();
     let mut block = Vec::new();
     let mut qual_block = Vec::new();
 
-    for (pos,var) in &vec_d{
-        if prev_pos == 0{
+    for (pos, var) in &vec_d {
+        if prev_pos == 0 {
             prev_pos = *pos;
             block.push(*var);
             block_start_pos.push(*pos);
-        }
-        
-        else if pos-prev_pos > 1{
+        } else if pos - prev_pos > 1 {
             blocks.push(block);
             block = vec![*var];
             block_start_pos.push(*pos);
             prev_pos = *pos;
-        }
-
-        else if pos - prev_pos == 1{
+        } else if pos - prev_pos == 1 {
             block.push(*var);
             prev_pos = *pos;
         }
     }
 
-    for (_pos,q) in &vec_q{
+    for (_pos, q) in &vec_q {
         qual_block.push(*q);
     }
 
     blocks.push(block);
-    (block_start_pos,blocks,qual_block)
+    (block_start_pos, blocks, qual_block)
 }
 
 //Write a vector of sorted fragment files by first position (no guarantees on end position) to a
-//file in the same format as H-PoP and other haplotypers. 
-pub fn write_frags_file(frags : Vec<Frag>,filename : String){
+//file in the same format as H-PoP and other haplotypers.
+pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
     let file = File::create(filename).expect("Can't create file");
     let mut file = LineWriter::new(file);
-    for frag in frags.into_iter(){
+    for frag in frags.into_iter() {
         let frag_id = frag.id.clone();
-        let (start_vec, blocks,qual_block) = convert_dict_to_block(frag);
-        if start_vec.len() != blocks.len(){
-            dbg!(start_vec.len(),blocks.len());
+        let (start_vec, blocks, qual_block) = convert_dict_to_block(frag);
+        if start_vec.len() != blocks.len() {
+            dbg!(start_vec.len(), blocks.len());
             panic!("Block length diff");
         }
 
         write!(file, "{}\t", blocks.len()).unwrap();
         write!(file, "{}\t", frag_id).unwrap();
-        for i in 0..blocks.len(){
+        for i in 0..blocks.len() {
             write!(file, "{}\t", start_vec[i]).unwrap();
-            for var in blocks[i].iter(){
+            for var in blocks[i].iter() {
                 write!(file, "{}", *var).unwrap();
             }
             write!(file, "\t").unwrap();
         }
 
-        for q in qual_block.iter(){
-            write!(file, "{}", (*q+33) as char).unwrap();
+        for q in qual_block.iter() {
+            write!(file, "{}", (*q + 33) as char).unwrap();
         }
 
         write!(file, "\n").unwrap();

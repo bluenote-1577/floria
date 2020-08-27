@@ -15,6 +15,7 @@ rayon="*"
 rand="*"
 rand_pcg="*"
 rust-htslib="*"
+clap = "*"
 
 [profile.release]
 opt-level = 3
