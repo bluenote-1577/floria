@@ -50,6 +50,6 @@ TODO
 
 ## Citing flopp
 
-Shaw, J. Yu, Y.W. flopp - fast polyploid phasing by long read sequencing using a local assembly approach. (In preparation)
+Jim Shaw and Yun William Yu; flopp - fast polyploid phasing by long read sequencing using a local assembly approach. (In preparation)
 
 
