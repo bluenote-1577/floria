@@ -2,7 +2,7 @@
 
 ## Introduction
 
-**flopp** is a software package for single individual haplotype phasing of polyploid organisms from long read sequencing. flopp is a extremely fast due to being multithreaded and written entirely in the rust programming language, offering an order of magnitude speedup and better accuracies compared to current polyploid haplotype phasing algorithms. 
+**flopp** is a software package for single individual haplotype phasing of polyploid organisms from long read sequencing. flopp is a extremely fast, multithreaded, and written entirely in the rust programming language. flopp offers an order of magnitude speedup and better accuracies compared to current polyploid haplotype phasing algorithms. 
 
 Given 
 
