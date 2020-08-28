@@ -1,6 +1,6 @@
 extern crate time;
 use clap::{App, AppSettings, Arg};
-use haplotype_phaser::file_reader;
+use flopp::file_reader;
 use std::time::Instant;
 
 fn main() {

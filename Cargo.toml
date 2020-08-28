@@ -1,5 +1,5 @@
 [package]
-name = "haplotype_phaser"
+name = "flopp"
 version = "0.1.0"
 authors = ["jim <jimshawster@gmail.com>"]
 edition = "2018"
@@ -7,15 +7,15 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-time = "*"
-fxhash="*"
-statrs="*"
+time = "0.2"
+fxhash="0.2"
+statrs="0.13"
 permute="*"
 rayon="*"
-rand="*"
+rand="0.7"
 rand_pcg="*"
 rust-htslib="*"
-clap = "*"
+clap = "2"
 
 [profile.release]
 opt-level = 3

@@ -1,3 +1,3 @@
-# haplotype_phaser
+# flopp
 
 TODO

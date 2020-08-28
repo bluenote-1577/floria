@@ -1,10 +1,12 @@
-use crate::types_structs::Frag;
-use std::mem;
-use crate::types_structs::HapBlock;
 use crate::local_clustering;
+use crate::types_structs::Frag;
+use crate::types_structs::HapBlock;
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
 use permute::permute;
+use rayon::prelude::*;
+use std::mem;
+use std::sync::Mutex;
 use std::time::Instant;
 
 ///This function takes polishes a haplotype block by using genotyping information.
@@ -106,76 +108,50 @@ pub fn polish_using_vcf(
 }
 
 ///Link two partitions by which permutation gives the most amount ofintersections between the sets.
-fn get_best_perm(
-    part1: &Vec<FxHashSet<&Frag>>,
-    part2: &Vec<FxHashSet<&Frag>>,
-    greedy: bool,
-) -> Vec<usize> {
+fn get_best_perms(part1: &Vec<FxHashSet<&Frag>>, part2: &Vec<FxHashSet<&Frag>>) -> Vec<Vec<usize>> {
     let ploidy = part1.len();
-    let mut best_perm = Vec::new();
-
-    if !greedy {
-        let rangevec: Vec<usize> = (0..ploidy).collect();
-        let perms = permute(rangevec);
-        let mut best_score = 0;
-        for perm in perms {
-            let mut score = 0;
-            for i in 0..ploidy {
-                let j = perm[i];
-
-                let set1 = &part1[i];
-                let set2 = &part2[j];
-
-                let int_vec: Vec<&Frag> = set1.intersection(set2).copied().collect();
-                score += int_vec.len();
-            }
-            if score > best_score {
-                best_score = score;
-                best_perm = perm;
-            }
-        }
-    } else {
-        let mut rangeset: FxHashSet<usize> = (0..ploidy).collect();
+    let mut best_perms = Vec::new();
+    let rangevec: Vec<usize> = (0..ploidy).collect();
+    let perms = permute(rangevec);
+    for perm in perms {
+        let mut score = 0;
         for i in 0..ploidy {
-            let mut best_score_i = 0;
-            let mut best_index = *rangeset.iter().last().unwrap();
+            let j = perm[i];
+
             let set1 = &part1[i];
-            for j in 0..ploidy {
-                if !rangeset.contains(&j) {
-                    continue;
-                }
+            let set2 = &part2[j];
 
-                let set2 = &part2[j];
-                let int_vec: Vec<&Frag> = set1.intersection(set2).copied().collect();
-                let score = int_vec.len();
-                if score > best_score_i {
-                    best_score_i = score;
-                    best_index = j;
-                }
-            }
-            rangeset.remove(&best_index);
-            best_perm.push(best_index);
-//            dbg!(best_index, best_score_i, &best_perm);
+            let int_vec: Vec<&Frag> = set1.intersection(set2).copied().collect();
+            score += int_vec.len();
         }
+        best_perms.push((score,perm));
     }
-
-    best_perm
+    best_perms.sort_by(|a,b| b.0.cmp(&a.0));
+    let best_perms : Vec<Vec<usize>> = best_perms.into_iter().map(|x| x.1).collect();
+    best_perms
 }
 
 ///Link all partitions in a vector using get_best_perm.
-pub fn link_blocks<'a>(
-    all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>,
-    greedy: bool,
-) -> Vec<FxHashSet<&'a Frag>> {
+pub fn link_blocks<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashSet<&'a Frag>> {
+    //Multithreaded version -- not super useful unless ploidy > 6. Might as well though.
     let mut final_part = all_parts[0].clone();
-    let mut perm_vector = Vec::new();
+    let perm_vector: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(vec![]);
     let ploidy = final_part.len();
     let mut current_perm: Vec<usize> = (0..ploidy).collect();
 
     //Get the best permutation for each consecutive pair.
-    for i in 1..all_parts.len() {
-        perm_vector.push(get_best_perm(&all_parts[i - 1], &all_parts[i], greedy));
-    }
+    (1..all_parts.len())
+        .collect::<Vec<usize>>()
+        .into_par_iter()
+        .for_each(|i| {
+            let best_perm = get_best_perms(&all_parts[i - 1], &all_parts[i])[0].clone();
+            let mut locked_perm = perm_vector.lock().unwrap();
+            locked_perm.push((i, best_perm));
+        });
+
+    let mut perm_vector = perm_vector.lock().unwrap().to_vec();
+    perm_vector.sort_by(|a, b| a.0.cmp(&b.0));
+    let perm_vector: Vec<Vec<usize>> = perm_vector.into_iter().map(|x| x.1).collect();
 
     //We have to do compose permutations here to keep track of
     //what state the permutations between the pairs needs to be in.
@@ -197,6 +173,51 @@ pub fn link_blocks<'a>(
     final_part
 }
 
+pub fn link_blocks_heur<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) {
+    let perm_vector: Mutex<Vec<(usize, Vec<Vec<usize>>)>> = Mutex::new(vec![]);
+    let ploidy = all_parts[0].len();
+    let mut current_perms_states = Vec::new();
+
+    //Get the best permutation for each consecutive pair.
+    (1..all_parts.len())
+        .collect::<Vec<usize>>()
+        .into_par_iter()
+        .for_each(|i| {
+            let mut locked_perm = perm_vector.lock().unwrap();
+            locked_perm.push((i, get_best_perms(&all_parts[i - 1], &all_parts[i])));
+        });
+
+    let mut perm_vector = perm_vector.lock().unwrap().to_vec();
+    perm_vector.sort_by(|a, b| a.0.cmp(&b.0));
+    let perm_vector: Vec<Vec<Vec<usize>>> = perm_vector.into_iter().map(|x| x.1).collect();
+
+    //Start with the first k different links.
+    let first_perms = &perm_vector[0];
+    let mut list_of_best_parts = Vec::new();
+    for i in 0..ploidy{
+        let perm = &first_perms[i];
+        let mut new_part = Vec::new();
+
+        for j in 0..ploidy{
+            let set1 = &all_parts[0][j];
+            let set2 = &all_parts[1][perm[j]];
+            let mut union_set = FxHashSet::default();
+            
+            for read in set1.into_iter(){
+                union_set.insert(read);
+            }
+
+            for read in set2.into_iter(){
+                union_set.insert(read);
+            }
+            new_part.push(union_set);
+        }
+
+        list_of_best_parts.push(new_part);
+        current_perms_states.push(perm);
+    }
+}
+
 fn get_iqr(all_scores: &Vec<f64>, factor: f64) -> f64 {
     let mut score_copy = all_scores.clone();
     score_copy.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -209,38 +230,37 @@ fn get_iqr(all_scores: &Vec<f64>, factor: f64) -> f64 {
     return q25 - factor * iqr;
 }
 
-fn fill_left_block<'a>(left_block : &mut Vec<FxHashSet<&'a Frag>>, reads_interval : Vec<&'a Frag>){
-    for frag in reads_interval{
-
+fn fill_left_block<'a>(left_block: &mut Vec<FxHashSet<&'a Frag>>, reads_interval: Vec<&'a Frag>) {
+    for frag in reads_interval {
         let mut read_already_used = false;
 
-        for read_set in left_block.iter(){
-            if read_set.contains(frag){
+        for read_set in left_block.iter() {
+            if read_set.contains(frag) {
                 read_already_used = true;
                 break;
             }
         }
 
-        if read_already_used{
+        if read_already_used {
             continue;
         }
 
         //Read hasn't been used : try to fill in.
 
         let mut max_distances = Vec::new();
-        for (i,read_set) in left_block.iter().enumerate(){
+        for (i, read_set) in left_block.iter().enumerate() {
             let mut max_dist = 0;
-            for frag_in_set in read_set.iter(){
-                let dist = utils_frags::distance(frag_in_set,frag);
-                if dist > max_dist{
+            for frag_in_set in read_set.iter() {
+                let dist = utils_frags::distance(frag_in_set, frag);
+                if dist > max_dist {
                     max_dist = dist;
                 }
             }
-            max_distances.push((i,max_dist));
+            max_distances.push((i, max_dist));
         }
 
-        max_distances.sort_by(|a,b| a.1.cmp(&b.1));
-//        dbg!(&max_distances);
+        max_distances.sort_by(|a, b| a.1.cmp(&b.1));
+        //        dbg!(&max_distances);
         left_block[max_distances[0].0].insert(frag);
     }
 }
@@ -248,31 +268,37 @@ fn fill_left_block<'a>(left_block : &mut Vec<FxHashSet<&'a Frag>>, reads_interva
 pub fn replace_with_filled_blocks<'a>(
     all_scores: &Vec<f64>,
     mut all_parts: Vec<Vec<FxHashSet<&'a Frag>>>,
-    factor : f64,
-    length_of_block : usize,
-    all_frags : &'a Vec<Frag>) -> Vec<Vec<FxHashSet<&'a Frag>>> {
-
+    factor: f64,
+    length_of_block: usize,
+    all_frags: &'a Vec<Frag>,
+) -> Vec<Vec<FxHashSet<&'a Frag>>> {
     let mut corrected_vec = Vec::new();
-    let outlier_score = get_iqr(all_scores,factor);
-//    dbg!(all_scores,outlier_score);
+    let outlier_score = get_iqr(all_scores, factor);
+    //    dbg!(all_scores,outlier_score);
 
     //Assume the leftmost block is good. Not a great assumption but
-    //otherwise the algorithm would be a bit more painful. 
-    let first_block = mem::replace(&mut all_parts[0],Vec::new());
+    //otherwise the algorithm would be a bit more painful.
+    let first_block = mem::replace(&mut all_parts[0], Vec::new());
     corrected_vec.push(first_block);
 
     for i in 1..all_parts.len() {
         let score = all_scores[i];
 
-        if score > outlier_score{
-            let block_to_push = mem::replace(&mut all_parts[i],Vec::new());
+        if score > outlier_score {
+            let block_to_push = mem::replace(&mut all_parts[i], Vec::new());
             corrected_vec.push(block_to_push);
             continue;
         }
 
-        //Bad block, fill in from left    
-        let mut vec_reads_interval : Vec<&Frag> = local_clustering::find_reads_in_interval(i*length_of_block,(i+1)*length_of_block,all_frags).into_iter().collect();
-        vec_reads_interval.sort_by(|a,b| a.first_position.cmp(&b.first_position));
+        //Bad block, fill in from left
+        let mut vec_reads_interval: Vec<&Frag> = local_clustering::find_reads_in_interval(
+            i * length_of_block,
+            (i + 1) * length_of_block,
+            all_frags,
+        )
+        .into_iter()
+        .collect();
+        vec_reads_interval.sort_by(|a, b| a.first_position.cmp(&b.first_position));
         fill_left_block(corrected_vec.iter_mut().last().unwrap(), vec_reads_interval);
     }
     corrected_vec

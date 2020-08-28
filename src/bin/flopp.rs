@@ -1,11 +1,11 @@
 extern crate time;
 use clap::{App, AppSettings, Arg};
 use fxhash::{FxHashSet,FxHashMap};
-use haplotype_phaser::file_reader;
-use haplotype_phaser::local_clustering;
-use haplotype_phaser::types_structs::Frag;
-use haplotype_phaser::utils_frags;
-use haplotype_phaser::vcf_polishing;
+use flopp::file_reader;
+use flopp::local_clustering;
+use flopp::types_structs::Frag;
+use flopp::utils_frags;
+use flopp::vcf_polishing;
 use rayon::prelude::*;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -126,8 +126,6 @@ fn main() {
     let polish = vcf;
     //If we fill blocks with poor UPEM score.
     let fill = true;
-    //If we use greedy merging of blocks or enumerate all permutations.
-    let greedy = false;
     //If we estimate the frag error rate by clustering a few random test blocks.
     let estimate_epsilon = true;
     //Number of iterations for the iterative UPEM optimization
@@ -264,7 +262,7 @@ fn main() {
     let start_t = Instant::now();
 
     //Link and polish all blocks.
-    let final_part = vcf_polishing::link_blocks(&part_filled, greedy);
+    let final_part = vcf_polishing::link_blocks(&part_filled);
     let mut final_block = utils_frags::hap_block_from_partition(&final_part);
     if polish {
         final_block = vcf_polishing::polish_using_vcf(
