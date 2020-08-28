@@ -38,7 +38,7 @@ The ploidy of the organism must be specified. The number of threads (default 10)
 The standard mode of usage is to specify a bam file using the option **-b** and a vcf file using the option **-v**. The output is written to a text file with value of option **-o**. 
 
 ### Fragment file
-A user can also input a fragment file using the option **-f**. The fragment file is a line separated file of reads indexed by SNP positions; see https://github.com/MinzhuXie/H-PoPG or https://github.com/realabolfazl/AltHap for more details about the fragment file specifcaiton (called the *input snp matrix* by H-PoP). Specifying a compatible vcf file with a fragment file uses genotyping information to produce a higher quality output. 
+A user can also input a fragment file using the option **-f**. The fragment file is a file where each line is a read which is indexed by SNP positions; see https://github.com/MinzhuXie/H-PoPG or https://github.com/realabolfazl/AltHap for more details about the fragment file specifcaiton (called the *input snp matrix* by H-PoP). Specifying a compatible vcf file with a fragment file uses genotyping information to produce a higher quality output. 
 
 For testing purposes and compatibility with other haplotype phasing algorithms, the binary **frag-dump** is provided in the same folder as the **flopp** binary. 
 
