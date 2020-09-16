@@ -3,6 +3,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bcf::record::GenotypeAllele;
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
 use rust_htslib::{bcf, bcf::Read as DUMMY_NAME2};
+use crate::utils_frags;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::LineWriter;
@@ -93,7 +94,7 @@ where
 
 
 //Write a vector of blocks into a file.
-pub fn write_blocks_to_file<P>(filename: P, blocks: &Vec<HapBlock>, lengths: &Vec<usize>)
+pub fn write_blocks_to_file<P>(filename: P, blocks: &Vec<HapBlock>, lengths: &Vec<usize>, snp_to_genome : &Vec<usize>, part : &Vec<FxHashSet<&Frag>>)
 where
     P: AsRef<Path>,
 {
@@ -102,11 +103,14 @@ where
     let mut file = LineWriter::new(file);
     let mut length_prev_block = 1;
     let emptydict = FxHashMap::default();
+    let unpolished_block = utils_frags::hap_block_from_partition(part);
+    //dbg!(snp_to_genome.len(),lengths[0] + 1);
 
     for (i, block) in blocks.iter().enumerate() {
         file.write_all(b"**BLOCK**\n").unwrap();
         for pos in length_prev_block..length_prev_block + lengths[i] {
-            write!(file, "{}\t", pos).unwrap();
+            write!(file, "{}:{}\t", pos,snp_to_genome[pos-1]).unwrap();
+            //Write haplotypes
             for k in 0..ploidy {
                 let allele_map = block.blocks[k].get(&pos).unwrap_or(&emptydict);
                 //If a block has no coverage at a position, we write -1.
@@ -115,6 +119,27 @@ where
                 } else {
                     let best_allele = allele_map.iter().max_by_key(|entry| entry.1).unwrap().0;
                     write!(file, "{}\t", best_allele).unwrap();
+                }
+            }
+            
+            //Write stats
+            for k in 0..ploidy{
+                let allele_map_unpolish = unpolished_block.blocks[k].get(&pos).unwrap_or(&emptydict);
+                if *allele_map_unpolish == emptydict{
+                    write!(file, "NA\t").unwrap();
+                }
+                else{
+                    let mut first = true;
+                    for (site,count) in allele_map_unpolish{
+                        if !first{
+                            write!(file,"|").unwrap();
+                        }
+                        if first{
+                            first = false;
+                        }
+                       write!(file, "{}:{}",site,count).unwrap();
+                    }
+                    write!(file,"\t").unwrap();
                 }
             }
             write!(file, "\n").unwrap();
@@ -248,11 +273,12 @@ where
 //Read a vcf file to get the genotypes. We read genotypes into a dictionary of keypairs where the
 //keys are positions, and the values are dictionaries which encode the genotypes. E.g. the genotype
 //1 1 0 0 at position 5 would be (5,{1 : 2, 0 : 2}).
-pub fn get_genotypes_from_vcf_hts<P>(vcf_file: P) -> (FxHashMap<usize, FxHashMap<usize, usize>>, usize)
+pub fn get_genotypes_from_vcf_hts<P>(vcf_file: P) -> (Vec<usize>, FxHashMap<usize, FxHashMap<usize, usize>>, usize)
 where
     P: AsRef<Path>,
 {
     let mut vcf = bcf::Reader::from_path(vcf_file).unwrap();
+    let mut positions_vec = Vec::new();
     let mut genotype_dict = FxHashMap::default();
     let header = vcf.header();
     let mut snp_counter = 1;
@@ -315,10 +341,12 @@ where
         }
 
         genotype_dict.insert(snp_counter,genotype_counter);
+        //+1 because htslib is 0 index by default
+        positions_vec.push(unr.pos() as usize + 1); 
         snp_counter += 1;
     }
 
-    (genotype_dict,vcf_ploidy)
+    (positions_vec,genotype_dict,vcf_ploidy)
 }
 
 //Convert a fragment which stores sequences in a dictionary format to a block format which makes
@@ -387,3 +415,4 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
         write!(file, "\n").unwrap();
     }
 }
+

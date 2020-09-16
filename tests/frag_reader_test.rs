@@ -19,8 +19,8 @@ fn frag_reader_test() {
 #[test]
 fn utils_frags_test(){
     let frags = file_reader::get_frags_container("/home/jshaw/flopp/tests/test_file.txt");
-    assert_eq!(utils_frags::distance(&frags[0],&frags[1]),1);
-    assert_eq!(utils_frags::distance(&frags[1],&frags[2]),0);
+    assert_eq!(utils_frags::distance(&frags[0],&frags[1]).1,1);
+    assert_eq!(utils_frags::distance(&frags[1],&frags[2]).1,0);
 
     let all_distances = utils_frags::get_all_distances(&frags);
     assert_eq!(*(all_distances.get(&frags[0]).unwrap().get(&frags[1]).unwrap()),1);

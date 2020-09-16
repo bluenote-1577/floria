@@ -1,4 +1,5 @@
 use crate::local_clustering;
+use std::cell::RefCell;
 use crate::types_structs::Frag;
 use crate::types_structs::HapBlock;
 use crate::utils_frags;
@@ -107,7 +108,41 @@ pub fn polish_using_vcf(
     }
 }
 
-///Link two partitions by which permutation gives the most amount ofintersections between the sets.
+
+//Link two partitions by best MEC score permutation. This doesn't help much
+//on the simulated datasets. 
+fn get_best_perms_mec(part1: &Vec<FxHashSet<&Frag>>, part2: &Vec<FxHashSet<&Frag>>) -> Vec<Vec<usize>> {
+    let ploidy = part1.len();
+    let mut best_perms = Vec::new();
+    let rangevec: Vec<usize> = (0..ploidy).collect();
+    let perms = permute(rangevec);
+    for perm in perms {
+        let mut test_part = Vec::new();
+        for i in 0..ploidy {
+            let mut new_set = FxHashSet::default();
+            let j = perm[i];
+
+            let set1 = &part1[i];
+            let set2 = &part2[j];
+
+            for read in set1.iter(){
+                new_set.insert(*read);
+            }
+            for read in set2.iter(){
+                new_set.insert(*read);
+            }
+
+            test_part.push(new_set);
+        }
+        let score = get_mec_from_part(&test_part);
+        best_perms.push((-1*score,perm));
+    }
+    best_perms.sort_by(|a,b| b.0.cmp(&a.0));
+    let best_perms : Vec<Vec<usize>> = best_perms.into_iter().map(|x| x.1).collect();
+    best_perms
+}
+
+//Link two partitions by which permutation gives the most amount ofintersections between the sets.
 fn get_best_perms(part1: &Vec<FxHashSet<&Frag>>, part2: &Vec<FxHashSet<&Frag>>) -> Vec<Vec<usize>> {
     let ploidy = part1.len();
     let mut best_perms = Vec::new();
@@ -144,6 +179,7 @@ pub fn link_blocks<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashS
         .collect::<Vec<usize>>()
         .into_par_iter()
         .for_each(|i| {
+//            let best_perm = get_best_perms_mec(&all_parts[i - 1], &all_parts[i])[0].clone();
             let best_perm = get_best_perms(&all_parts[i - 1], &all_parts[i])[0].clone();
             let mut locked_perm = perm_vector.lock().unwrap();
             locked_perm.push((i, best_perm));
@@ -173,49 +209,89 @@ pub fn link_blocks<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashS
     final_part
 }
 
-pub fn link_blocks_heur<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) {
-    let perm_vector: Mutex<Vec<(usize, Vec<Vec<usize>>)>> = Mutex::new(vec![]);
-    let ploidy = all_parts[0].len();
-    let mut current_perms_states = Vec::new();
 
-    //Get the best permutation for each consecutive pair.
-    (1..all_parts.len())
-        .collect::<Vec<usize>>()
-        .into_par_iter()
-        .for_each(|i| {
-            let mut locked_perm = perm_vector.lock().unwrap();
-            locked_perm.push((i, get_best_perms(&all_parts[i - 1], &all_parts[i])));
-        });
 
-    let mut perm_vector = perm_vector.lock().unwrap().to_vec();
-    perm_vector.sort_by(|a, b| a.0.cmp(&b.0));
-    let perm_vector: Vec<Vec<Vec<usize>>> = perm_vector.into_iter().map(|x| x.1).collect();
-
-    //Start with the first k different links.
-    let first_perms = &perm_vector[0];
-    let mut list_of_best_parts = Vec::new();
-    for i in 0..ploidy{
-        let perm = &first_perms[i];
-        let mut new_part = Vec::new();
-
-        for j in 0..ploidy{
-            let set1 = &all_parts[0][j];
-            let set2 = &all_parts[1][perm[j]];
-            let mut union_set = FxHashSet::default();
-            
-            for read in set1.into_iter(){
-                union_set.insert(read);
-            }
-
-            for read in set2.into_iter(){
-                union_set.insert(read);
-            }
-            new_part.push(union_set);
-        }
-
-        list_of_best_parts.push(new_part);
-        current_perms_states.push(perm);
+fn clone_block_range (hap_block : &HapBlock, start : usize,end : usize) -> HapBlock{
+    let mut new_hap_block = HapBlock{blocks : Vec::new()};
+    let ploidy = hap_block.blocks.len();
+    for _i in 0..ploidy{
+        new_hap_block.blocks.push(FxHashMap::default());
     }
+    for pos in start..end+1{
+        for j in 0..ploidy{
+            let hap = &hap_block.blocks[j];
+            if hap.contains_key(&pos){
+                new_hap_block.blocks[j].insert(pos,hap.get(&pos).unwrap().clone());
+            }
+        }
+    }
+
+    return new_hap_block;
+}
+
+fn get_mec_from_part(part : &Vec<FxHashSet<&Frag>>) -> i32{
+
+    let block = utils_frags::hap_block_from_partition(part);
+    let mut mec_score = 0;
+    for hap in block.blocks.iter(){
+        for (_pos,site_map) in hap{
+            let mut total_sites = 0;
+            let mut sites_max_var = 0;
+            for value in site_map.values(){
+                if *value > sites_max_var{
+                    sites_max_var = *value;
+                }
+                total_sites += *value;
+            }
+            mec_score += total_sites - sites_max_var;
+        }
+    }
+
+    mec_score as i32
+}
+
+fn get_mec_positions_hap(new_reads : &FxHashSet<&Frag>, hap_block : &mut HapBlock, pos_sort_vec : &Vec<usize>, l : usize) -> usize {
+    
+    let hap = &mut hap_block.blocks[l];
+
+    //Add reads to hap_block
+    for read in new_reads.iter(){
+        for pos in read.positions.iter(){
+            let var_at_pos = read.seq_dict.get(pos).unwrap();
+            let sites = hap.entry(*pos).or_insert(FxHashMap::default());
+            let site_counter = sites.entry(*var_at_pos).or_insert(0);
+            *site_counter += 1;
+        }
+    }
+
+    //Compute new MEC for the new reads
+    let mut err = 0;
+    for pos in pos_sort_vec[0]..pos_sort_vec[pos_sort_vec.len()-1]{
+        if hap.contains_key(&pos){
+            let mut total_sites = 0;
+            let mut sites_max_var = 0;
+            let site_map = hap.get(&pos).unwrap();
+            for value in site_map.values(){
+                if *value > sites_max_var{
+                    sites_max_var = *value;
+                }
+                total_sites += *value;
+            }
+            err += total_sites - sites_max_var;
+        }
+    }
+
+    //Remove reads from hap_block
+    for read in new_reads.iter(){
+        for pos in read.positions.iter(){
+            let var_at_pos = read.seq_dict.get(pos).unwrap();
+            let sites = hap.entry(*pos).or_insert(FxHashMap::default());
+            let site_counter = sites.entry(*var_at_pos).or_insert(0);
+            *site_counter -= 1;
+        }
+    }
+
+    return err;
 }
 
 fn get_iqr(all_scores: &Vec<f64>, factor: f64) -> f64 {
@@ -251,7 +327,7 @@ fn fill_left_block<'a>(left_block: &mut Vec<FxHashSet<&'a Frag>>, reads_interval
         for (i, read_set) in left_block.iter().enumerate() {
             let mut max_dist = 0;
             for frag_in_set in read_set.iter() {
-                let dist = utils_frags::distance(frag_in_set, frag);
+                let (same,dist) = utils_frags::distance(frag_in_set, frag);
                 if dist > max_dist {
                     max_dist = dist;
                 }
@@ -274,7 +350,6 @@ pub fn replace_with_filled_blocks<'a>(
 ) -> Vec<Vec<FxHashSet<&'a Frag>>> {
     let mut corrected_vec = Vec::new();
     let outlier_score = get_iqr(all_scores, factor);
-    //    dbg!(all_scores,outlier_score);
 
     //Assume the leftmost block is good. Not a great assumption but
     //otherwise the algorithm would be a bit more painful.
@@ -302,4 +377,139 @@ pub fn replace_with_filled_blocks<'a>(
         fill_left_block(corrected_vec.iter_mut().last().unwrap(), vec_reads_interval);
     }
     corrected_vec
+}
+
+//Modified beam search ... not working right now and incomplete. Maybe
+//modify for usage in the future. 
+pub fn link_blocks_heur<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>, num_sol : usize) -> Vec<FxHashSet<&'a Frag>> {
+    let perm_vector: Mutex<Vec<(usize, Vec<Vec<usize>>)>> = Mutex::new(vec![]);
+    let ploidy = all_parts[0].len();
+
+    //Get the best permutation for each consecutive pair.
+    (1..all_parts.len())
+        .collect::<Vec<usize>>()
+        .into_par_iter()
+        .for_each(|i| {
+            let mut locked_perm = perm_vector.lock().unwrap();
+            locked_perm.push((i, get_best_perms(&all_parts[i - 1], &all_parts[i])));
+        });
+
+    let mut perm_vector = perm_vector.lock().unwrap().to_vec();
+    perm_vector.sort_by(|a, b| a.0.cmp(&b.0));
+    let perm_vector: Vec<Vec<Vec<usize>>> = perm_vector.into_iter().map(|x| x.1).collect();
+
+    //Start with the first k different links.
+    let first_perms = &perm_vector[0];
+    let mut mec_perm_block_part = Vec::new();
+
+    for i in 0..num_sol{
+        let perm = &first_perms[i];
+        let mut new_part = Vec::new();
+
+        for j in 0..ploidy{
+            let set1 = &all_parts[0][j];
+            let set2 = &all_parts[1][perm[j]];
+            let mut union_set = FxHashSet::default();
+            
+            for read in set1.iter(){
+                union_set.insert(*read);
+            }
+
+            for read in set2.iter(){
+                union_set.insert(*read);
+            }
+            new_part.push(union_set);
+        }
+
+        let block = utils_frags::hap_block_from_partition(&new_part);
+        //TODO Polish stuff
+        let (binom_vec,_freq_vec)= local_clustering::get_partition_stats(&new_part,&block);
+
+        let mut errors = 0;
+        for tup in binom_vec.iter(){
+            errors += tup.1;
+        }
+
+        let wrapped_block = RefCell::new(block);
+
+        mec_perm_block_part.push((errors,perm.clone(),wrapped_block,new_part));
+    }
+
+    for i in 1..perm_vector.len(){
+        let mut new_mec_perm_complete = Vec::new();
+        let mut new_mec_perm = Vec::new();
+        let perms = &perm_vector[i];
+        let mut leftmost_pos = usize::MAX;
+        let mut rightmost_pos = usize::MIN;
+        //Iterate over each previous candidate solution
+        for j in 0..num_sol{
+            let (errors,curr_perm,wrapped_block,part) = & mec_perm_block_part[j];
+            //Iterate over each permutation to create k^2 different solutions
+            for k in 0..num_sol{
+                let perm = &perms[k];
+                let mut new_errors = *errors;
+                let mut vec_new_part = Vec::new();
+
+                //Iterate over each haplotype
+                for l in 0..ploidy{
+                    
+                    let mut list_of_pos_inserts = Vec::new();
+                    let set1 = &part[l];
+                    let set2 = &all_parts[i+1][perm[curr_perm[l]]];
+                    let mut new_reads_set = FxHashSet::default();
+                    let mut union_set = FxHashSet::default();
+
+                    for read in set2.iter(){
+                        list_of_pos_inserts.push(read.first_position);
+                        list_of_pos_inserts.push(read.last_position);
+
+                        if read.first_position < leftmost_pos{
+                            leftmost_pos = read.first_position;
+                        }
+
+                        if read.last_position > rightmost_pos{
+                            rightmost_pos = read.last_position;
+                        }
+
+                        if !set1.contains(read){
+                            new_reads_set.insert(*read);
+                        }
+
+                        union_set.insert(*read);
+                    }
+
+                    for read in set1.iter(){
+                        union_set.insert(*read);
+                    }
+
+
+                    let emptyset :FxHashSet<&Frag>= FxHashSet::default();
+                    list_of_pos_inserts.sort();
+                    let mec_before_positions = get_mec_positions_hap(&emptyset, &mut wrapped_block.borrow_mut(), &list_of_pos_inserts, l);
+                    let mec_after_positions = get_mec_positions_hap(&new_reads_set, &mut wrapped_block.borrow_mut(), &list_of_pos_inserts, l);
+                    vec_new_part.push(union_set);
+//
+                    new_errors += mec_after_positions - mec_before_positions;
+                }
+                let mut new_curr_perm = vec![];
+                for l in 0..ploidy{
+                    new_curr_perm.push(perm[curr_perm[l]]);
+                }
+                new_mec_perm.push((new_errors,new_curr_perm, wrapped_block ,vec_new_part));
+            }
+        }
+
+        //Now have a list of k^2 candidate solutions, sort and get the best ones.
+        new_mec_perm.sort_by(|a,b| a.0.cmp(&b.0));
+
+        for j in 0..num_sol{
+            let (new_errors,new_curr_perm,wrapped_block,new_part) = &mut new_mec_perm[j];
+            let swap_part = mem::replace(new_part, Vec::new());
+            new_mec_perm_complete.push((*new_errors,new_curr_perm.clone(), RefCell::new(clone_block_range(&wrapped_block.borrow(),leftmost_pos,rightmost_pos)),swap_part));
+        }
+
+        mec_perm_block_part = new_mec_perm_complete;
+    }
+
+    mec_perm_block_part.into_iter().nth(0).unwrap().3
 }

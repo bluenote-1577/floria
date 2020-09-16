@@ -4,6 +4,7 @@ use fxhash::{FxHashSet,FxHashMap};
 use flopp::file_reader;
 use flopp::local_clustering;
 use flopp::types_structs::Frag;
+use flopp::types_structs::HapBlock;
 use flopp::utils_frags;
 use flopp::vcf_polishing;
 use rayon::prelude::*;
@@ -14,7 +15,7 @@ fn main() {
     let matches = App::new("flopp")
                           .version("0.1.0")
                           .setting(AppSettings::ArgRequiredElseHelp)
-                          .about("flopp - fast local polyploid phasing using long read sequencing.\n\nExample usage :\nflopp -b bamfile.bam -v vcffile.vcf -o results.txt (with VCF and BAM)\nflopp -f fragfile.frags -o unpolished_results.txt (with fragment file)\nflopp -f fragfile.frags -v vcffile.vcf -o polished_results.txt (polished output with fragment file and VCF)")
+                          .about("flopp - fast local polyploid phasing from long read sequencing.\n\nExample usage :\nflopp -b bamfile.bam -v vcffile.vcf -p (ploidy) -o results.txt (with VCF and BAM)\nflopp -f fragfile.frags -p (ploidy) -o unpolished_results.txt (with fragment file)\nflopp -f fragfile.frags -v vcffile.vcf -p (ploidy) -o polished_results.txt (polished output with fragment file and VCF)")
                           .arg(Arg::with_name("frag")
                                .short("f")
                                .value_name("FRAGFILE")
@@ -47,7 +48,7 @@ fn main() {
                               .value_name("OUTPUT")
                               .takes_value(true))
                           .arg(Arg::with_name("epsilon")
-                              .short("err")
+                              .short("e")
                               .takes_value(true)
                               .hidden(true))
                           .get_matches();
@@ -122,7 +123,7 @@ fn main() {
    
     //The inter quantile range outlier factor. 1.5 is standard and corresponds to 3 stds for a
     //normal. Blocks outside of the range will get filled in.
-    let iqr_factor = 1.5;
+    let iqr_factor = 1.0;
     let polish = vcf;
     //If we fill blocks with poor UPEM score.
     let fill = true;
@@ -131,20 +132,24 @@ fn main() {
     //Number of iterations for the iterative UPEM optimization
     let num_iters_optimizing = 10;
     
-    println!("Reading frags");
+    println!("Reading inputs (BAM/VCF/frags).");
+    let start_t = Instant::now();
     let mut all_frags;
     if bam {
         all_frags = file_reader::get_frags_from_bamvcf(vcf_file,bam_file);
     } else {
         all_frags = file_reader::get_frags_container(frag_file);
     }
+    println!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
     //We need frags sorted by first position to make indexing easier.
     all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
 
     let mut genotype_dict : FxHashMap<usize,FxHashMap<usize,usize>> = FxHashMap::default();
+    let mut snp_to_genome_pos : Vec<usize> = Vec::new();
     if vcf{
-        let (genotype_dict_t, vcf_ploidy) = file_reader::get_genotypes_from_vcf_hts(vcf_file);
+        let (snp_to_genome_pos_t, genotype_dict_t, vcf_ploidy) = file_reader::get_genotypes_from_vcf_hts(vcf_file);
+        snp_to_genome_pos = snp_to_genome_pos_t;
         genotype_dict = genotype_dict_t;
 
 
@@ -155,12 +160,16 @@ fn main() {
     }
 
     //We use the median # bases spanned by fragments as the length of blocks.
-    let avg_read_length = utils_frags::get_avg_length(&all_frags);
+    let avg_read_length = utils_frags::get_avg_length(&all_frags,0.5);
     println!("Median read length is {}", avg_read_length);
+
+    let heuristic_multiplier = 25.0;
+    let block_len_quant = 0.25;
 
     //The sample size correcton factor for the binomial test used on the bases/errors.
     //    let binomial_factor = (avg_read_length as f64) / (ploidy as f64);
-    let binomial_factor = (avg_read_length as f64) / 25.0;
+    let binomial_factor = (avg_read_length as f64) / heuristic_multiplier;
+    println!("Binomial adjustment factor is {}", binomial_factor);
 
     //Final partitions
     let parts: Mutex<Vec<(Vec<FxHashSet<&Frag>>, usize)>> = Mutex::new(vec![]);
@@ -171,7 +180,7 @@ fn main() {
 
     //UPEM scores for each block.
     let scores: Mutex<Vec<(f64, usize)>> = Mutex::new(vec![]);
-    let length_block = avg_read_length;
+    let length_block = utils_frags::get_avg_length(&all_frags,block_len_quant);
 
     //If we want blocks to overlap -- I don't think we actually want blocks to overlap but this may
     //be an optional parameter for testing purposes. 
@@ -180,6 +189,7 @@ fn main() {
     //Get last SNP on the genome covered over all fragments.
     let length_gn = utils_frags::get_length_gn(&all_frags);
     println!("Length of genome is {}", length_gn);
+    println!("Length of each block is {}", length_block);
     //How many blocks we iterate through to estimate epsilon.
     let num_epsilon_attempts = 50 / ploidy;
     let mut epsilon = 0.03;
@@ -194,6 +204,19 @@ fn main() {
         );
     }
 
+    if epsilon == 0.0{
+        epsilon = 0.003;
+    }
+
+    match matches.value_of("epsilon") {
+        None => {
+        }
+        Some(value) => {
+            epsilon = value.parse::<f64>().unwrap();
+        }
+    };
+
+
     println!("Estimated epsilon is {}", epsilon);
 
     println!("Generating haplotype blocks");
@@ -204,7 +227,7 @@ fn main() {
         .collect::<Vec<usize>>()
         .into_par_iter()
         .for_each(|x| {
-            println!("{} iteration number", x);
+//            println!("{} iteration number", x);
             let block_start = x * length_block + 1;
             let part = local_clustering::generate_hap_block(
                 block_start,
@@ -263,11 +286,22 @@ fn main() {
 
     //Link and polish all blocks.
     let final_part = vcf_polishing::link_blocks(&part_filled);
-    let mut final_block = utils_frags::hap_block_from_partition(&final_part);
+//    let final_part = vcf_polishing::link_blocks_heur(&part_filled,3);
+
+//    for i in 0..ploidy{
+//        let inter =  &final_part[i].intersection(&final_part2[i]).collect::<Vec<_>>();
+//        dbg!(inter.len());
+//        let diff =  &final_part[i].symmetric_difference(&final_part2[i]).collect::<Vec<_>>();
+//        dbg!(diff.len());
+//        dbg!(final_part[i].len());
+//        dbg!(final_part2[i].len());
+//    }
+    let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
+    let mut final_block_polish = HapBlock{blocks : Vec::new()};
     if polish {
-        final_block = vcf_polishing::polish_using_vcf(
+        final_block_polish = vcf_polishing::polish_using_vcf(
             &genotype_dict,
-            &final_block,
+            &final_block_unpolish,
             &(1..length_gn + 1).collect::<Vec<_>>(),
         );
     }
@@ -279,7 +313,13 @@ fn main() {
 
     let start_t = Instant::now();
     //Write blocks to file. Write fragments to a file if the user chooses to do that instead.
-    file_reader::write_blocks_to_file(output_blocks_str, &vec![final_block], &vec![length_gn]);
+    if polish{
+        file_reader::write_blocks_to_file(output_blocks_str, &vec![final_block_polish], &vec![length_gn],&snp_to_genome_pos,&final_part);
+    }
+    else{
+        file_reader::write_blocks_to_file(output_blocks_str, &vec![final_block_unpolish], &vec![length_gn],&snp_to_genome_pos,&final_part);
+    }
+
     println!(
         "Time taken writing blocks to {} : {:?}",
         output_blocks_str,
