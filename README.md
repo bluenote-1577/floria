@@ -46,10 +46,14 @@ For testing purposes and compatibility with other haplotype phasing algorithms, 
 
 ### Output
 
-TODO
+flopp outputs a phased haplotype file in the following format:
+
+1. Column 1 is (variant) : (genome position) where (variant) is the i-th variant, and the genome position is the the position of the genome on the reference.
+2. The next k columns are the k phased haplotypes for an organism of ploidy k. 0 represents the reference allele, 1 the first alternate, and so forth. 
+3. The next k columns are of the form (variant):(# calls)|(variant):(# calls) where (variant) = 0,1,... and (# calls) is the number of reads in cluster for a specific haplotype which contain the variant at this location.
 
 ## Citing flopp
 
-Jim Shaw and Yun William Yu; flopp - fast polyploid phasing by long read sequencing using a local assembly approach. (In preparation)
+Jim Shaw and Yun William Yu; Practical probabilistic and graphical formulations of long-readpolyploid haplotype phasing. (In preparation)
 
 
