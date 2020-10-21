@@ -54,6 +54,6 @@ flopp outputs a phased haplotype file in the following format:
 
 ## Citing flopp
 
-Jim Shaw and Yun William Yu; Practical probabilistic and graphical formulations of long-readpolyploid haplotype phasing. (In preparation)
+Jim Shaw and Yun William Yu; Practical probabilistic and graphical formulations of long-read polyploid haplotype phasing. (In preparation)
 
 
