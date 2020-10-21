@@ -37,7 +37,7 @@ fn main() {
 
     //CONSTANTS - Constants which users probably should not change.
 
-    println!("Reading frags");
+    println!("Reading frags.");
     let mut all_frags = file_reader::get_frags_from_bamvcf(vcf_file, bam_file);
 
     //We need frags sorted by first position to make indexing easier.

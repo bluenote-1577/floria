@@ -161,20 +161,18 @@ where
     let mut pos_allele_map = FxHashMap::default();
     let mut pos_to_snp_counter_map = FxHashMap::default();
     let header = vcf.header();
+    let mut previous_pos = -1;
 
-    if header.sample_count() > 1 {
-        panic!("More than 1 sample detected in header of vcf file; please use only 1 sample");
-    }
+//    if header.contig_count() > 1 {
+//        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
+//    }
 
-    if header.contig_count() > 1 {
-        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
-    }
 
     for rec in vcf.records() {
         let unr = rec.unwrap();
         let alleles = unr.alleles();
-        let mut is_snp = true;
         let mut al_vec = Vec::new();
+        let mut is_snp = true;
 
         for allele in alleles.iter() {
             if allele.len() > 1 {
@@ -194,6 +192,9 @@ where
 
         set_of_pos.insert(unr.pos());
         pos_to_snp_counter_map.insert(unr.pos(), snp_counter);
+        if previous_pos > unr.pos(){
+            panic!("Either VCF is not ordered or there are multiple chromosomes. Please make sure that there is only one contig/chromosome");
+        }
         snp_counter += 1;
         pos_allele_map.insert(unr.pos(), al_vec);
     }
@@ -221,17 +222,20 @@ where
                 let errors_mask = 1796;
                 let secondary_mask = 256;
 
+
+                let id_string = String::from_utf8(alignment.record().qname().to_vec()).unwrap();
                 //Erroneous alignment, skip
                 if flags & errors_mask > 0 {
+                    //dbg!(&flags,&id_string);
                     continue;
                 }
 
                 //Secondary alignment, skip
                 if flags & secondary_mask > 0 {
+                    //dbg!(&flags,&id_string);
                     continue;
                 }
 
-                let id_string = String::from_utf8(alignment.record().qname().to_vec()).unwrap();
                 let id_string2 = id_string.clone();
 
                 if !id_to_frag.contains_key(&id_string) {
@@ -288,9 +292,9 @@ where
         panic!("More than 1 sample detected in header of vcf file; please use only 1 sample");
     }
 
-    if header.contig_count() > 1 {
-        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
-    }
+//    if header.contig_count() > 1 {
+//        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
+//    }
 
     for rec in vcf.records() {
         let mut unr = rec.unwrap();

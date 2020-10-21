@@ -1,4 +1,5 @@
 use crate::local_clustering;
+use std::io::LineWriter;
 use std::cell::RefCell;
 use crate::types_structs::Frag;
 use crate::types_structs::HapBlock;
@@ -8,7 +9,8 @@ use permute::permute;
 use rayon::prelude::*;
 use std::mem;
 use std::sync::Mutex;
-use std::time::Instant;
+use std::fs::File;
+use std::io::Write;
 
 ///This function takes polishes a haplotype block by using genotyping information.
 ///The algorithm used is simple; we sort the calls for what a haplotype should be
@@ -68,6 +70,8 @@ pub fn polish_using_vcf(
         }
 
         //Very ambiguous calls, dont' do anything
+        
+//        dbg!(&best_calls_vec);
         if best_calls_vec[0].2 == 0.0 {
             println!("Ambiguous position at {}, skipping polishing", pos);
             continue;
@@ -191,6 +195,13 @@ pub fn link_blocks<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashS
 
     //We have to do compose permutations here to keep track of
     //what state the permutations between the pairs needs to be in.
+    let mut all_used_reads = FxHashSet::default();
+    for reads in all_parts[0].iter(){
+        for read in reads.iter(){
+            all_used_reads.insert(read);
+        }
+    }
+
     for (i, perm) in perm_vector.iter().enumerate() {
         let part_to_link = &all_parts[i + 1];
         for j in 0..ploidy {
@@ -198,7 +209,10 @@ pub fn link_blocks<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashS
             let set2 = &part_to_link[perm[current_perm[j]]];
 
             for read in set2.into_iter() {
-                set1.insert(read);
+//                if !all_used_reads.contains(read){
+                    set1.insert(read);
+                    all_used_reads.insert(read);
+//                }
             }
         }
         for j in 0..ploidy {
@@ -306,7 +320,7 @@ fn get_iqr(all_scores: &Vec<f64>, factor: f64) -> f64 {
     return q25 - factor * iqr;
 }
 
-fn fill_left_block<'a>(left_block: &mut Vec<FxHashSet<&'a Frag>>, reads_interval: Vec<&'a Frag>) {
+fn fill_left_block<'a>(left_block: &mut Vec<FxHashSet<&'a Frag>>, reads_interval: Vec<&'a Frag>, epsilon : f64) {
     for frag in reads_interval {
         let mut read_already_used = false;
 
@@ -325,17 +339,26 @@ fn fill_left_block<'a>(left_block: &mut Vec<FxHashSet<&'a Frag>>, reads_interval
 
         let mut max_distances = Vec::new();
         for (i, read_set) in left_block.iter().enumerate() {
-            let mut max_dist = 0;
+            let mut max_dist = 0.0;
             for frag_in_set in read_set.iter() {
-                let (same,dist) = utils_frags::distance(frag_in_set, frag);
+                let (same,mec_dist) = utils_frags::distance(frag_in_set, frag);
+                let binomial_dist = -1.0 * local_clustering::stable_binom_cdf_p_rev(
+                    (same + mec_dist) as usize,
+                    mec_dist as usize,
+                    2.0 * epsilon * (1.0-epsilon),
+                    100.0
+                );
+                    
+                let dist = binomial_dist;
+//                let dist = mec_dist as f64;
                 if dist > max_dist {
-                    max_dist = dist;
+                    max_dist = dist ;
                 }
             }
             max_distances.push((i, max_dist));
         }
 
-        max_distances.sort_by(|a, b| a.1.cmp(&b.1));
+        max_distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         //        dbg!(&max_distances);
         left_block[max_distances[0].0].insert(frag);
     }
@@ -347,6 +370,7 @@ pub fn replace_with_filled_blocks<'a>(
     factor: f64,
     length_of_block: usize,
     all_frags: &'a Vec<Frag>,
+    epsilon : f64
 ) -> Vec<Vec<FxHashSet<&'a Frag>>> {
     let mut corrected_vec = Vec::new();
     let outlier_score = get_iqr(all_scores, factor);
@@ -365,6 +389,8 @@ pub fn replace_with_filled_blocks<'a>(
             continue;
         }
 
+        println!("Filling in block {}", i);
+
         //Bad block, fill in from left
         let mut vec_reads_interval: Vec<&Frag> = local_clustering::find_reads_in_interval(
             i * length_of_block,
@@ -374,7 +400,7 @@ pub fn replace_with_filled_blocks<'a>(
         .into_iter()
         .collect();
         vec_reads_interval.sort_by(|a, b| a.first_position.cmp(&b.first_position));
-        fill_left_block(corrected_vec.iter_mut().last().unwrap(), vec_reads_interval);
+        fill_left_block(corrected_vec.iter_mut().last().unwrap(), vec_reads_interval,epsilon);
     }
     corrected_vec
 }
@@ -471,11 +497,18 @@ pub fn link_blocks_heur<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>, num_sol :
                             rightmost_pos = read.last_position;
                         }
 
-                        if !set1.contains(read){
-                            new_reads_set.insert(*read);
+                        let mut contains_read = false;
+                        for p in 0..ploidy{
+                            if (part[p]).contains(read){
+                               contains_read = true 
+                            }
                         }
 
-                        union_set.insert(*read);
+                        if !contains_read{
+                            new_reads_set.insert(*read);
+                            union_set.insert(*read);
+                        }
+
                     }
 
                     for read in set1.iter(){
@@ -513,3 +546,153 @@ pub fn link_blocks_heur<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>, num_sol :
 
     mec_perm_block_part.into_iter().nth(0).unwrap().3
 }
+
+pub fn remove_duplicate_reads(
+    part : &mut Vec<FxHashSet<&Frag>>,
+    all_frags : &Vec<Frag>,
+    block : &HapBlock){
+
+    for frag in all_frags.iter(){
+        let mut parts_containing_frag = Vec::new();
+        for i in 0..part.len(){
+            if part[i].contains(frag){
+                parts_containing_frag.push(i);
+            }
+        }
+
+        if parts_containing_frag.len() > 1{
+            let mut mec_hap_vec = Vec::new();
+            for i in parts_containing_frag{
+                let hap = &block.blocks[i];
+                let (_same,diff) = utils_frags::distance_read_haplo(frag,hap);
+                mec_hap_vec.push((diff,i));
+            }
+
+            mec_hap_vec.sort_by(|a,b| a.0.cmp(&b.0));
+            for i in 1..mec_hap_vec.len(){
+                if mec_hap_vec[i].0 > mec_hap_vec[0].0{
+                    part[i].remove(frag);
+                }
+            }
+
+        }
+    }
+
+}
+
+
+pub fn map_reads_against_hap_errors(
+    part : &Vec<FxHashSet<&Frag>>,
+    block : &HapBlock,
+    epsilon : f64){
+
+    let mut list_of_errors = Vec::new();
+    let ploidy = part.len();
+    for i in 0..ploidy{
+        let reads = &part[i];
+        let hap = &block.blocks[i];
+        for read in reads{
+            let length = read.last_position - read.first_position + 1;
+
+            let start_left = read.first_position;
+            let end_left = read.first_position + length/2;
+            let (same_left,diff_left) = utils_frags::distance_read_haplo_range(read,hap,start_left,end_left);
+
+            let start_right = read.first_position + length/2+1;
+            let end_right= read.last_position;
+            let (same_right,diff_right) = utils_frags::distance_read_haplo_range(read,hap,start_right,end_right);
+
+            let mut error_est = ((diff_left + diff_right) as f64) / ((same_right + diff_left + same_left + diff_right) as f64);
+            if error_est == 0.0{
+                error_est = epsilon;
+            }
+
+            let left_error_val = local_clustering::stable_binom_cdf_p_rev(same_left + diff_left, diff_left, error_est,1.0);
+            let right_error_val = local_clustering::stable_binom_cdf_p_rev(same_right + diff_right, diff_right, error_est,1.0);
+
+            let mut min_error_val = left_error_val;
+            if left_error_val > right_error_val{
+                min_error_val = right_error_val;
+            }
+
+            if !min_error_val.is_finite(){
+                continue;
+            }
+
+            list_of_errors.push((min_error_val,&read.id,read.first_position,read.last_position,i,diff_left,diff_right));
+        }
+    }
+
+    list_of_errors.sort_by(|a,b| a.0.partial_cmp(&b.0).unwrap()); 
+
+    let file = File::create("possible_breaks.txt").expect("Can't create file");
+    let mut file = LineWriter::new(file);
+
+    for i in 0..list_of_errors.len(){
+        write!(file,"{},{},{},{}\n",list_of_errors[i].0,list_of_errors[i].1,list_of_errors[i].3,list_of_errors[i].4).unwrap();
+    }
+}
+
+pub fn link_blocks_greedy<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashSet<&'a Frag>> {
+    //Multithreaded version -- not super useful unless ploidy > 6. Might as well though.
+    let mut final_part = all_parts[0].clone();
+    let ploidy = final_part.len();
+    let rangevec: Vec<usize> = (0..ploidy).collect();
+    let perms = permute(rangevec);
+
+
+    let mut all_used_reads = FxHashSet::default();
+    for reads in all_parts[0].iter(){
+        for read in reads.iter(){
+            all_used_reads.insert(read);
+        }
+    }
+
+    //Find best permutation
+    for i in 1..all_parts.len(){
+        let part_to_link = &all_parts[i];
+        let mut best_total_intersect = 0;
+        let mut best_perm = &perms[0];
+        for perm in &perms{
+            let mut total_intersect = 0;
+            for j in 0..ploidy{
+
+                let set1 = &final_part[j];
+                let set2 = &part_to_link[perm[j]];
+
+                for read in set2.iter(){
+                    if set1.contains(read){
+                        total_intersect += 1
+                    }
+                }
+            }
+
+            if total_intersect > best_total_intersect{
+                best_total_intersect = total_intersect;
+                best_perm = perm;
+            }
+        }
+
+        for j in 0..ploidy{
+            let set1 = &mut final_part[j];
+            let set2 = &part_to_link[best_perm[j]];
+
+            for read in set2.iter(){
+//                if !all_used_reads.contains(read){
+                   set1.insert(read); 
+                   all_used_reads.insert(read);
+//                }
+            }
+        }
+    }
+
+    final_part
+}
+
+
+
+
+
+
+
+

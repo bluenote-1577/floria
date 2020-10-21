@@ -48,9 +48,10 @@ pub fn generate_hap_block<'a>(
     //position_to_reads : &'a FxHashMap<usize,FxHashSet<&Frag>>,
     ploidy: usize,
     all_frags: &'a Vec<Frag>,
+    epsilon : f64
 ) -> Vec<FxHashSet<&'a Frag>> {
     let all_reads = find_reads_in_interval(start, end, all_frags);
-    let partition = cluster_reads(&all_reads, ploidy);
+    let partition = cluster_reads(&all_reads, ploidy,epsilon);
     partition
 }
 
@@ -87,8 +88,7 @@ pub fn dist_from_graph(
 pub fn cluster_reads<'a>(
     all_reads: &FxHashSet<&'a Frag>,
     ploidy: usize,
-) -> Vec<FxHashSet<&'a Frag>> {
-
+    epsilon : f64) -> Vec<FxHashSet<&'a Frag>> {
     let use_binomial_dist = true;
 
     //Get the largest distance edge
@@ -122,16 +122,20 @@ pub fn cluster_reads<'a>(
             }
 
             let dist;
-            let (same,mec_dist) = utils_frags::distance(r1, r2);
-            
+            let (same, mec_dist) = utils_frags::distance(r1, r2);
+
             //BINOMIAL DIST
-            if use_binomial_dist{
-                dist = -1.0*stable_binom_cdf_p_rev((same+mec_dist) as usize,mec_dist as usize, 0.023,100.0);
-            }
-            else{
+            if use_binomial_dist {
+                dist = -1.0
+                    * stable_binom_cdf_p_rev(
+                        (same + mec_dist) as usize,
+                        mec_dist as usize,
+                        2.0*epsilon * (1.0-epsilon),
+                        100.0,
+                    );
+            } else {
                 dist = mec_dist as f64;
             }
-
 
             let i_type = i as i32;
             let j_type = j as i32;
@@ -153,9 +157,9 @@ pub fn cluster_reads<'a>(
     }
 
     //Finding max clique
+    //println!("{:?}",vec_all_edges);
     vec_all_edges.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
     let best_edge = vec_all_edges.last().unwrap();
-    //    println!("{:?}",vec_all_edges);
 
     let mut used_vertices = FxHashSet::default();
     used_vertices.insert(best_edge.1);
@@ -206,11 +210,11 @@ pub fn cluster_reads<'a>(
         }
 
         for vertex in sorted_dict_to_vec.iter().rev() {
-//            if *vertices_meeting_clique_map.get(&vertex.0).unwrap() == used_vertices {
-            let best_vertex = vertex;
-            used_vertices.insert(best_vertex.0);
-            break;
-//            }
+            if *vertices_meeting_clique_map.get(&vertex.0).unwrap() == used_vertices {
+                let best_vertex = vertex;
+                used_vertices.insert(best_vertex.0);
+                break;
+            }
         }
     }
 
@@ -231,35 +235,268 @@ pub fn cluster_reads<'a>(
     }
 
     //DEBUGGING/TESTING
-    {
-//        println!("CLIQUE VERTICES");
-        let mut id_set = FxHashSet::default();
-        for vertex in used_vertices.iter() {
-            let id = &vec_all_reads[(*vertex) as usize].id;
-//            println!("{}", id);
-            let mut split = id.split("/");
-            let cluster = split.next();
-            id_set.insert(cluster);
+//    {
+//        //        println!("CLIQUE VERTICES");
+//        let mut id_set = FxHashSet::default();
+//        for vertex in used_vertices.iter() {
+//            let id = &vec_all_reads[(*vertex) as usize].id;
+//            //            println!("{}", id);
+//            let mut split = id.split("/");
+//            let cluster = split.next();
+//            id_set.insert(cluster);
+//        }
+//
+//        if id_set.len() < ploidy {
+//            println!("clique partition not effective");
+//            for vertex in used_vertices.iter() {
+//                let frag1 = &vec_all_reads[(*vertex) as usize];
+//                for vertex in used_vertices.iter() {
+//                    let frag2 = &vec_all_reads[(*vertex) as usize];
+//                    println!(
+//                        "{},{},{},{}",
+//                        &frag1.id,
+//                        &frag2.id,
+//                        utils_frags::distance(frag1, frag2).1,
+//                        utils_frags::distance(frag1, frag2).0
+//                    );
+//                }
+//            }
+//        }
+//    }
+
+    //Populate the clusters -- experimenting with diffferent methods...
+//    populate_clusters1(&mut clusters, &mut used_vertices, &vec_all_reads, &adj_list_edges, ploidy);
+//    populate_clusters2_binom(&mut clusters, &mut used_vertices, &vec_all_reads, &adj_list_edges, ploidy,10);
+    populate_clusters3(&mut clusters, &mut used_vertices, &vec_all_reads, &adj_list_edges, ploidy,10);
+
+    //Turn the vertex indices into actual fragments -- could probably come up with a more elegant
+    //solution using some sort of map function...
+    let mut partition = Vec::new();
+    for cluster in clusters.iter() {
+        let mut frag_set = FxHashSet::default();
+        for vertex in cluster.iter() {
+            let vertex_usize = *vertex as usize;
+            frag_set.insert(*vec_all_reads[vertex_usize]);
+        }
+        partition.push(frag_set)
+    }
+    partition
+}
+
+fn populate_clusters3(
+    clusters: &mut Vec<FxHashSet<i32>>,
+    used_vertices: &mut FxHashSet<i32>,
+    vec_all_reads: &Vec<&&Frag>,
+    adj_list_edges: &Vec<Vec<(f64, i32)>>,
+    ploidy: usize,
+    iters : usize
+) {
+    //Sort reads(vertices) by the minimum of the maximum overlaps between clusters
+    for iteration in 0..iters{
+        let mut max_num_iters = vec_all_reads.len()/iters;
+        if iteration == iters-1{
+            max_num_iters = usize::MAX;
+        }
+        //First sort vertices by the minimum overlap for a read with all vertices in the clusters.
+        //We do a loop here because once
+
+        //Sort reads(vertices) by the minimum of the maximum overlaps between clusters
+        let mut sorted_vec_overlap_reads = Vec::new();
+
+        if used_vertices.len() == vec_all_reads.len() {
+            break;
         }
 
-        if id_set.len() < ploidy {
-            println!("clique partition not effective");
-            for vertex in used_vertices.iter(){
-                let frag1 = &vec_all_reads[(*vertex) as usize];
-                for vertex in used_vertices.iter(){
-                    let frag2 = &vec_all_reads[(*vertex) as usize];
-                    println!("{},{},{}",&frag1.id,&frag2.id,utils_frags::distance(frag1,frag2).1);
+        for (i, read) in vec_all_reads.iter().enumerate() {
+            let index = i as i32;
+            if used_vertices.contains(&index) {
+                continue;
+            }
+
+            let edges = &adj_list_edges[i];
+            let mut read_overlaps_between_clusters = Vec::new();
+            for _i in 0..ploidy {
+                read_overlaps_between_clusters.push(0);
+            }
+
+            for edge in edges.iter() {
+                for (j, cluster) in clusters.iter().enumerate() {
+                    if cluster.contains(&edge.1) {
+                        let edge_index = edge.1 as usize;
+                        let read2 = vec_all_reads[edge_index];
+                        let t: Vec<_> = read.positions.intersection(&read2.positions).collect();
+                        let overlap_len = t.len();
+                        if overlap_len > read_overlaps_between_clusters[j] {
+                            read_overlaps_between_clusters[j] = overlap_len;
+                        }
+                    }
                 }
             }
+            sorted_vec_overlap_reads.push((
+                i,
+                *read_overlaps_between_clusters.iter().min().unwrap() as usize,
+            ));
+        }
+
+        //Obtained sorted vertices
+        sorted_vec_overlap_reads.sort_by(|a, b| b.1.cmp(&a.1));
+
+//        if sorted_vec_overlap_reads.len() > 0{
+//            dbg!(&sorted_vec_overlap_reads[0], vec_all_reads[sorted_vec_overlap_reads[0].0 as usize].seq_dict.len(),iteration);
+//        }
+
+        //Now greedily add vertices to the partition where the maximum distance to the cluster is
+        //minimized.
+        for (j,(vertex, _dist)) in sorted_vec_overlap_reads.iter().enumerate() {
+            if j > max_num_iters{
+                break;
+            }
+            let edges = &adj_list_edges[*vertex];
+            let mut max_dist = Vec::new();
+            for _i in 0..ploidy {
+                max_dist.push(-1.0);
+            }
+            for edge in edges.iter() {
+                for (j, cluster) in clusters.iter().enumerate() {
+                    if cluster.contains(&edge.1) {
+                        let dist = edge.0;
+                        if max_dist[j] < dist {
+                            max_dist[j] = dist;
+                        }
+                    }
+                }
+            }
+            //            println!("{:?},{:?} max_dist, overlap",max_dist,overlap);
+
+            //Find index of minimum distance cluster
+            let mut min_index = 0;
+            let mut min_score = f64::MAX;
+            for i in 0..ploidy {
+                if max_dist[i] < min_score {
+                    min_index = i;
+                    min_score = max_dist[i];
+                }
+            }
+
+            let vertex_i32 = *vertex as i32;
+            used_vertices.insert(vertex_i32);
+            clusters[min_index].insert(vertex_i32);
         }
     }
+}
 
-    //Once seed vertices for each cluster is found, greedily add edges to each cluster based on
-    //minimizing the max dist over clusters
+fn populate_clusters2_binom(
+    clusters: &mut Vec<FxHashSet<i32>>,
+    used_vertices: &mut FxHashSet<i32>,
+    vec_all_reads: &Vec<&&Frag>,
+    adj_list_edges: &Vec<Vec<(f64, i32)>>,
+    ploidy: usize,
+    iters : usize
+) {
+    //Sort reads(vertices) by the minimum of the maximum overlaps between clusters
+    for iteration in 0..iters{
+        let mut sorted_vec_overlap_reads = Vec::new();
+
+        let mut max_num_iters = vec_all_reads.len()/iters;
+        if iteration == iters-1{
+            max_num_iters = usize::MAX;
+        }
+
+        for (i, _read) in vec_all_reads.iter().enumerate() {
+            let index = i as i32;
+            if used_vertices.contains(&index) {
+                continue;
+            }
+
+            let edges = &adj_list_edges[i];
+            let mut dist_between_clusters = Vec::new();
+            for _i in 0..ploidy {
+                dist_between_clusters.push(-1.0);
+            }
+
+            for edge in edges.iter() {
+                for (j, cluster) in clusters.iter().enumerate() {
+                    if cluster.contains(&edge.1) {
+                        let dist = edge.0;
+                        if dist > dist_between_clusters[j] {
+                            dist_between_clusters[j] = dist;
+                        }
+                    }
+                }
+            }
+
+            let mut sorted_distances : Vec<_>= dist_between_clusters.iter().collect();
+            sorted_distances.sort_by(|a,b| a.partial_cmp(&b).unwrap());
+//            dbg!(&sorted_distances);
+//            let mut sort_val = sorted_distances[0] - (sorted_distances[1] + sorted_distances[2] + sorted_distances[3]);
+            let mut sort_val = sorted_distances[0] - sorted_distances[1];
+            if *sorted_distances[0] == -1.0{
+                sort_val = f64::MAX;
+            }
+            sorted_vec_overlap_reads.push((
+                i,
+                sort_val
+            ));
+        }
+
+        //Obtained sorted vertices
+        sorted_vec_overlap_reads.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+//        if sorted_vec_overlap_reads.len() > 0{
+//            dbg!(&sorted_vec_overlap_reads[0], vec_all_reads[sorted_vec_overlap_reads[0].0 as usize].seq_dict.len(),iteration);
+//        }
+
+        //Now greedily add vertices to the partition where the maximum distance to the cluster is
+        //minimized.
+        for (j,(vertex, _dist)) in sorted_vec_overlap_reads.iter().enumerate() {
+            if j > max_num_iters{
+                break;
+            }
+            let edges = &adj_list_edges[*vertex];
+            let mut max_dist = Vec::new();
+            for _i in 0..ploidy {
+                max_dist.push(-1.0);
+            }
+            for edge in edges.iter() {
+                for (j, cluster) in clusters.iter().enumerate() {
+                    if cluster.contains(&edge.1) {
+                        let dist = edge.0;
+                        if max_dist[j] < dist {
+                            max_dist[j] = dist;
+                        }
+                    }
+                }
+            }
+            //            println!("{:?},{:?} max_dist, overlap",max_dist,overlap);
+
+            //Find index of minimum distance cluster
+            let mut min_index = 0;
+            let mut min_score = f64::MAX;
+            for i in 0..ploidy {
+                if max_dist[i] < min_score {
+                    min_index = i;
+                    min_score = max_dist[i];
+                }
+            }
+
+            let vertex_i32 = *vertex as i32;
+            used_vertices.insert(vertex_i32);
+            clusters[min_index].insert(vertex_i32);
+        }
+    }
+}
+
+fn populate_clusters1(
+    clusters: &mut Vec<FxHashSet<i32>>,
+    used_vertices: &mut FxHashSet<i32>,
+    vec_all_reads: &Vec<&&Frag>,
+    adj_list_edges: &Vec<Vec<(f64, i32)>>,
+    ploidy: usize,
+) {
     //A read must overlap with the intial clusters at least this much in order for it to be processed.
     //Once all good reads are processed, we sort the vertices again based on overlap and update the
     //read's overlap with the new clusters.
-    let min_overlap = 2;
+    let min_overlap = 50;
     let mut prev_used = 0;
     //If some reads just don't overlap super well, we need to relax the condition on the
     //min_overlap.
@@ -352,19 +589,6 @@ pub fn cluster_reads<'a>(
             clusters[min_index].insert(vertex_i32);
         }
     }
-
-    //Turn the vertex indices into actual fragments -- could probably come up with a more elegant
-    //solution using some sort of map function...
-    let mut partition = Vec::new();
-    for cluster in clusters.iter() {
-        let mut frag_set = FxHashSet::default();
-        for vertex in cluster.iter() {
-            let vertex_usize = *vertex as usize;
-            frag_set.insert(*vec_all_reads[vertex_usize]);
-        }
-        partition.push(frag_set)
-    }
-    partition
 }
 
 //Use the UPEM optimization procedure to optimize the partition by switching around reads to
@@ -466,21 +690,55 @@ fn chi_square_p(freqs: &Vec<usize>) -> f64 {
     return rv_res.ln();
 }
 
+//Can also use a normal approximation. This formula is taken from wikipedia. 
+pub fn log_erfc(x : f64) -> f64{
+    
+    let p = 0.47047;
+    let a1 = 0.3480242;
+    let a2 = -0.0958798;
+    let a3 = 0.7478556;
+    let t = 1.0/(1.0 + p*x);
+
+    let polynomial_term = a1*t + a2*t*t + a3*t*t*t;
+    if polynomial_term < 0.0{
+        return 0.0
+    }
+    let log_erfc = -(x*x) + polynomial_term.ln();
+
+    return log_erfc;
+}
+
+pub fn norm_approx(n : usize, k : usize, p : f64, div_factor : f64) -> f64{
+    let div_factor = 1.0;
+    let samp_size = (n as f64)/div_factor;
+    let mu = samp_size * p;
+    let sigma = (mu*(1.0-p)).sqrt();
+    let z = (k as f64 +0.5 - mu)/(sigma);
+    return log_erfc(z);
+}
+
+
+
 //Get the log p-value for a 1-sided binomial test. This is a asymptotically tight large deviation
-//bound. It's super accurate when k/n << p, but relatively inaccurate when k/n is close to p. One
+//bound. It's super accurate when k/n >> p, but relatively inaccurate when k/n is close to p. One
 //super nice thing about this approximation is that it is written as p = exp(A), so log(p) = A
 //hence it is extremely numerically stable.
 //
 //I'm currently using this implementation. We can still mess around with using different approximations.
-fn stable_binom_cdf_p_rev(n: usize, k: usize, p: f64, div_factor: f64) -> f64 {
+pub fn stable_binom_cdf_p_rev(n: usize, k: usize, p: f64, div_factor: f64) -> f64 {
+
     if n == 0 {
         return 0.0;
     }
 
+//    return norm_approx(n,k,p,div_factor);
+
     let n64 = n as f64;
     let k64 = k as f64;
-    let mut a = (n64 - k64) / n64;
-    //    let mut a = (k64)/n64;
+
+    //In this case, the relative entropy is bigger than the minimum of 0 which we don't want. 
+    let mut a = k64 / n64;
+    
     if a == 1.0 {
         //Get a NaN error if a = 1.0;
         a = 0.9999999
@@ -490,9 +748,21 @@ fn stable_binom_cdf_p_rev(n: usize, k: usize, p: f64, div_factor: f64) -> f64 {
         a = 0.0000001;
     }
 
-    let p = 1.0 - p;
-    let rel_ent = a * (a / p).ln() + (1.0 - a) * ((1.0 - a) / (1.0 - p)).ln();
-    return -1.0 * n64 / div_factor * rel_ent;
+    let mut rel_ent = a * (a / p).ln() + (1.0 - a) * ((1.0 - a) / (1.0 - p)).ln();
+
+    //If smaller error than epsilon, invert the rel-ent so that we get a positive probability
+    //makes heuristic sense because a smaller than epsilon error is better than an epsilon error
+    //for which the relative entropy is 0. 
+    if a < p{
+        rel_ent = -rel_ent;
+    }
+    let large_dev_val = -1.0 * n64 / div_factor * rel_ent ;
+        //- 0.5 * (6.283*a*(1.0-a)*n64/div_factor).ln();
+
+    return large_dev_val;
+
+    
+//    return -1.0 * n64 / div_factor * rel_ent;
 }
 
 //Get a vector of read frequencies and error rates from a partition and its corresponding
@@ -645,17 +915,19 @@ pub fn estimate_epsilon(
     ploidy: usize,
     all_frags: &Vec<Frag>,
     block_len: usize,
+    initial_epsilon : f64
 ) -> f64 {
     let mut rng = Pcg64::seed_from_u64(1);
     let mut random_vec = Vec::new();
+
+    let mut epsilons = Vec::new();
 
     for _ in 0..num_tries {
         random_vec.push(rng.gen_range(0, num_iters));
     }
 
-    let mut smallest_epsilon = 1.0;
     for i in random_vec.into_iter() {
-        let part = generate_hap_block(i * block_len, (i + 1) * block_len, ploidy, all_frags);
+        let part = generate_hap_block(i * block_len, (i + 1) * block_len, ploidy, all_frags,initial_epsilon);
         let block = utils_frags::hap_block_from_partition(&part);
         let (binom_vec, _freq_vec) = get_partition_stats(&part, &block);
         for (good, bad) in binom_vec {
@@ -663,11 +935,12 @@ pub fn estimate_epsilon(
                 break;
             }
             let epsilon = (bad as f64) / ((good + bad) as f64);
-            if epsilon < smallest_epsilon {
-                smallest_epsilon = epsilon;
-            }
+            epsilons.push(epsilon);
         }
     }
 
-    smallest_epsilon
+    let percentile_index = epsilons.len()/10;
+
+    epsilons.sort_by(|a,b| a.partial_cmp(&b).unwrap());
+    epsilons[percentile_index]
 }

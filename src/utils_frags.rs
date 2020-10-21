@@ -48,6 +48,37 @@ pub fn distance_read_haplo(
     (same, diff)
 }
 
+pub fn distance_read_haplo_range(
+    r1: &Frag,
+    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    start : usize,
+    end : usize
+) -> (usize, usize) {
+    let mut diff = 0;
+    let mut same = 0;
+    for pos in r1.positions.iter() {
+        if !hap.contains_key(pos) || *pos > end || *pos < start {
+            continue;
+        }
+
+        let frag_var = r1.seq_dict.get(pos).unwrap();
+        let consensus_var = hap
+            .get(pos)
+            .unwrap()
+            .iter()
+            .max_by_key(|entry| entry.1)
+            .unwrap()
+            .0;
+        if *frag_var == *consensus_var {
+            same += 1;
+        } else {
+            diff += 1;
+        }
+    }
+
+    (same, diff)
+}
+
 //Index each position by the set of fragments which overlap that position
 pub fn get_all_overlaps(frags: &Vec<Frag>) -> FxHashMap<usize, FxHashSet<&Frag>> {
     let mut overlaps = FxHashMap::default();
