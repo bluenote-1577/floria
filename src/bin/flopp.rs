@@ -110,15 +110,15 @@ fn main() {
     };
 
     //Only haplotype variants in a certain range : TODO
-    let range;
-    let range_string = match matches.value_of("range") {
+    let _range;
+    let _range_string = match matches.value_of("range") {
         None => {
-            range = false;
+            _range = false;
             "_"
         }
-        Some(range_string) => {
-            range = true;
-            range_string
+        Some(_range_string) => {
+            _range = true;
+            _range_string
         }
     };
 
@@ -305,7 +305,7 @@ fn main() {
 
     //Link and polish all blocks.
 //    let mut final_part = vcf_polishing::link_blocks(&part_filled);
-    let mut final_part = vcf_polishing::link_blocks_greedy(&part_filled);
+    let final_part = vcf_polishing::link_blocks_greedy(&part_filled);
 //    let mut final_part = vcf_polishing::link_blocks_heur(&part_filled,4);
 
     //    for i in 0..ploidy{
@@ -327,7 +327,7 @@ fn main() {
     }
 
 
-    ///TEST SECTION
+    //TEST SECTION
     //Map all reads against putative haplotype; DBG currently may be useful
     //for breaking blocks 
 //    vcf_polishing::remove_duplicate_reads(&mut final_part,&all_frags,&final_block_polish);
@@ -341,7 +341,7 @@ fn main() {
 //            &(1..length_gn + 1).collect::<Vec<_>>(),
 //        );
 //    }
-    ///
+    //
 
     println!(
         "Time taken linking, polishing blocks {:?}",

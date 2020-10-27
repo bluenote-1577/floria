@@ -109,7 +109,12 @@ where
     for (i, block) in blocks.iter().enumerate() {
         file.write_all(b"**BLOCK**\n").unwrap();
         for pos in length_prev_block..length_prev_block + lengths[i] {
-            write!(file, "{}:{}\t", pos,snp_to_genome[pos-1]).unwrap();
+            if snp_to_genome.len() == 0{
+                write!(file, "{}:NA\t", pos).unwrap();
+            }
+            else{
+                write!(file, "{}:{}\t", pos,snp_to_genome[pos-1]).unwrap();
+            }
             //Write haplotypes
             for k in 0..ploidy {
                 let allele_map = block.blocks[k].get(&pos).unwrap_or(&emptydict);
@@ -155,12 +160,15 @@ where
     P: AsRef<Path>,
 {
     //Get which SNPS correspond to which positions on the genome.
-    let mut vcf = bcf::Reader::from_path(vcf_file).unwrap();
+    let mut vcf = match bcf::Reader::from_path(vcf_file){
+        Ok(vcf) => vcf,
+        Err(_) => panic!("rust_htslib had an error reading the VCF file. Exiting."),
+    };
     let mut snp_counter = 1;
     let mut set_of_pos = FxHashSet::default();
     let mut pos_allele_map = FxHashMap::default();
     let mut pos_to_snp_counter_map = FxHashMap::default();
-    let header = vcf.header();
+    let _header = vcf.header();
     let mut previous_pos = -1;
 
 //    if header.contig_count() > 1 {
@@ -195,11 +203,15 @@ where
         if previous_pos > unr.pos(){
             panic!("Either VCF is not ordered or there are multiple chromosomes. Please make sure that there is only one contig/chromosome");
         }
+        previous_pos = unr.pos();
         snp_counter += 1;
         pos_allele_map.insert(unr.pos(), al_vec);
     }
 
-    let mut bam = bam::Reader::from_path(bam_file).unwrap();
+    let mut bam = match bam::Reader::from_path(bam_file){
+        Ok(bam)  => bam,
+        Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting"),
+    };
     //This may be important : We assume that distinct reads have different names. I can see this
     //being a problem in some weird bad cases, so be careful.
     let mut id_to_frag = FxHashMap::default();
@@ -281,7 +293,10 @@ pub fn get_genotypes_from_vcf_hts<P>(vcf_file: P) -> (Vec<usize>, FxHashMap<usiz
 where
     P: AsRef<Path>,
 {
-    let mut vcf = bcf::Reader::from_path(vcf_file).unwrap();
+    let mut vcf = match bcf::Reader::from_path(vcf_file){
+        Ok(vcf) => vcf,
+        Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting."),
+    };
     let mut positions_vec = Vec::new();
     let mut genotype_dict = FxHashMap::default();
     let header = vcf.header();
