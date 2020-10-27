@@ -3,6 +3,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bcf::record::GenotypeAllele;
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
 use rust_htslib::{bcf, bcf::Read as DUMMY_NAME2};
+use rust_htslib::bam::header::Header;
 use crate::utils_frags;
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -212,6 +213,19 @@ where
         Ok(bam)  => bam,
         Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting"),
     };
+
+    //Check the headers to see how many references there are.
+    let header = Header::from_template(bam.header());
+    let mut number_references = 0;
+    for (id,content) in header.to_hashmap(){
+        if id == "SQ"{
+            number_references = content.len();
+        }
+    }
+    if number_references > 1{
+        println!("WARNING! : More than one reference detected in bam file header. flopp currently can not phase more than one contig or chromosome at a time. Undefined behaviour occurs if there are reads mapped to different references in the BAM file.");
+    }
+
     //This may be important : We assume that distinct reads have different names. I can see this
     //being a problem in some weird bad cases, so be careful.
     let mut id_to_frag = FxHashMap::default();
