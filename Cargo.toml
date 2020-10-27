@@ -17,6 +17,10 @@ rand_pcg="*"
 rust-htslib="*"
 clap = "2"
 
+[dev-dependencies]
+assert_cmd = "1.0.1"
+predicates = "1"
+
 [profile.release]
 opt-level = 3
 

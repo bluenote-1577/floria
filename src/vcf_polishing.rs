@@ -73,7 +73,7 @@ pub fn polish_using_vcf(
         
 //        dbg!(&best_calls_vec);
         if best_calls_vec[0].2 == 0.0 {
-            println!("Ambiguous position at {}, skipping polishing", pos);
+            //println!("Ambiguous position at {}, skipping polishing", pos);
             continue;
         }
 

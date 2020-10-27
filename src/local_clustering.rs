@@ -2,7 +2,7 @@ use crate::types_structs::{Frag, HapBlock};
 use crate::vcf_polishing;
 use rand::prelude::*;
 use rand_pcg::Pcg64;
-use statrs::distribution::{Binomial, ChiSquared, Univariate};
+use statrs::distribution::{ChiSquared, Univariate};
 extern crate time;
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
@@ -708,7 +708,7 @@ pub fn log_erfc(x : f64) -> f64{
     return log_erfc;
 }
 
-pub fn norm_approx(n : usize, k : usize, p : f64, div_factor : f64) -> f64{
+pub fn norm_approx(n : usize, k : usize, p : f64, _div_factor : f64) -> f64{
     let div_factor = 1.0;
     let samp_size = (n as f64)/div_factor;
     let mu = samp_size * p;
