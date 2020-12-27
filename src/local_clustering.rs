@@ -6,6 +6,17 @@ use statrs::distribution::{ChiSquared, Univariate};
 extern crate time;
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
+
+#[cfg(debug_assertions)]
+macro_rules! debug {
+    ($x:expr) => { dbg!($x) }
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! debug {
+    ($x:expr) => { std::convert::identity($x) }
+}
+
 //use std::time::Instant;
 
 //Return the set of reads for which every read covers at least one position in the interval
@@ -36,6 +47,14 @@ pub fn find_reads_in_interval<'a>(
         if frag.first_position > end {
             break;
         }
+
+        //Currently we use 1/3 quantile as the length of the block, i.e.
+        //end-start. If a mapping is weird and the fragment 
+        //spans several regions, we ignore the fragment.
+        if frag.last_position - frag.first_position > 20* (end - start){
+            continue;
+        }
+
         final_set.insert(frag);
     }
     final_set
@@ -50,6 +69,8 @@ pub fn generate_hap_block<'a>(
     all_frags: &'a Vec<Frag>,
     epsilon : f64
 ) -> Vec<FxHashSet<&'a Frag>> {
+    debug!(start);
+    debug!(end);
     let all_reads = find_reads_in_interval(start, end, all_frags);
     let partition = cluster_reads(&all_reads, ploidy,epsilon);
     partition
@@ -106,6 +127,9 @@ pub fn cluster_reads<'a>(
     //Get local read-read graph, a.k.a the distance matrix. In the future, we can speed this up by precomputing a
     //
     //global read-read graph or precomputing the distances between reads.
+    //
+    debug!("Computing read-graph");
+    debug!(vec_all_reads.len());
     for (i, r1) in vec_all_reads.iter().enumerate() {
         for j in i + 1..vec_all_reads.len() {
             //
@@ -147,6 +171,7 @@ pub fn cluster_reads<'a>(
         }
     }
 
+    debug!("Done computing read-graph");
     if vec_all_edges.len() == 0 {
         let mut clusters: Vec<FxHashSet<&Frag>> = Vec::new();
         for _i in 0..ploidy {
@@ -869,7 +894,7 @@ fn opt_iterate<'a>(
                 let old_score = binom_p_vec[i] + binom_p_vec[j] + chi_square_val;
                 if new_score - old_score > 0.0 {
                     best_moves.push((new_score - old_score, (i, read, j)));
-                    //                    dbg!(new_score,old_score,read_bases_good_movej,read_errors_movej);
+                    //dbg!(new_score,old_score,read_bases_good_movej,read_errors_movej);
                 }
 
                 freq_vec[i] += 1;

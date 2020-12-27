@@ -192,10 +192,10 @@ where
         }
 
         if !is_snp {
-            println!(
-                "BAM : Variant at position {} is not a snp. Ignoring.",
-                unr.pos()
-            );
+//            println!(
+//                "BAM : Variant at position {} is not a snp. Ignoring.",
+//                unr.pos()
+//            );
             continue;
         }
 
@@ -338,10 +338,10 @@ where
         }
 
         if !is_snp {
-            println!(
-                "VCF : Variant at position {} is not a snp. Ignoring.",
-                unr.pos()
-            );
+//            println!(
+//                "VCF : Variant at position {} is not a snp. Ignoring.",
+//                unr.pos()
+//            );
             continue;
         }
 
