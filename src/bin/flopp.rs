@@ -57,6 +57,11 @@ fn main() {
                               .short("e")
                               .takes_value(true)
                               .hidden(true))
+                          .arg(Arg::with_name("binomial factor")
+                              .short("s")
+                              .takes_value(true)
+                              .value_name("BINOMIAL FACTOR")
+                              .help("The normalizing factor for UPEM (sigma in the paper)"))
                           .get_matches();
 
     let num_t_str = matches.value_of("threads").unwrap_or("10");
@@ -69,6 +74,12 @@ fn main() {
         Ok(ploidy) => ploidy,
         Err(_) => panic!("Must input valid ploidy"),
     };
+    let heuristic_multiplier_str = matches.value_of("ploidy").unwrap_or("25.0");
+    let heuristic_multiplier = match heuristic_multiplier_str.parse::<f64>() {
+        Ok(ploidy) => ploidy,
+        Err(_) => panic!("Must input valid ploidy"),
+    };
+
 
     //If the user is getting frag files from BAM and VCF.
     let bam;
@@ -181,7 +192,6 @@ fn main() {
     let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
     println!("Median read length is {}", avg_read_length);
 
-    let heuristic_multiplier = 25.0;
     let block_len_quant = 0.33;
 
     //The sample size correction factor for the binomial test used on the bases/errors.
