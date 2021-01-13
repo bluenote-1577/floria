@@ -49,3 +49,20 @@ fn frag_dump_test(){
         .code(0);
 }
 
+#[test]
+fn multiple_ref_test(){
+    let mut cmd = Command::cargo_bin("frag-dump").unwrap();
+    let assert = cmd
+        .arg("-b")
+        .arg("./tests/test_bams/sorted_merged_bam_3x.bam")
+        .arg("-v")
+        .arg("./tests/test_vcfs/merged_vcf.vcf")
+        .arg("-o")
+        .arg("./tests/output_frag.txt")
+        .assert();
+    assert
+        .success()
+        .code(0);
+
+}
+
