@@ -39,9 +39,9 @@ For a quick test, we provide a VCF and BAM files in the tests folder. Run ``flop
 ### BAM + VCF
 The standard mode of usage is to specify a bam file using the option **-b** and a vcf file using the option **-v**. The output is written to a text file with value of option **-o**. 
 
-Important : For now, flopp requires that the BAM and VCF files only contain one contig/chromosome. That is, all aligned reads must align to the same contig and all SNPs must come from the same contig as well.
-
 flopp currently only uses SNP information and does not take into account indels. However, the user may define their own fragments which can be indexed by other types of variants. 
+
+The bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
 
 ### Fragment file
 A user can also input a fragment file using the option **-f**. The fragment file is a file where each line is a read which is indexed by variants; see https://github.com/MinzhuXie/H-PoPG or https://github.com/realabolfazl/AltHap for more details about the fragment file specifcation (called the *input snp matrix* by H-PoP). Specifying a compatible VCF file with a fragment file uses genotyping information to produce a higher quality output; only SNPs will be processed in the VCF.  
@@ -57,6 +57,8 @@ flopp outputs a phased haplotype file in the following format:
 1. Column 1 is (variant) : (genome position) where (variant) is the i-th variant, and the genome position is the the position of the genome on the reference.
 2. The next k columns are the k phased haplotypes for an organism of ploidy k. 0 represents the reference allele, 1 the first alternate, and so forth. 
 3. The next k columns are of the form (allele):(# calls)|(allele):(# calls) where (allele) = 0,1,... and (# calls) is the number of reads assigned to a specific haplotype which contain that allele. For example, 0:10|1:5 indicates that 10 reads assigned to this haplotype have allele 0 at this position, and 5 reads have allele 1. 
+
+If using a bam file with multiple contigs being mapped to, the output file contain multiple phased haplotypes of the above format which are delimited by `**(contig name)**`.
 
 ## Citing flopp
 
