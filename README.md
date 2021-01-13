@@ -62,6 +62,6 @@ If using a bam file with multiple contigs being mapped to, the output file conta
 
 ## Citing flopp
 
-Jim Shaw and Yun William Yu; Practical probabilistic and graphical formulations of long-read polyploid haplotype phasing. (Accepted to [RECOMB2021](RECOMB2021))
+Jim Shaw and Yun William Yu; Practical probabilistic and graphical formulations of long-read polyploid haplotype phasing. (Accepted to [RECOMB2021](https://www.recomb2021.org/))
 
 
