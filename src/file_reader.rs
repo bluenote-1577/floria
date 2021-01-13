@@ -1,12 +1,16 @@
 use crate::types_structs::{build_frag, update_frag, Frag, HapBlock};
+use std::fs::OpenOptions;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bcf::record::GenotypeAllele;
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
 use rust_htslib::{bcf, bcf::Read as DUMMY_NAME2};
+use rust_htslib::bam::{HeaderView as HeaderViewBam};
 use rust_htslib::bam::header::Header;
 use crate::utils_frags;
 use std::collections::BTreeMap;
 use std::fs::File;
+use std::str;
+use std::mem;
 use std::io::LineWriter;
 use std::io::Write;
 use std::io::{self, BufRead};
@@ -26,7 +30,7 @@ where
 // Given a frags.txt file specified as in H-PoP, we return a collection
 // (vector) of fragments after processing it.
 //
-pub fn get_frags_container<P>(filename: P) -> Vec<Frag>
+pub fn get_frags_container<P>(filename: P) -> FxHashMap<String,Vec<Frag>>
 where
     P: AsRef<Path>,
 {
@@ -90,17 +94,32 @@ where
         }
     }
 
-    all_frags
+    let mut frags_map = FxHashMap::default();
+    frags_map.insert(String::from("frag_contig"),all_frags);
+    frags_map
 }
 
 
 //Write a vector of blocks into a file.
-pub fn write_blocks_to_file<P>(filename: P, blocks: &Vec<HapBlock>, lengths: &Vec<usize>, snp_to_genome : &Vec<usize>, part : &Vec<FxHashSet<&Frag>>)
+pub fn write_blocks_to_file<P>(filename: P, blocks: &Vec<HapBlock>, lengths: &Vec<usize>, snp_to_genome : &Vec<usize>, part : &Vec<FxHashSet<&Frag>>, first_iter : bool, contig : &String)
 where
     P: AsRef<Path>,
 {
     let ploidy = blocks[0].blocks.len();
-    let file = File::create(filename).expect("Can't create file");
+    let file;
+    if first_iter{
+    file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(filename).unwrap();
+    }
+    else{
+        file = OpenOptions::new()
+            .append(true)
+            .open(filename).unwrap();
+    }
+    //let file = File::create(filename).expect("Can't create file");
     let mut file = LineWriter::new(file);
     let mut length_prev_block = 1;
     let emptydict = FxHashMap::default();
@@ -108,7 +127,8 @@ where
     //dbg!(snp_to_genome.len(),lengths[0] + 1);
 
     for (i, block) in blocks.iter().enumerate() {
-        file.write_all(b"**BLOCK**\n").unwrap();
+        let title_string = format!("**{}**\n",contig);
+        file.write_all(title_string.as_bytes()).unwrap();
         for pos in length_prev_block..length_prev_block + lengths[i] {
             if snp_to_genome.len() == 0{
                 write!(file, "{}:NA\t", pos).unwrap();
@@ -150,13 +170,13 @@ where
             }
             write!(file, "\n").unwrap();
         }
-        write!(file, "*****").unwrap();
+        write!(file, "*****\n").unwrap();
         length_prev_block += lengths[i]
     }
 }
 
 //Given a vcf file and a bam file, we get a vector of frags.
-pub fn get_frags_from_bamvcf<P>(vcf_file: P, bam_file: P) -> Vec<Frag>
+pub fn get_frags_from_bamvcf<P>(vcf_file: P, bam_file: P) -> FxHashMap<String,Vec<Frag>>
 where
     P: AsRef<Path>,
 {
@@ -166,22 +186,36 @@ where
         Err(_) => panic!("rust_htslib had an error reading the VCF file. Exiting."),
     };
     let mut snp_counter = 1;
-    let mut set_of_pos = FxHashSet::default();
-    let mut pos_allele_map = FxHashMap::default();
-    let mut pos_to_snp_counter_map = FxHashMap::default();
-    let _header = vcf.header();
-    let mut previous_pos = -1;
+    let mut vcf_set_of_pos = FxHashMap::default();
+    let mut vcf_pos_allele_map = FxHashMap::default();
+    let mut vcf_pos_to_snp_counter_map = FxHashMap::default();
+    let mut all_set_of_pos = FxHashSet::default();
+//    let mut set_of_pos = FxHashSet::default();
+//    let mut pos_allele_map = FxHashMap::default();
+//    let mut pos_to_snp_counter_map = FxHashMap::default();
+    let vcf_header = vcf.header().clone();
 
 //    if header.contig_count() > 1 {
 //        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
 //    }
 
 
+    let mut last_ref_chrom: &[u8] = &[];
     for rec in vcf.records() {
         let unr = rec.unwrap();
         let alleles = unr.alleles();
         let mut al_vec = Vec::new();
         let mut is_snp = true;
+
+        let record_rid = unr.rid().unwrap();
+        let ref_chrom_vcf = vcf_header.rid2name(record_rid).unwrap();
+        if last_ref_chrom != ref_chrom_vcf{
+            snp_counter = 1;
+            last_ref_chrom = ref_chrom_vcf;
+        }
+        let set_of_pos = vcf_set_of_pos.entry(ref_chrom_vcf).or_insert(FxHashSet::default());
+        let pos_allele_map = vcf_pos_allele_map.entry(ref_chrom_vcf).or_insert(FxHashMap::default());
+        let pos_to_snp_counter_map = vcf_pos_to_snp_counter_map.entry(ref_chrom_vcf).or_insert(FxHashMap::default());
 
         for allele in alleles.iter() {
             if allele.len() > 1 {
@@ -200,11 +234,8 @@ where
         }
 
         set_of_pos.insert(unr.pos());
+        all_set_of_pos.insert(unr.pos());
         pos_to_snp_counter_map.insert(unr.pos(), snp_counter);
-        if previous_pos > unr.pos(){
-            panic!("Either VCF is not ordered or there are multiple chromosomes. Please make sure that there is only one contig/chromosome");
-        }
-        previous_pos = unr.pos();
         snp_counter += 1;
         pos_allele_map.insert(unr.pos(), al_vec);
     }
@@ -216,19 +247,21 @@ where
 
     //Check the headers to see how many references there are.
     let header = Header::from_template(bam.header());
+    let bam_header_view = HeaderViewBam::from_header(&header);
     let mut number_references = 0;
     for (id,content) in header.to_hashmap(){
         if id == "SQ"{
             number_references = content.len();
         }
     }
-    if number_references > 1{
-        println!("WARNING! : More than one reference detected in bam file header. flopp currently can not phase more than one contig or chromosome at a time. Undefined behaviour occurs if there are reads mapped to different references in the BAM file.");
-    }
+
+//    if number_references > 1{
+//        dbg!(vcf_pos_to_snp_counter_map.keys());
+//    }
 
     //This may be important : We assume that distinct reads have different names. I can see this
     //being a problem in some weird bad cases, so be careful.
-    let mut id_to_frag = FxHashMap::default();
+    let mut ref_id_to_frag = FxHashMap::default();
     let mut counter_id = 0;
 
     //Scan the pileup table for every position on the genome which contains a SNP to get the aligned reads corresponding to the SNP. TODO : There should be a way to index into the bam.pileup() object so we don't have to iterate through positions which we already know are not SNPs.
@@ -236,20 +269,27 @@ where
         let pileup = p.unwrap();
         let pos_genome = pileup.pos();
 
-        if !set_of_pos.contains(&(pos_genome as i64)) {
+        if !all_set_of_pos.contains(&(pos_genome as i64)) {
             continue;
         }
 
-        let snp_id = pos_to_snp_counter_map.get(&(pos_genome as i64)).unwrap();
 
         for alignment in pileup.alignments() {
             if !alignment.is_del() && !alignment.is_refskip() {
-                let flags = alignment.record().flags();
+                let aln_record = alignment.record();
+                let tid = aln_record.tid();
+                let ref_chrom = bam_header_view.tid2name(tid as u32);
+                let pos_to_snp_counter_map = vcf_pos_to_snp_counter_map.get(ref_chrom).unwrap();
+                if pos_to_snp_counter_map.contains_key(&(pos_genome as i64)) == false{
+                    continue;
+                }
+                let snp_id = pos_to_snp_counter_map.get(&(pos_genome as i64)).unwrap();
+                let flags = aln_record.flags();
                 let errors_mask = 1796;
                 let secondary_mask = 256;
+                let id_to_frag = ref_id_to_frag.entry(ref_chrom).or_insert(FxHashMap::default());
 
-
-                let id_string = String::from_utf8(alignment.record().qname().to_vec()).unwrap();
+                let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
                 //Erroneous alignment, skip
                 if flags & errors_mask > 0 {
                     //dbg!(&flags,&id_string);
@@ -273,7 +313,7 @@ where
                 let readbase = alignment.record().seq()[alignment.qpos().unwrap()];
                 let qualbase = alignment.record().qual()[alignment.qpos().unwrap()];
 
-                for (i, allele) in pos_allele_map
+                for (i, allele) in vcf_pos_allele_map.get(ref_chrom).unwrap()
                     .get(&(pos_genome as i64))
                     .unwrap()
                     .iter()
@@ -290,20 +330,30 @@ where
         }
     }
 
-    let mut vec_frags = Vec::new();
-    for (_id, frag) in id_to_frag.into_iter() {
-        if frag.positions.len() > 1 {
-            vec_frags.push(frag);
+    let mut ref_vec_frags = FxHashMap::default();
+    let mut keys = FxHashSet::default();
+    for ref_chrom in ref_id_to_frag.keys(){
+        ref_vec_frags.insert(String::from_utf8(ref_chrom.to_vec()).unwrap(),Vec::new());
+        keys.insert(ref_chrom.clone());
+    }
+    for ref_chrom in keys{
+        let vec_frags = ref_vec_frags.get_mut(&String::from_utf8(ref_chrom.to_vec()).unwrap()).unwrap();
+        let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
+        let id_to_frag = mem::replace(id_to_frag,FxHashMap::default());
+        for (_id,frag) in id_to_frag.into_iter(){
+            if frag.positions.len() > 1 {
+                vec_frags.push(frag);
+            }
         }
     }
 
-    vec_frags
+    ref_vec_frags
 }
 
 //Read a vcf file to get the genotypes. We read genotypes into a dictionary of keypairs where the
 //keys are positions, and the values are dictionaries which encode the genotypes. E.g. the genotype
 //1 1 0 0 at position 5 would be (5,{1 : 2, 0 : 2}).
-pub fn get_genotypes_from_vcf_hts<P>(vcf_file: P) -> (Vec<usize>, FxHashMap<usize, FxHashMap<usize, usize>>, usize)
+pub fn get_genotypes_from_vcf_hts<P>(vcf_file: P) -> (FxHashMap<String,Vec<usize>>, FxHashMap<String,FxHashMap<usize, FxHashMap<usize, usize>>>, usize)
 where
     P: AsRef<Path>,
 {
@@ -311,9 +361,11 @@ where
         Ok(vcf) => vcf,
         Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting."),
     };
-    let mut positions_vec = Vec::new();
-    let mut genotype_dict = FxHashMap::default();
-    let header = vcf.header();
+    let mut map_positions_vec = FxHashMap::default();
+    let mut map_genotype_dict = FxHashMap::default();
+    //let mut positions_vec = Vec::new();
+    //let mut genotype_dict = FxHashMap::default();
+    let header = vcf.header().clone();
     let mut snp_counter = 1;
     let mut vcf_ploidy = 0;
 
@@ -325,10 +377,18 @@ where
 //        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
 //    }
 
+    let mut last_ref_chrom: &[u8] = &[];
+
     for rec in vcf.records() {
         let mut unr = rec.unwrap();
         let alleles = unr.alleles();
         let mut is_snp = true;
+        let record_rid = unr.rid().unwrap();
+        let ref_chrom_vcf = header.rid2name(record_rid).unwrap();
+        if  last_ref_chrom != ref_chrom_vcf{
+            last_ref_chrom = ref_chrom_vcf;
+            snp_counter = 1;
+        }
 
         for allele in alleles.iter() {
             if allele.len() > 1 {
@@ -373,13 +433,19 @@ where
             }
         }
 
+        let genotype_dict = map_genotype_dict.
+            entry(String::from_utf8(ref_chrom_vcf.to_vec()).unwrap()).
+            or_insert(FxHashMap::default());
+        let positions_vec = map_positions_vec.
+            entry(String::from_utf8(ref_chrom_vcf.to_vec()).unwrap()).
+            or_insert(Vec::new());
         genotype_dict.insert(snp_counter,genotype_counter);
         //+1 because htslib is 0 index by default
         positions_vec.push(unr.pos() as usize + 1); 
         snp_counter += 1;
     }
 
-    (positions_vec,genotype_dict,vcf_ploidy)
+    (map_positions_vec,map_genotype_dict,vcf_ploidy)
 }
 
 //Convert a fragment which stores sequences in a dictionary format to a block format which makes

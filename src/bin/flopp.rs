@@ -80,7 +80,6 @@ fn main() {
         Err(_) => panic!("Must input valid ploidy"),
     };
 
-
     //If the user is getting frag files from BAM and VCF.
     let bam;
     let bam_file = match matches.value_of("bam") {
@@ -150,7 +149,7 @@ fn main() {
 
     //CONSTANTS - Constants which users probably should not change.
 
-    //The inter quantile range outlier factor. 3.0 is standard for detecting extreme outliers 
+    //The inter quantile range outlier factor. 3.0 is standard for detecting extreme outliers
     //Blocks outside of the range will get filled in.
     let iqr_factor = 3.0;
     let polish = vcf;
@@ -163,24 +162,22 @@ fn main() {
 
     println!("Reading inputs (BAM/VCF/frags).");
     let start_t = Instant::now();
-    let mut all_frags;
+    let mut all_frags_map;
     if bam {
-        all_frags = file_reader::get_frags_from_bamvcf(vcf_file, bam_file);
+        all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file);
     } else {
-        all_frags = file_reader::get_frags_container(frag_file);
+        all_frags_map = file_reader::get_frags_container(frag_file);
     }
     println!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
-    //We need frags sorted by first position to make indexing easier.
-    all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
-
-    let mut genotype_dict: FxHashMap<usize, FxHashMap<usize, usize>> = FxHashMap::default();
-    let mut snp_to_genome_pos: Vec<usize> = Vec::new();
+    let mut genotype_dict_map: FxHashMap<String, FxHashMap<usize, FxHashMap<usize, usize>>> =
+        FxHashMap::default();
+    let mut snp_to_genome_pos_map: FxHashMap<String, Vec<usize>> = FxHashMap::default();
     if vcf {
         let (snp_to_genome_pos_t, genotype_dict_t, vcf_ploidy) =
             file_reader::get_genotypes_from_vcf_hts(vcf_file);
-        snp_to_genome_pos = snp_to_genome_pos_t;
-        genotype_dict = genotype_dict_t;
+        snp_to_genome_pos_map = snp_to_genome_pos_t;
+        genotype_dict_map = genotype_dict_t;
 
         //If the VCF file is misformatted or has weird genotyping call we can catch that here.
         if vcf_ploidy != ploidy {
@@ -188,199 +185,232 @@ fn main() {
         }
     }
 
-    //We use the median # bases spanned by fragments as the length of blocks.
-    let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
-    println!("Median read length is {}", avg_read_length);
+    let mut first_iter = true;
 
-    let block_len_quant = 0.33;
+    for (contig,all_frags) in all_frags_map.iter_mut(){
+        if snp_to_genome_pos_map.contains_key(contig) ||
+        bam == false{
 
-    //The sample size correction factor for the binomial test used on the bases/errors.
-    let binomial_factor = (avg_read_length as f64) / heuristic_multiplier;
-    println!("Binomial adjustment factor is {}", binomial_factor);
+            let mut genotype_dict: &FxHashMap<usize, FxHashMap<usize, usize>> = &FxHashMap::default();
+            let mut snp_to_genome_pos : &Vec<usize> = &Vec::new();
 
-    //Final partitions
-    let parts: Mutex<Vec<(Vec<FxHashSet<&Frag>>, usize)>> = Mutex::new(vec![]);
+            if bam == true{
+                snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
+                genotype_dict = genotype_dict_map.get(contig).unwrap();
+            }
+            else{
+                for value in genotype_dict_map.values(){
+                    genotype_dict = value;
+                }
+                for value in snp_to_genome_pos_map.values(){
+                    snp_to_genome_pos = value;
+                }
+            }
 
-    //The length of each local haplotype block. This is currently useless because all haplotype
-    //blocks have the same fixed length, but we may change this in the future.
-    let lengths: Mutex<Vec<usize>> = Mutex::new(vec![]);
+            //We need frags sorted by first position to make indexing easier.
+            all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
 
-    //UPEM scores for each block.
-    let scores: Mutex<Vec<(f64, usize)>> = Mutex::new(vec![]);
-    let length_block = utils_frags::get_avg_length(&all_frags, block_len_quant);
+            //We use the median # bases spanned by fragments as the length of blocks.
+            let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
+            println!("Median read length is {}", avg_read_length);
 
-    //If we want blocks to overlap -- I don't think we actually want blocks to overlap but this may
-    //be an optional parameter for testing purposes.
-    let overlap = 0;
+            let block_len_quant = 0.33;
 
-    //Get last SNP on the genome covered over all fragments.
-    let length_gn = utils_frags::get_length_gn(&all_frags);
-    println!("Length of genome is {}", length_gn);
-    println!("Length of each block is {}", length_block);
-    //How many blocks we iterate through to estimate epsilon.
-    let num_epsilon_attempts = 20 ;
-    let mut epsilon = 0.03;
-    let num_iters = length_gn / length_block;
-    if estimate_epsilon {
-        epsilon = local_clustering::estimate_epsilon(
-            num_iters,
-            num_epsilon_attempts,
-            ploidy,
-            &all_frags,
-            length_block,
-            epsilon
-        );
-    }
+            //The sample size correction factor for the binomial test used on the bases/errors.
+            let binomial_factor = (avg_read_length as f64) / heuristic_multiplier;
+            println!("Binomial adjustment factor is {}", binomial_factor);
 
-    if epsilon == 0.0 {
-        epsilon = 0.010;
-    }
+            //Final partitions
+            let parts: Mutex<Vec<(Vec<FxHashSet<&Frag>>, usize)>> = Mutex::new(vec![]);
 
-    match matches.value_of("epsilon") {
-        None => {}
-        Some(value) => {
-            epsilon = value.parse::<f64>().unwrap();
+            //The length of each local haplotype block. This is currently useless because all haplotype
+            //blocks have the same fixed length, but we may change this in the future.
+            let lengths: Mutex<Vec<usize>> = Mutex::new(vec![]);
+
+            //UPEM scores for each block.
+            let scores: Mutex<Vec<(f64, usize)>> = Mutex::new(vec![]);
+            let length_block = utils_frags::get_avg_length(&all_frags, block_len_quant);
+
+            //If we want blocks to overlap -- I don't think we actually want blocks to overlap but this may
+            //be an optional parameter for testing purposes.
+            let overlap = 0;
+
+            //Get last SNP on the genome covered over all fragments.
+            let length_gn = utils_frags::get_length_gn(&all_frags);
+            println!("Length of genome is {}", length_gn);
+            println!("Length of each block is {}", length_block);
+            //How many blocks we iterate through to estimate epsilon.
+            let num_epsilon_attempts = 20;
+            let mut epsilon = 0.03;
+            let num_iters = length_gn / length_block;
+            if estimate_epsilon {
+                epsilon = local_clustering::estimate_epsilon(
+                    num_iters,
+                    num_epsilon_attempts,
+                    ploidy,
+                    &all_frags,
+                    length_block,
+                    epsilon,
+                );
+            }
+
+            if epsilon == 0.0 {
+                epsilon = 0.010;
+            }
+
+            match matches.value_of("epsilon") {
+                None => {}
+                Some(value) => {
+                    epsilon = value.parse::<f64>().unwrap();
+                }
+            };
+
+            println!("Estimated epsilon is {}", epsilon);
+
+            println!("Generating haplotype blocks");
+            let start_t = Instant::now();
+
+            //Embarassing parallel building of local haplotype blocks using rayon crate.
+            (0..num_iters)
+                .collect::<Vec<usize>>()
+                .into_par_iter()
+                .for_each(|x| {
+                    //            println!("{} iteration number", x);
+                    let block_start = x * length_block + 1;
+                    let part = local_clustering::generate_hap_block(
+                        block_start,
+                        block_start + length_block + overlap,
+                        ploidy,
+                        &all_frags,
+                        epsilon,
+                    );
+
+                    let (best_score, best_part, _best_block) =
+                        local_clustering::optimize_clustering(
+                            part,
+                            epsilon,
+                            &genotype_dict,
+                            polish,
+                            num_iters_optimizing,
+                            binomial_factor,
+                        );
+
+                    let mut locked_parts = parts.lock().unwrap();
+                    let mut locked_lengths = lengths.lock().unwrap();
+                    let mut locked_scores = scores.lock().unwrap();
+                    locked_parts.push((best_part, x));
+                    locked_lengths.push(length_block);
+                    locked_scores.push((best_score, x));
+
+                    //        println!("UPEM Score : {}", best_score);
+                });
+
+            println!("Time taken local clustering {:?}", Instant::now() - start_t);
+
+            //Sort the vectors which may be out of order due to multi-threading.
+            let mut scores = scores.lock().unwrap().to_vec();
+            scores.sort_by(|a, b| a.1.cmp(&b.1));
+            let scores = scores.into_iter().map(|x| x.0).collect();
+            let mut parts = parts.lock().unwrap().to_vec();
+            parts.sort_by(|a, b| a.1.cmp(&b.1));
+            let parts = parts.into_iter().map(|x| x.0).collect();
+
+            let start_t = Instant::now();
+            let part_filled;
+
+            //Fill blocks
+            if fill {
+                part_filled = vcf_polishing::replace_with_filled_blocks(
+                    &scores,
+                    parts,
+                    iqr_factor,
+                    length_block,
+                    &all_frags,
+                    epsilon,
+                );
+            } else {
+                part_filled = parts;
+            }
+            println!("Time taken block filling {:?}", Instant::now() - start_t);
+
+            let start_t = Instant::now();
+
+            //Link and polish all blocks.
+            //    let mut final_part = vcf_polishing::link_blocks(&part_filled);
+            let final_part = vcf_polishing::link_blocks_greedy(&part_filled);
+            //    let mut final_part = vcf_polishing::link_blocks_heur(&part_filled,4);
+
+            //    for i in 0..ploidy{
+            //        let inter =  &final_part[i].intersection(&final_part2[i]).collect::<Vec<_>>();
+            //        dbg!(inter.len());
+            //        let diff =  &final_part[i].symmetric_difference(&final_part2[i]).collect::<Vec<_>>();
+            //        dbg!(diff.len());
+            //        dbg!(final_part[i].len());
+            //        dbg!(final_part2[i].len());
+            //    }
+            let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
+            let mut final_block_polish = HapBlock { blocks: Vec::new() };
+            if polish {
+                final_block_polish = vcf_polishing::polish_using_vcf(
+                    &genotype_dict,
+                    &final_block_unpolish,
+                    &(1..length_gn + 1).collect::<Vec<_>>(),
+                );
+            }
+
+            //TEST SECTION
+            //Map all reads against putative haplotype; DBG currently may be useful
+            //for breaking blocks
+            //    vcf_polishing::remove_duplicate_reads(&mut final_part,&all_frags,&final_block_polish);
+            //    vcf_polishing::map_reads_against_hap_errors(&final_part,&final_block_polish,epsilon);
+            //    let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
+            //    let mut final_block_polish = HapBlock { blocks: Vec::new() };
+            //    if polish {
+            //        final_block_polish = vcf_polishing::polish_using_vcf(
+            //            &genotype_dict,
+            //            &final_block_unpolish,
+            //            &(1..length_gn + 1).collect::<Vec<_>>(),
+            //        );
+            //    }
+            //
+
+            println!(
+                "Time taken linking, polishing blocks {:?}",
+                Instant::now() - start_t
+            );
+
+            let start_t = Instant::now();
+            //Write blocks to file. Write fragments to a file if the user chooses to do that instead.
+            if polish {
+                file_reader::write_blocks_to_file(
+                    output_blocks_str,
+                    &vec![final_block_polish],
+                    &vec![length_gn],
+                    &snp_to_genome_pos,
+                    &final_part,
+                    first_iter,
+                    contig
+                );
+            } else {
+                file_reader::write_blocks_to_file(
+                    output_blocks_str,
+                    &vec![final_block_unpolish],
+                    &vec![length_gn],
+                    &snp_to_genome_pos,
+                    &final_part,
+                    first_iter,
+                    contig
+                );
+            }
+
+            first_iter = false;
+
+            println!(
+                "Time taken writing blocks for contig {} to {} : {:?}",
+                contig,
+                output_blocks_str,
+                Instant::now() - start_t
+            );
         }
-    };
-
-    println!("Estimated epsilon is {}", epsilon);
-
-    println!("Generating haplotype blocks");
-    let start_t = Instant::now();
-
-    //Embarassing parallel building of local haplotype blocks using rayon crate.
-    (0..num_iters)
-        .collect::<Vec<usize>>()
-        .into_par_iter()
-        .for_each(|x| {
-            //            println!("{} iteration number", x);
-            let block_start = x * length_block + 1;
-            let part = local_clustering::generate_hap_block(
-                block_start,
-                block_start + length_block + overlap,
-                ploidy,
-                &all_frags,
-                epsilon
-            );
-
-            let (best_score, best_part, _best_block) = local_clustering::optimize_clustering(
-                part,
-                epsilon,
-                &genotype_dict,
-                polish,
-                num_iters_optimizing,
-                binomial_factor,
-            );
-
-            let mut locked_parts = parts.lock().unwrap();
-            let mut locked_lengths = lengths.lock().unwrap();
-            let mut locked_scores = scores.lock().unwrap();
-            locked_parts.push((best_part, x));
-            locked_lengths.push(length_block);
-            locked_scores.push((best_score, x));
-
-            //        println!("UPEM Score : {}", best_score);
-        });
-
-    println!("Time taken local clustering {:?}", Instant::now() - start_t);
-
-    //Sort the vectors which may be out of order due to multi-threading.
-    let mut scores = scores.lock().unwrap().to_vec();
-    scores.sort_by(|a, b| a.1.cmp(&b.1));
-    let scores = scores.into_iter().map(|x| x.0).collect();
-    let mut parts = parts.lock().unwrap().to_vec();
-    parts.sort_by(|a, b| a.1.cmp(&b.1));
-    let parts = parts.into_iter().map(|x| x.0).collect();
-
-    let start_t = Instant::now();
-    let part_filled;
-
-    //Fill blocks
-    if fill {
-        part_filled = vcf_polishing::replace_with_filled_blocks(
-            &scores,
-            parts,
-            iqr_factor,
-            length_block,
-            &all_frags,
-            epsilon
-        );
-    } else {
-        part_filled = parts;
     }
-    println!("Time taken block filling {:?}", Instant::now() - start_t);
-
-
-    let start_t = Instant::now();
-
-    //Link and polish all blocks.
-//    let mut final_part = vcf_polishing::link_blocks(&part_filled);
-    let final_part = vcf_polishing::link_blocks_greedy(&part_filled);
-//    let mut final_part = vcf_polishing::link_blocks_heur(&part_filled,4);
-
-    //    for i in 0..ploidy{
-    //        let inter =  &final_part[i].intersection(&final_part2[i]).collect::<Vec<_>>();
-    //        dbg!(inter.len());
-    //        let diff =  &final_part[i].symmetric_difference(&final_part2[i]).collect::<Vec<_>>();
-    //        dbg!(diff.len());
-    //        dbg!(final_part[i].len());
-    //        dbg!(final_part2[i].len());
-    //    }
-    let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
-    let mut final_block_polish = HapBlock { blocks: Vec::new() };
-    if polish {
-        final_block_polish = vcf_polishing::polish_using_vcf(
-            &genotype_dict,
-            &final_block_unpolish,
-            &(1..length_gn + 1).collect::<Vec<_>>(),
-        );
-    }
-
-
-    //TEST SECTION
-    //Map all reads against putative haplotype; DBG currently may be useful
-    //for breaking blocks 
-//    vcf_polishing::remove_duplicate_reads(&mut final_part,&all_frags,&final_block_polish);
-//    vcf_polishing::map_reads_against_hap_errors(&final_part,&final_block_polish,epsilon);
-//    let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
-//    let mut final_block_polish = HapBlock { blocks: Vec::new() };
-//    if polish {
-//        final_block_polish = vcf_polishing::polish_using_vcf(
-//            &genotype_dict,
-//            &final_block_unpolish,
-//            &(1..length_gn + 1).collect::<Vec<_>>(),
-//        );
-//    }
-    //
-
-    println!(
-        "Time taken linking, polishing blocks {:?}",
-        Instant::now() - start_t
-    );
-
-    let start_t = Instant::now();
-    //Write blocks to file. Write fragments to a file if the user chooses to do that instead.
-    if polish {
-        file_reader::write_blocks_to_file(
-            output_blocks_str,
-            &vec![final_block_polish],
-            &vec![length_gn],
-            &snp_to_genome_pos,
-            &final_part,
-        );
-    } else {
-        file_reader::write_blocks_to_file(
-            output_blocks_str,
-            &vec![final_block_unpolish],
-            &vec![length_gn],
-            &snp_to_genome_pos,
-            &final_part,
-        );
-    }
-
-    println!(
-        "Time taken writing blocks to {} : {:?}",
-        output_blocks_str,
-        Instant::now() - start_t
-    );
 }
