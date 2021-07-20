@@ -60,6 +60,10 @@ flopp outputs a phased haplotype file in the following format:
 
 If using a bam file with multiple contigs being mapped to, the output file contain multiple phased haplotypes of the above format which are delimited by `**(contig name)**`.
 
+## Upcoming
+
+Upcoming features are in the development branch of this repository. Commit messages in the development branch outline some new features which will be added.
+
 ## Citing flopp
 
 Jim Shaw and Yun William Yu; Practical probabilistic and graphical formulations of long-read polyploid haplotype phasing. (Accepted to [RECOMB2021](https://www.recomb2021.org/))
