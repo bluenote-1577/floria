@@ -1,5 +1,6 @@
 use crate::types_structs::{build_frag, update_frag, Frag, HapBlock};
 use std::fs::OpenOptions;
+use std::fs;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bcf::record::GenotypeAllele;
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
@@ -209,6 +210,7 @@ where
 
         let record_rid = unr.rid().unwrap();
         let ref_chrom_vcf = vcf_header.rid2name(record_rid).unwrap();
+        //dbg!(String::from_utf8_lossy(ref_chrom_vcf));
         if last_ref_chrom != ref_chrom_vcf{
             snp_counter = 1;
             last_ref_chrom = ref_chrom_vcf;
@@ -279,7 +281,14 @@ where
                 let aln_record = alignment.record();
                 let tid = aln_record.tid();
                 let ref_chrom = bam_header_view.tid2name(tid as u32);
-                let pos_to_snp_counter_map = vcf_pos_to_snp_counter_map.get(ref_chrom).unwrap();
+                //dbg!(String::from_utf8_lossy(ref_chrom));
+                let get_ref_chrom = vcf_pos_to_snp_counter_map.get(ref_chrom);
+
+                let pos_to_snp_counter_map = match get_ref_chrom {
+                    Some(pos_to_snp_counter_map) => pos_to_snp_counter_map,
+                    None => continue,
+                };
+
                 if pos_to_snp_counter_map.contains_key(&(pos_genome as i64)) == false{
                     continue;
                 }
@@ -512,6 +521,22 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
         }
 
         write!(file, "\n").unwrap();
+    }
+}
+
+pub fn write_output_partition_to_file<P>(part : &Vec<FxHashSet<&Frag>>, out_bam_part_dir: P, contig: &String)
+where P: AsRef<Path>,
+{
+    fs::create_dir_all(&out_bam_part_dir).unwrap();
+    let contig_path = out_bam_part_dir.as_ref().join(format!("{}_part.txt",contig));
+    let file = File::create(contig_path).expect("Can't create file");
+    let mut file = LineWriter::new(file);
+
+    for (i, set) in part.iter().enumerate(){
+        write!(file, "#{}\n", i).unwrap();
+        for frag in set{
+            write!(file, "{}\t{}\n", frag.id.clone(), frag.counter_id.clone()).unwrap();
+        }
     }
 }
 

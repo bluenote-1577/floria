@@ -9,12 +9,16 @@ use fxhash::{FxHashMap, FxHashSet};
 
 #[cfg(debug_assertions)]
 macro_rules! debug {
-    ($x:expr) => { dbg!($x) }
+    ($x:expr) => {
+        dbg!($x)
+    };
 }
 
 #[cfg(not(debug_assertions))]
 macro_rules! debug {
-    ($x:expr) => { std::convert::identity($x) }
+    ($x:expr) => {
+        std::convert::identity($x)
+    };
 }
 
 //use std::time::Instant;
@@ -49,9 +53,9 @@ pub fn find_reads_in_interval<'a>(
         }
 
         //Currently we use 1/3 quantile as the length of the block, i.e.
-        //end-start. If a mapping is weird and the fragment 
+        //end-start. If a mapping is weird and the fragment
         //spans several regions, we ignore the fragment.
-        if frag.last_position - frag.first_position > 20* (end - start){
+        if frag.last_position - frag.first_position > 20 * (end - start) {
             continue;
         }
 
@@ -67,12 +71,12 @@ pub fn generate_hap_block<'a>(
     //position_to_reads : &'a FxHashMap<usize,FxHashSet<&Frag>>,
     ploidy: usize,
     all_frags: &'a Vec<Frag>,
-    epsilon : f64
+    epsilon: f64,
 ) -> Vec<FxHashSet<&'a Frag>> {
-    debug!(start);
-    debug!(end);
+    //debug!(start);
+    //debug!(end);
     let all_reads = find_reads_in_interval(start, end, all_frags);
-    let partition = cluster_reads(&all_reads, ploidy,epsilon);
+    let partition = cluster_reads(&all_reads, ploidy, epsilon);
     partition
 }
 
@@ -109,7 +113,8 @@ pub fn dist_from_graph(
 pub fn cluster_reads<'a>(
     all_reads: &FxHashSet<&'a Frag>,
     ploidy: usize,
-    epsilon : f64) -> Vec<FxHashSet<&'a Frag>> {
+    epsilon: f64,
+) -> Vec<FxHashSet<&'a Frag>> {
     let use_binomial_dist = true;
 
     //Get the largest distance edge
@@ -128,8 +133,8 @@ pub fn cluster_reads<'a>(
     //
     //global read-read graph or precomputing the distances between reads.
     //
-    debug!("Computing read-graph");
-    debug!(vec_all_reads.len());
+    //debug!("Computing read-graph");
+    //debug!(vec_all_reads.len());
     for (i, r1) in vec_all_reads.iter().enumerate() {
         for j in i + 1..vec_all_reads.len() {
             //
@@ -154,7 +159,7 @@ pub fn cluster_reads<'a>(
                     * stable_binom_cdf_p_rev(
                         (same + mec_dist) as usize,
                         mec_dist as usize,
-                        2.0*epsilon * (1.0-epsilon),
+                        2.0 * epsilon * (1.0 - epsilon),
                         100.0,
                     );
             } else {
@@ -171,7 +176,7 @@ pub fn cluster_reads<'a>(
         }
     }
 
-    debug!("Done computing read-graph");
+    //debug!("Done computing read-graph");
     if vec_all_edges.len() == 0 {
         let mut clusters: Vec<FxHashSet<&Frag>> = Vec::new();
         for _i in 0..ploidy {
@@ -260,39 +265,46 @@ pub fn cluster_reads<'a>(
     }
 
     //DEBUGGING/TESTING
-//    {
-//        //        println!("CLIQUE VERTICES");
-//        let mut id_set = FxHashSet::default();
-//        for vertex in used_vertices.iter() {
-//            let id = &vec_all_reads[(*vertex) as usize].id;
-//            //            println!("{}", id);
-//            let mut split = id.split("/");
-//            let cluster = split.next();
-//            id_set.insert(cluster);
-//        }
-//
-//        if id_set.len() < ploidy {
-//            println!("clique partition not effective");
-//            for vertex in used_vertices.iter() {
-//                let frag1 = &vec_all_reads[(*vertex) as usize];
-//                for vertex in used_vertices.iter() {
-//                    let frag2 = &vec_all_reads[(*vertex) as usize];
-//                    println!(
-//                        "{},{},{},{}",
-//                        &frag1.id,
-//                        &frag2.id,
-//                        utils_frags::distance(frag1, frag2).1,
-//                        utils_frags::distance(frag1, frag2).0
-//                    );
-//                }
-//            }
-//        }
-//    }
+    //    {
+    //        //        println!("CLIQUE VERTICES");
+    //        let mut id_set = FxHashSet::default();
+    //        for vertex in used_vertices.iter() {
+    //            let id = &vec_all_reads[(*vertex) as usize].id;
+    //            //            println!("{}", id);
+    //            let mut split = id.split("/");
+    //            let cluster = split.next();
+    //            id_set.insert(cluster);
+    //        }
+    //
+    //        if id_set.len() < ploidy {
+    //            println!("clique partition not effective");
+    //            for vertex in used_vertices.iter() {
+    //                let frag1 = &vec_all_reads[(*vertex) as usize];
+    //                for vertex in used_vertices.iter() {
+    //                    let frag2 = &vec_all_reads[(*vertex) as usize];
+    //                    println!(
+    //                        "{},{},{},{}",
+    //                        &frag1.id,
+    //                        &frag2.id,
+    //                        utils_frags::distance(frag1, frag2).1,
+    //                        utils_frags::distance(frag1, frag2).0
+    //                    );
+    //                }
+    //            }
+    //        }
+    //    }
 
     //Populate the clusters -- experimenting with diffferent methods...
-//    populate_clusters1(&mut clusters, &mut used_vertices, &vec_all_reads, &adj_list_edges, ploidy);
-//    populate_clusters2_binom(&mut clusters, &mut used_vertices, &vec_all_reads, &adj_list_edges, ploidy,10);
-    populate_clusters3(&mut clusters, &mut used_vertices, &vec_all_reads, &adj_list_edges, ploidy,10);
+    //    populate_clusters1(&mut clusters, &mut used_vertices, &vec_all_reads, &adj_list_edges, ploidy);
+    //    populate_clusters2_binom(&mut clusters, &mut used_vertices, &vec_all_reads, &adj_list_edges, ploidy,10);
+    populate_clusters3(
+        &mut clusters,
+        &mut used_vertices,
+        &vec_all_reads,
+        &adj_list_edges,
+        ploidy,
+        10,
+    );
 
     //Turn the vertex indices into actual fragments -- could probably come up with a more elegant
     //solution using some sort of map function...
@@ -314,12 +326,12 @@ fn populate_clusters3(
     vec_all_reads: &Vec<&&Frag>,
     adj_list_edges: &Vec<Vec<(f64, i32)>>,
     ploidy: usize,
-    iters : usize
+    iters: usize,
 ) {
     //Sort reads(vertices) by the minimum of the maximum overlaps between clusters
-    for iteration in 0..iters{
-        let mut max_num_iters = vec_all_reads.len()/iters;
-        if iteration == iters-1{
+    for iteration in 0..iters {
+        let mut max_num_iters = vec_all_reads.len() / iters;
+        if iteration == iters - 1 {
             max_num_iters = usize::MAX;
         }
         //First sort vertices by the minimum overlap for a read with all vertices in the clusters.
@@ -366,14 +378,14 @@ fn populate_clusters3(
         //Obtained sorted vertices
         sorted_vec_overlap_reads.sort_by(|a, b| b.1.cmp(&a.1));
 
-//        if sorted_vec_overlap_reads.len() > 0{
-//            dbg!(&sorted_vec_overlap_reads[0], vec_all_reads[sorted_vec_overlap_reads[0].0 as usize].seq_dict.len(),iteration);
-//        }
+        //        if sorted_vec_overlap_reads.len() > 0{
+        //            dbg!(&sorted_vec_overlap_reads[0], vec_all_reads[sorted_vec_overlap_reads[0].0 as usize].seq_dict.len(),iteration);
+        //        }
 
         //Now greedily add vertices to the partition where the maximum distance to the cluster is
         //minimized.
-        for (j,(vertex, _dist)) in sorted_vec_overlap_reads.iter().enumerate() {
-            if j > max_num_iters{
+        for (j, (vertex, _dist)) in sorted_vec_overlap_reads.iter().enumerate() {
+            if j > max_num_iters {
                 break;
             }
             let edges = &adj_list_edges[*vertex];
@@ -416,14 +428,14 @@ fn populate_clusters2_binom(
     vec_all_reads: &Vec<&&Frag>,
     adj_list_edges: &Vec<Vec<(f64, i32)>>,
     ploidy: usize,
-    iters : usize
+    iters: usize,
 ) {
     //Sort reads(vertices) by the minimum of the maximum overlaps between clusters
-    for iteration in 0..iters{
+    for iteration in 0..iters {
         let mut sorted_vec_overlap_reads = Vec::new();
 
-        let mut max_num_iters = vec_all_reads.len()/iters;
-        if iteration == iters-1{
+        let mut max_num_iters = vec_all_reads.len() / iters;
+        if iteration == iters - 1 {
             max_num_iters = usize::MAX;
         }
 
@@ -450,31 +462,28 @@ fn populate_clusters2_binom(
                 }
             }
 
-            let mut sorted_distances : Vec<_>= dist_between_clusters.iter().collect();
-            sorted_distances.sort_by(|a,b| a.partial_cmp(&b).unwrap());
-//            dbg!(&sorted_distances);
-//            let mut sort_val = sorted_distances[0] - (sorted_distances[1] + sorted_distances[2] + sorted_distances[3]);
+            let mut sorted_distances: Vec<_> = dist_between_clusters.iter().collect();
+            sorted_distances.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+            //            dbg!(&sorted_distances);
+            //            let mut sort_val = sorted_distances[0] - (sorted_distances[1] + sorted_distances[2] + sorted_distances[3]);
             let mut sort_val = sorted_distances[0] - sorted_distances[1];
-            if *sorted_distances[0] == -1.0{
+            if *sorted_distances[0] == -1.0 {
                 sort_val = f64::MAX;
             }
-            sorted_vec_overlap_reads.push((
-                i,
-                sort_val
-            ));
+            sorted_vec_overlap_reads.push((i, sort_val));
         }
 
         //Obtained sorted vertices
         sorted_vec_overlap_reads.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-//        if sorted_vec_overlap_reads.len() > 0{
-//            dbg!(&sorted_vec_overlap_reads[0], vec_all_reads[sorted_vec_overlap_reads[0].0 as usize].seq_dict.len(),iteration);
-//        }
+        //        if sorted_vec_overlap_reads.len() > 0{
+        //            dbg!(&sorted_vec_overlap_reads[0], vec_all_reads[sorted_vec_overlap_reads[0].0 as usize].seq_dict.len(),iteration);
+        //        }
 
         //Now greedily add vertices to the partition where the maximum distance to the cluster is
         //minimized.
-        for (j,(vertex, _dist)) in sorted_vec_overlap_reads.iter().enumerate() {
-            if j > max_num_iters{
+        for (j, (vertex, _dist)) in sorted_vec_overlap_reads.iter().enumerate() {
+            if j > max_num_iters {
                 break;
             }
             let edges = &adj_list_edges[*vertex];
@@ -625,6 +634,7 @@ fn populate_clusters1(
 //polish : if we polish or not
 //max_iters : the maximum number of iterations we do.
 //div_factor : a normalizing factor for the binomial test to make the sample size smaller.
+//use_mec : we can also use MEC score instead of UPEM is desired
 pub fn optimize_clustering<'a>(
     partition: Vec<FxHashSet<&'a Frag>>,
     epsilon: f64,
@@ -632,6 +642,7 @@ pub fn optimize_clustering<'a>(
     polish: bool,
     max_iters: usize,
     div_factor: f64,
+    use_mec: bool,
 ) -> (f64, Vec<FxHashSet<&'a Frag>>, HapBlock) {
     let mut not_empty = false;
     for part in partition.iter() {
@@ -664,6 +675,12 @@ pub fn optimize_clustering<'a>(
 
     let (binom_vec, freq_vec) = get_partition_stats(&partition, &prev_hap_block);
     let mut prev_score = get_upem_score(&binom_vec, &freq_vec, epsilon, div_factor);
+
+    if use_mec {
+        //prev_score = get_mec_score(&binom_vec, &freq_vec, epsilon, div_factor);
+        prev_score = get_pem_score(&binom_vec, &freq_vec, epsilon, div_factor);
+    }
+
     let mut best_part = partition;
 
     //Iterate until an iteration yields a lower UPEM score -- return partition corresponding
@@ -675,11 +692,18 @@ pub fn optimize_clustering<'a>(
             new_block = vcf_polishing::polish_using_vcf(genotype_dict, &new_block, &position_vec);
         }
         let (new_binom_vec, new_freq_vec) = get_partition_stats(&new_part, &new_block);
-        let new_score = get_upem_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
-        //        dbg!(&new_binom_vec,_i,new_score,&new_freq_vec);
-        //        if new_score.is_nan(){
-        //        dbg!(&new_binom_vec,_i,new_score);
-        //        }
+        let mut new_score = get_upem_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
+        if use_mec {
+            //new_score = get_mec_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
+            new_score = get_pem_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
+        }
+
+//        if new_score > prev_score{
+//            dbg!(_i, &new_binom_vec, new_score, prev_score, &new_freq_vec);
+//            if new_score.is_nan() {
+//                dbg!(_i, &new_binom_vec, new_score, &new_freq_vec);
+//            }
+//        }
 
         (new_score, new_freq_vec, new_binom_vec);
         if new_score > prev_score {
@@ -715,34 +739,31 @@ fn chi_square_p(freqs: &Vec<usize>) -> f64 {
     return rv_res.ln();
 }
 
-//Can also use a normal approximation. This formula is taken from wikipedia. 
-pub fn log_erfc(x : f64) -> f64{
-    
+//Can also use a normal approximation. This formula is taken from wikipedia.
+pub fn log_erfc(x: f64) -> f64 {
     let p = 0.47047;
     let a1 = 0.3480242;
     let a2 = -0.0958798;
     let a3 = 0.7478556;
-    let t = 1.0/(1.0 + p*x);
+    let t = 1.0 / (1.0 + p * x);
 
-    let polynomial_term = a1*t + a2*t*t + a3*t*t*t;
-    if polynomial_term < 0.0{
-        return 0.0
+    let polynomial_term = a1 * t + a2 * t * t + a3 * t * t * t;
+    if polynomial_term < 0.0 {
+        return 0.0;
     }
-    let log_erfc = -(x*x) + polynomial_term.ln();
+    let log_erfc = -(x * x) + polynomial_term.ln();
 
     return log_erfc;
 }
 
-pub fn norm_approx(n : usize, k : usize, p : f64, _div_factor : f64) -> f64{
+pub fn norm_approx(n: usize, k: usize, p: f64, _div_factor: f64) -> f64 {
     let div_factor = 1.0;
-    let samp_size = (n as f64)/div_factor;
+    let samp_size = (n as f64) / div_factor;
     let mu = samp_size * p;
-    let sigma = (mu*(1.0-p)).sqrt();
-    let z = (k as f64 +0.5 - mu)/(sigma);
+    let sigma = (mu * (1.0 - p)).sqrt();
+    let z = (k as f64 + 0.5 - mu) / (sigma);
     return log_erfc(z);
 }
-
-
 
 //Get the log p-value for a 1-sided binomial test. This is a asymptotically tight large deviation
 //bound. It's super accurate when k/n >> p, but relatively inaccurate when k/n is close to p. One
@@ -751,19 +772,18 @@ pub fn norm_approx(n : usize, k : usize, p : f64, _div_factor : f64) -> f64{
 //
 //I'm currently using this implementation. We can still mess around with using different approximations.
 pub fn stable_binom_cdf_p_rev(n: usize, k: usize, p: f64, div_factor: f64) -> f64 {
-
     if n == 0 {
         return 0.0;
     }
 
-//    return norm_approx(n,k,p,div_factor);
+    //    return norm_approx(n,k,p,div_factor);
 
     let n64 = n as f64;
     let k64 = k as f64;
 
-    //In this case, the relative entropy is bigger than the minimum of 0 which we don't want. 
+    //In this case, the relative entropy is bigger than the minimum of 0 which we don't want.
     let mut a = k64 / n64;
-    
+
     if a == 1.0 {
         //Get a NaN error if a = 1.0;
         a = 0.9999999
@@ -777,17 +797,16 @@ pub fn stable_binom_cdf_p_rev(n: usize, k: usize, p: f64, div_factor: f64) -> f6
 
     //If smaller error than epsilon, invert the rel-ent so that we get a positive probability
     //makes heuristic sense because a smaller than epsilon error is better than an epsilon error
-    //for which the relative entropy is 0. 
-    if a < p{
+    //for which the relative entropy is 0.
+    if a < p {
         rel_ent = -rel_ent;
     }
-    let large_dev_val = -1.0 * n64 / div_factor * rel_ent ;
-        //- 0.5 * (6.283*a*(1.0-a)*n64/div_factor).ln();
+    let large_dev_val = -1.0 * n64 / div_factor * rel_ent;
+    //- 0.5 * (6.283*a*(1.0-a)*n64/div_factor).ln();
 
     return large_dev_val;
 
-    
-//    return -1.0 * n64 / div_factor * rel_ent;
+    //    return -1.0 * n64 / div_factor * rel_ent;
 }
 
 //Get a vector of read frequencies and error rates from a partition and its corresponding
@@ -815,6 +834,21 @@ pub fn get_partition_stats(
     (binom_vec, freq_vec)
 }
 
+//Return pem score
+fn get_pem_score(
+    binom_vec: &Vec<(usize, usize)>,
+    _freq_vec: &Vec<usize>,
+    p: f64,
+    div_factor: f64,
+) -> f64 {
+    let mut score = 0.0;
+    for stat in binom_vec.iter() {
+        let bincdf = stable_binom_cdf_p_rev(stat.0 + stat.1, stat.1, p, div_factor);
+        score += bincdf;
+    }
+    score
+}
+
 //Return upem score
 fn get_upem_score(
     binom_vec: &Vec<(usize, usize)>,
@@ -829,6 +863,22 @@ fn get_upem_score(
     }
     score += chi_square_p(freq_vec);
     score
+}
+
+//Return mec score
+pub fn get_mec_score(
+    binom_vec: &Vec<(usize, usize)>,
+    _freq_vec: &Vec<usize>,
+    _p: f64,
+    _div_factor: f64,
+) -> f64 {
+    let mut score = 0;
+    for stat in binom_vec.iter() {
+        score += stat.1;
+    }
+    let score_f64 = score as f64;
+    score_f64 * -1.0
+
 }
 
 fn opt_iterate<'a>(
@@ -940,7 +990,7 @@ pub fn estimate_epsilon(
     ploidy: usize,
     all_frags: &Vec<Frag>,
     block_len: usize,
-    initial_epsilon : f64
+    initial_epsilon: f64,
 ) -> f64 {
     let mut rng = Pcg64::seed_from_u64(1);
     let mut random_vec = Vec::new();
@@ -952,7 +1002,13 @@ pub fn estimate_epsilon(
     }
 
     for i in random_vec.into_iter() {
-        let part = generate_hap_block(i * block_len, (i + 1) * block_len, ploidy, all_frags,initial_epsilon);
+        let part = generate_hap_block(
+            i * block_len,
+            (i + 1) * block_len,
+            ploidy,
+            all_frags,
+            initial_epsilon,
+        );
         let block = utils_frags::hap_block_from_partition(&part);
         let (binom_vec, _freq_vec) = get_partition_stats(&part, &block);
         for (good, bad) in binom_vec {
@@ -964,8 +1020,8 @@ pub fn estimate_epsilon(
         }
     }
 
-    let percentile_index = epsilons.len()/10;
+    let percentile_index = epsilons.len() / 10;
 
-    epsilons.sort_by(|a,b| a.partial_cmp(&b).unwrap());
+    epsilons.sort_by(|a, b| a.partial_cmp(&b).unwrap());
     epsilons[percentile_index]
 }
