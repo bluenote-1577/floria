@@ -569,10 +569,11 @@ pub fn remove_duplicate_reads(
             }
 
             mec_hap_vec.sort_by(|a,b| a.0.cmp(&b.0));
-            for i in 1..mec_hap_vec.len(){
-                if mec_hap_vec[i].0 > mec_hap_vec[0].0{
-                    part[i].remove(frag);
-                }
+            for j in 1..mec_hap_vec.len(){
+                //if mec_hap_vec[i].0 > mec_hap_vec[0].0{
+                let i = mec_hap_vec[j].1;
+                part[i].remove(frag);
+                //}
             }
 
         }
@@ -637,6 +638,7 @@ pub fn link_blocks_greedy<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<
     //Multithreaded version -- not super useful unless ploidy > 6. Might as well though.
     let mut final_part = all_parts[0].clone();
     let ploidy = final_part.len();
+    let mut part_size_distribution_sum = vec!();
     let rangevec: Vec<usize> = (0..ploidy).collect();
     let perms = permute(rangevec);
 
@@ -684,8 +686,26 @@ pub fn link_blocks_greedy<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<
 //                }
             }
         }
+        //TEST
+        let mut countvec1 = vec!();
+        let mut countvec2 = vec!();
+        for j in 0..ploidy{
+            part_size_distribution_sum.push(vec!());
+            countvec1.push(final_part[j].len());
+            countvec2.push(part_to_link[best_perm[j]].len());
+        }
+        //dbg!(&countvec1,&countvec2);
+        countvec2.sort();
+        for j in 0..ploidy{
+            part_size_distribution_sum[j].push(countvec2[j]);
+        }
     }
 
+    for j in 0..ploidy{
+        part_size_distribution_sum[j].sort();
+        let dist = &part_size_distribution_sum[j];
+        dbg!(dist[(dist.len() as f64 * 0.5) as usize]);
+    }
     final_part
 }
 
