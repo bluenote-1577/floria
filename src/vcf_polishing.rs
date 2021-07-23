@@ -196,9 +196,11 @@ pub fn link_blocks<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashS
     //We have to do compose permutations here to keep track of
     //what state the permutations between the pairs needs to be in.
     let mut all_used_reads = FxHashSet::default();
+    let mut all_used_reads_vec = vec!();
     for reads in all_parts[0].iter(){
         for read in reads.iter(){
             all_used_reads.insert(read);
+            all_used_reads_vec.push(read);
         }
     }
 
@@ -212,6 +214,7 @@ pub fn link_blocks<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashS
 //                if !all_used_reads.contains(read){
                     set1.insert(read);
                     all_used_reads.insert(read);
+                    all_used_reads_vec.push(read);
 //                }
             }
         }
@@ -569,10 +572,11 @@ pub fn remove_duplicate_reads(
             }
 
             mec_hap_vec.sort_by(|a,b| a.0.cmp(&b.0));
-            for i in 1..mec_hap_vec.len(){
-                if mec_hap_vec[i].0 > mec_hap_vec[0].0{
-                    part[i].remove(frag);
-                }
+            for j in 1..mec_hap_vec.len(){
+                //if mec_hap_vec[i].0 > mec_hap_vec[0].0{
+                let i = mec_hap_vec[j].1;
+                part[i].remove(frag);
+                //}
             }
 
         }
@@ -633,10 +637,13 @@ pub fn map_reads_against_hap_errors(
     }
 }
 
-pub fn link_blocks_greedy<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<FxHashSet<&'a Frag>> {
+pub fn link_blocks_greedy<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>,
+    all_frags: &'a Vec<Frag>,
+    ) -> Vec<FxHashSet<&'a Frag>> {
     //Multithreaded version -- not super useful unless ploidy > 6. Might as well though.
     let mut final_part = all_parts[0].clone();
     let ploidy = final_part.len();
+    let mut part_size_distribution_sum = vec!();
     let rangevec: Vec<usize> = (0..ploidy).collect();
     let perms = permute(rangevec);
 
@@ -684,8 +691,31 @@ pub fn link_blocks_greedy<'a>(all_parts: &Vec<Vec<FxHashSet<&'a Frag>>>) -> Vec<
 //                }
             }
         }
+
+        //Remove duplicated reads which may occur because of partition joining.
+        //TODO need to benchmark which way to remove duplicate reads. 
+        //let hap_block_intermediate = utils_frags::hap_block_from_partition(&final_part);
+        //remove_duplicate_reads(&mut final_part, &all_frags, &hap_block_intermediate);
+        //TEST
+        let mut countvec1 = vec!();
+        let mut countvec2 = vec!();
+        for j in 0..ploidy{
+            part_size_distribution_sum.push(vec!());
+            countvec1.push(final_part[j].len());
+            countvec2.push(part_to_link[best_perm[j]].len());
+        }
+        dbg!(&countvec1,&countvec2);
+        countvec2.sort();
+        for j in 0..ploidy{
+            part_size_distribution_sum[j].push(countvec2[j]);
+        }
     }
 
+    for j in 0..ploidy{
+        part_size_distribution_sum[j].sort();
+        let dist = &part_size_distribution_sum[j];
+        dbg!(dist[(dist.len() as f64 * 0.5) as usize]);
+    }
     final_part
 }
 
