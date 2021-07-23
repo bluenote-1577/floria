@@ -6,5 +6,7 @@ pub mod utils_frags;
 
 pub mod local_clustering;
 
+pub mod global_clustering;
+
 pub mod vcf_polishing;
 
