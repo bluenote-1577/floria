@@ -311,6 +311,9 @@ fn main() {
                 );
             }
 
+            //TEST TODO
+            //epsilon = epsilon * ploidy as f64 / 4.0;
+
             if epsilon == 0.0 {
                 epsilon = 0.010;
             }
@@ -395,7 +398,7 @@ fn main() {
 
             //Link and polish all blocks.
             //    let mut final_part = vcf_polishing::link_blocks(&part_filled);
-            let mut final_part = vcf_polishing::link_blocks_greedy(&part_filled);
+            let mut final_part = vcf_polishing::link_blocks_greedy(&part_filled, &all_frags);
             //    let mut final_part = vcf_polishing::link_blocks_heur(&part_filled,4);
 
             //    for i in 0..ploidy{
