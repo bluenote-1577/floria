@@ -110,9 +110,9 @@ where
     let file;
     if first_iter{
     file = OpenOptions::new()
-            .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(filename).unwrap();
     }
     else{
