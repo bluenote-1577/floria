@@ -164,3 +164,49 @@ pub fn get_length_gn(all_frags : &Vec<Frag>) -> usize{
     }
     last_pos
 }
+
+//Get the log p-value for a 1-sided binomial test. This is a asymptotically tight large deviation
+//bound. It's super accurate when k/n >> p, but relatively inaccurate when k/n is close to p. One
+//super nice thing about this approximation is that it is written as p = exp(A), so log(p) = A
+//hence it is extremely numerically stable.
+//
+//I'm currently using this implementation. We can still mess around with using different approximations.
+pub fn stable_binom_cdf_p_rev(n: usize, k: usize, p: f64, div_factor: f64) -> f64 {
+
+    if n == 0 {
+        return 0.0;
+    }
+
+//    return norm_approx(n,k,p,div_factor);
+
+    let n64 = n as f64;
+    let k64 = k as f64;
+
+    //In this case, the relative entropy is bigger than the minimum of 0 which we don't want. 
+    let mut a = k64 / n64;
+    
+    if a == 1.0 {
+        //Get a NaN error if a = 1.0;
+        a = 0.9999999
+    }
+    if a == 0.0 {
+        //Get a NaN error if we only have errors -- which can happen if we use polishing.
+        a = 0.0000001;
+    }
+
+    let mut rel_ent = a * (a / p).ln() + (1.0 - a) * ((1.0 - a) / (1.0 - p)).ln();
+
+    //If smaller error than epsilon, invert the rel-ent so that we get a positive probability
+    //makes heuristic sense because a smaller than epsilon error is better than an epsilon error
+    //for which the relative entropy is 0. 
+    if a < p{
+        rel_ent = -rel_ent;
+    }
+    let large_dev_val = -1.0 * n64 / div_factor * rel_ent ;
+        //- 0.5 * (6.283*a*(1.0-a)*n64/div_factor).ln();
+
+    return large_dev_val;
+
+    
+//    return -1.0 * n64 / div_factor * rel_ent;
+}

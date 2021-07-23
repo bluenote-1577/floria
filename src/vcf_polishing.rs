@@ -342,7 +342,7 @@ fn fill_left_block<'a>(left_block: &mut Vec<FxHashSet<&'a Frag>>, reads_interval
             let mut max_dist = 0.0;
             for frag_in_set in read_set.iter() {
                 let (same,mec_dist) = utils_frags::distance(frag_in_set, frag);
-                let binomial_dist = -1.0 * local_clustering::stable_binom_cdf_p_rev(
+                let binomial_dist = -1.0 * utils_frags::stable_binom_cdf_p_rev(
                     (same + mec_dist) as usize,
                     mec_dist as usize,
                     2.0 * epsilon * (1.0-epsilon),
@@ -607,8 +607,8 @@ pub fn map_reads_against_hap_errors(
                 error_est = epsilon;
             }
 
-            let left_error_val = local_clustering::stable_binom_cdf_p_rev(same_left + diff_left, diff_left, error_est,1.0);
-            let right_error_val = local_clustering::stable_binom_cdf_p_rev(same_right + diff_right, diff_right, error_est,1.0);
+            let left_error_val = utils_frags::stable_binom_cdf_p_rev(same_left + diff_left, diff_left, error_est,1.0);
+            let right_error_val = utils_frags::stable_binom_cdf_p_rev(same_right + diff_right, diff_right, error_est,1.0);
 
             let mut min_error_val = left_error_val;
             if left_error_val > right_error_val{
