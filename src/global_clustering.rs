@@ -5,6 +5,7 @@ use crate::vcf_polishing;
 use rand::prelude::*;
 use rand_pcg::Pcg64;
 use statrs::distribution::{ChiSquared, Univariate};
+use std::collections::BinaryHeap;
 use std::mem;
 use std::ptr;
 use std::rc::Rc;
@@ -19,7 +20,7 @@ pub fn beam_search_phasing<'a>(
     div_factor: f64,
     cutoff_value: f64,
     max_number_solns: usize,
-    use_mec: bool
+    use_mec: bool,
 ) -> Vec<FxHashSet<&'a Frag>> {
     let mut partition = clique.clone();
     let ploidy = clique.len();
@@ -64,6 +65,7 @@ pub fn beam_search_phasing<'a>(
     }
 
     for i in index_of_startpos_reads..all_reads.len() {
+        let mut min_score = f64::MIN;
         let mut search_node_list_next = vec![];
         let frag = &all_reads[i];
         let mut frag_in_clique = false;
@@ -104,9 +106,53 @@ pub fn beam_search_phasing<'a>(
                         new_error_vec,
                         pem_score,
                     );
-                    let new_block =
-                        types_structs::build_truncated_hap_block(block, frag, j, current_startpos);
-                    search_node_list_next.push((Rc::new(new_node), new_block));
+                    if search_node_list_next.len() >= max_number_solns {
+                        if pem_score < min_score {
+                            continue;
+                        } 
+                        
+                        else {
+                            let new_block = types_structs::build_truncated_hap_block(
+                                block,
+                                frag,
+                                j,
+                                current_startpos,
+                            );
+                            let toins = (Rc::new(new_node), new_block);
+
+                            match search_node_list_next.binary_search_by(
+                                |x: &(Rc<SearchNode>, HapBlock)| {
+                                    x.0.score
+                                        .partial_cmp(&(*(toins.0)).score)
+                                        .expect("Couldn't compare")
+                                },
+                            ) {
+                                Ok(pos) => search_node_list_next.insert(pos, toins),
+                                Err(pos) => search_node_list_next.insert(pos, toins),
+                            }
+                            search_node_list_next.pop();
+                            min_score = search_node_list_next.iter().last().unwrap().0.score;
+                        }
+                    } 
+                    
+                    else {
+                        let new_block = types_structs::build_truncated_hap_block(
+                            block,
+                            frag,
+                            j,
+                            current_startpos,
+                        );
+
+                        search_node_list_next.push((Rc::new(new_node), new_block));
+                    }
+
+                    //first time get max number of solutions, sort
+                    if search_node_list_next.len() == max_number_solns {
+                        search_node_list_next
+                            .sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
+                    }
+
+                    min_score = search_node_list_next.iter().last().unwrap().0.score;
                 }
             }
         }
@@ -172,7 +218,6 @@ fn read_to_node_value(
             local_clustering::get_mec_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
             new_error_vec,
         );
-
     } else {
         return (
             local_clustering::get_pem_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),

@@ -298,7 +298,7 @@ fn main() {
             //be an optional parameter for testing purposes.
             let overlap = 0;
             let cutoff_value = 0.05_f64.ln();
-            let max_number_solns = 90;
+            let max_number_solns = 30;
 
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
