@@ -791,7 +791,7 @@ pub fn get_partition_stats(
 }
 
 //Return pem score
-fn get_pem_score(
+pub fn get_pem_score(
     binom_vec: &Vec<(usize, usize)>,
     _freq_vec: &Vec<usize>,
     p: f64,
@@ -799,7 +799,7 @@ fn get_pem_score(
 ) -> f64 {
     let mut score = 0.0;
     for stat in binom_vec.iter() {
-        let bincdf = stable_binom_cdf_p_rev(stat.0 + stat.1, stat.1, p, div_factor);
+        let bincdf = utils_frags::stable_binom_cdf_p_rev(stat.0 + stat.1, stat.1, p, div_factor);
         score += bincdf;
     }
     score
