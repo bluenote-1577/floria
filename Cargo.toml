@@ -16,6 +16,8 @@ rand="0.7"
 rand_pcg="*"
 rust-htslib="*"
 clap = "2"
+simple_logger="*"
+log="*"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"

@@ -41,6 +41,13 @@ pub fn distance_read_haplo(
         if *frag_var == *consensus_var {
             same += 1;
         } else {
+            let frag_var_count = hap.get(pos).unwrap().get(frag_var);
+            if let Some(count) = frag_var_count{
+                if count == hap.get(pos).unwrap().get(consensus_var).unwrap(){
+                    same += 1;
+                    continue
+                }
+            }
             diff += 1;
         }
     }
@@ -209,4 +216,14 @@ pub fn stable_binom_cdf_p_rev(n: usize, k: usize, p: f64, div_factor: f64) -> f6
 
     
 //    return -1.0 * n64 / div_factor * rel_ent;
+}
+
+pub fn log_sum_exp(probs: &Vec<f64>) -> f64{
+    let max = probs.iter().copied().fold(f64::NAN, f64::max);
+    let mut sum = 0.0;
+    for logpval in probs{
+        sum += (logpval - max).exp();
+    }
+
+    return max + sum.ln();
 }
