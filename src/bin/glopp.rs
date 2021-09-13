@@ -1,15 +1,15 @@
 extern crate time;
-use simple_logger::SimpleLogger;
 use clap::{App, AppSettings, Arg};
 use flopp::file_reader;
-use flopp::local_clustering;
 use flopp::global_clustering;
+use flopp::local_clustering;
 use flopp::types_structs::Frag;
 use flopp::types_structs::HapBlock;
 use flopp::utils_frags;
 use flopp::vcf_polishing;
 use fxhash::{FxHashMap, FxHashSet};
 use rayon::prelude::*;
+use simple_logger::SimpleLogger;
 use std::sync::Mutex;
 use std::time::Instant;
 fn main() {
@@ -37,6 +37,11 @@ fn main() {
                                .help("Input a VCF: Mandatory if using BAM file; Enables genotype polishing if using frag file.")
                                .value_name("VCFFILE")
                                .takes_value(true))
+                          .arg(Arg::with_name("supp_aln_anchor")
+                               .short("a")
+                               .help("Input names of neighbouring contigs when only phasing one contig. The adjacent contigs in an assembly graph will be used to anchor the initial partition when using glopp. Usage: -a contig_1,contig_2")
+                               .value_name("CONTIG1,CONTIG2")
+                               .takes_value(true))
                           .arg(Arg::with_name("ploidy")
                               .short("p")
                               .help("Ploidy of organism.")
@@ -62,7 +67,12 @@ fn main() {
                               .short("e")
                               .takes_value(true)
                               .hidden(true))
-                          .arg(Arg::with_name("binomial factor")
+                          .arg(Arg::with_name("max_number_solns")
+                              .short("n")
+                              .takes_value(true)
+                              .value_name("NUMBER OF SOLNS")
+                              .help("Maximum number of solutions for beam search."))
+                        .arg(Arg::with_name("binomial factor")
                               .short("s")
                               .takes_value(true)
                               .value_name("BINOMIAL FACTOR")
@@ -70,12 +80,18 @@ fn main() {
                           .arg(Arg::with_name("use_mec")
                               .short("m")
                               .help("Use MEC score instead of UPEM for cluster refinement. Use this when your haplotypes have unbalanced coverage."))
+                            .arg(Arg::with_name("use_ref_bias")
+                              .short("R")
+                              .help("Use MEC score instead of UPEM for cluster refinement. Use this when your haplotypes have unbalanced coverage."))
+
                           .arg(Arg::with_name("verbose")
                               .short("r")
                               .help("Verbose output."))
 
                           .get_matches();
 
+    let max_number_solns_str = matches.value_of("max_number_solns").unwrap_or("10");
+    let max_number_solns = max_number_solns_str.parse::<usize>().unwrap();
     let num_t_str = matches.value_of("threads").unwrap_or("10");
     let num_t = match num_t_str.parse::<usize>() {
         Ok(num_t) => num_t,
@@ -88,15 +104,14 @@ fn main() {
     };
 
     let use_mec = matches.is_present("use_mec");
+    let use_ref_bias = matches.is_present("use_ref_bias");
     // Set up our logger if the user passed the debug flag
     if matches.is_present("verbose") {
         simple_logger::SimpleLogger::new()
             .with_level(log::LevelFilter::Trace)
             .init()
             .unwrap();
-    }   
-
-    else {
+    } else {
         simple_logger::SimpleLogger::new()
             .with_level(log::LevelFilter::Debug)
             .init()
@@ -111,7 +126,7 @@ fn main() {
 
     //If the user is splitting the bam file according to the output partition.
     let bam_part_out;
-    let bam_part_out_dir = match matches.value_of("partition output") {
+    let mut bam_part_out_dir = match matches.value_of("partition output") {
         None => {
             bam_part_out = false;
             "_"
@@ -161,6 +176,28 @@ fn main() {
         }
     };
 
+    //Using supplemental alignments/assembly graph
+    let use_supp_anchor;
+    let mut contig_supp_string = match matches.value_of("supp_aln_anchor") {
+        None => {
+            use_supp_anchor = false;
+            "_"
+        }
+        Some(contig_names) => {
+            use_supp_anchor = true;
+            contig_names
+        }
+    };
+
+    let contig_anchors: Vec<String> = contig_supp_string
+        .split(',')
+        .into_iter()
+        .map(|s| s.to_owned())
+        .collect();
+    if contig_anchors.len() < 2 && use_supp_anchor {
+        panic!("Number of supplementary contig anchors must exceed 1. Exiting");
+    }
+
     //Use a VCF without polishing.
     let vcf_nopolish;
     let vcf_file_nopolish = match matches.value_of("vcf no polish") {
@@ -174,14 +211,13 @@ fn main() {
         }
     };
 
-    if vcf_nopolish{
+    if vcf_nopolish {
         vcf_file = vcf_file_nopolish;
     }
 
-    if vcf_nopolish && vcf{
+    if vcf_nopolish && vcf {
         panic!("Only use one of the VCF options. -c if diploid VCF or choosing to polish, -v otherwise.\n");
     }
-
 
     //Only haplotype variants in a certain range : TODO
     let _range;
@@ -202,7 +238,7 @@ fn main() {
         panic!("If using frag as input, BAM file should not be specified")
     }
 
-    if bam && (!vcf && !vcf_nopolish){
+    if bam && (!vcf && !vcf_nopolish) {
         panic!("Must input VCF file if using BAM file");
     }
 
@@ -238,15 +274,27 @@ fn main() {
 
         //If the VCF file is misformatted or has weird genotyping call we can catch that here.
         if vcf_ploidy != ploidy {
-            if polish{
+            if polish {
                 panic!("VCF File ploidy doesn't match input ploidy");
             }
         }
     }
 
-    let mut first_iter = true;
+    let first_iter = true;
 
     for (contig, all_frags) in all_frags_map.iter_mut() {
+        println!("Number of fragments {}", all_frags.len());
+        for frag in all_frags.iter() {
+            if let Some(sup_cont) = &frag.supp_aln {
+                log::trace!(
+                    "{}, {}, {}, {}",
+                    sup_cont,
+                    frag.first_position,
+                    frag.last_position,
+                    frag.id
+                );
+            }
+        }
         if snp_to_genome_pos_map.contains_key(contig) || bam == false {
             let mut genotype_dict: &FxHashMap<usize, FxHashMap<usize, usize>> =
                 &FxHashMap::default();
@@ -254,13 +302,13 @@ fn main() {
 
             if bam == true {
                 snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
-                if polish == true{
+                if polish == true {
                     genotype_dict = genotype_dict_map.get(contig).unwrap();
                 }
-            } 
+            }
             //I think this is done because there is assumd to be only 1 contig,
-            //so we just iterate over a container of size 1. Furthermore, 
-            //genotype_dict_map is empty in the case of using frags. 
+            //so we just iterate over a container of size 1. Furthermore,
+            //genotype_dict_map is empty in the case of using frags.
             else {
                 for value in genotype_dict_map.values() {
                     genotype_dict = value;
@@ -280,25 +328,26 @@ fn main() {
             let block_len_quant = 0.33;
 
             //The sample size correction factor for the binomial test used on the bases/errors.
-            let binomial_factor = (avg_read_length as f64) / heuristic_multiplier;
+            //let mut binomial_factor = (avg_read_length as f64) / heuristic_multiplier;
+            let mut binomial_factor = 1.0;
             println!("Binomial adjustment factor is {}", binomial_factor);
 
             //Final partitions
-            let parts: Mutex<Vec<(Vec<FxHashSet<&Frag>>, usize)>> = Mutex::new(vec![]);
+            let _parts: Mutex<Vec<(Vec<FxHashSet<&Frag>>, usize)>> = Mutex::new(vec![]);
 
             //The length of each local haplotype block. This is currently useless because all haplotype
             //blocks have the same fixed length, but we may change this in the future.
-            let lengths: Mutex<Vec<usize>> = Mutex::new(vec![]);
+            let _lengths: Mutex<Vec<usize>> = Mutex::new(vec![]);
 
             //UPEM scores for each block.
-            let scores: Mutex<Vec<(f64, usize)>> = Mutex::new(vec![]);
+            let _scores: Mutex<Vec<(f64, usize)>> = Mutex::new(vec![]);
             let length_block = utils_frags::get_avg_length(&all_frags, block_len_quant);
 
             //If we want blocks to overlap -- I don't think we actually want blocks to overlap but this may
             //be an optional parameter for testing purposes.
-            let overlap = 0;
-            let cutoff_value = 0.05_f64.ln();
-            let max_number_solns = 30;
+            let _overlap = 0;
+            //let cutoff_value = (1.0 / (ploidy + 1) as f64).ln();
+            let cutoff_value = f64::MIN;
 
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
@@ -336,10 +385,30 @@ fn main() {
             println!("Estimated epsilon is {}", epsilon);
             //Phasing occurs here
             let start_t = Instant::now();
-            let clique = global_clustering::get_initial_clique(all_frags, ploidy, epsilon);
-            let final_part = global_clustering::beam_search_phasing(clique, all_frags, epsilon, heuristic_multiplier, cutoff_value, max_number_solns, use_mec);
-            println!("Time taken finding clique and phasing {:?}", Instant::now() - start_t);
-
+            let initial_part;
+            if !use_supp_anchor {
+                initial_part = global_clustering::get_initial_clique(all_frags, ploidy, epsilon);
+            } else {
+                //                initial_part = global_clustering::get_initial_clique(all_frags, ploidy, epsilon);
+                initial_part = global_clustering::get_initial_from_anchor(
+                    all_frags,
+                    ploidy,
+                    epsilon,
+                    &contig_anchors,
+                );
+            }
+            let final_part = global_clustering::beam_search_phasing(
+                initial_part,
+                all_frags,
+                epsilon,
+                binomial_factor,
+                cutoff_value,
+                max_number_solns,
+                use_mec,
+                use_supp_anchor,
+                use_ref_bias
+            );
+            println!("Time taken for phasing {:?}", Instant::now() - start_t);
 
             let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
             let (f_binom_vec, f_freq_vec) =
@@ -351,18 +420,19 @@ fn main() {
             );
 
             file_reader::write_blocks_to_file(
-                    output_blocks_str,
-                    &vec![final_block_unpolish],
-                    &vec![length_gn],
-                    &snp_to_genome_pos,
-                    &final_part,
-                    first_iter,
-                    contig,
-                );
+                output_blocks_str,
+                &vec![final_block_unpolish],
+                &vec![length_gn],
+                &snp_to_genome_pos,
+                &final_part,
+                first_iter,
+                contig,
+            );
 
-
+            if !bam_part_out {
+                bam_part_out_dir = "glopp_bam"
+            }
+            file_reader::write_output_partition_to_file(&final_part, bam_part_out_dir, contig);
         }
     }
 }
-
-
