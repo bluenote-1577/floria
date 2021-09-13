@@ -55,7 +55,7 @@ pub fn find_reads_in_interval<'a>(
         //Currently we use 1/3 quantile as the length of the block, i.e.
         //end-start. If a mapping is weird and the fragment
         //spans several regions, we ignore the fragment.
-        if frag.last_position - frag.first_position > 20 * (end - start) {
+        if frag.last_position - frag.first_position > 60 * (end - start) {
             continue;
         }
 
@@ -265,17 +265,17 @@ pub fn cluster_reads<'a>(
     }
 
     //DEBUGGING/TESTING
-    //    {
-    //        //        println!("CLIQUE VERTICES");
-    //        let mut id_set = FxHashSet::default();
-    //        for vertex in used_vertices.iter() {
-    //            let id = &vec_all_reads[(*vertex) as usize].id;
-    //            //            println!("{}", id);
-    //            let mut split = id.split("/");
-    //            let cluster = split.next();
-    //            id_set.insert(cluster);
-    //        }
-    //
+//        {
+//            println!("CLIQUE VERTICES");
+//            for vertex in used_vertices.iter() {
+//                let id = &vec_all_reads[(*vertex) as usize].id;
+//                println!("{}", id);
+//                }
+//                let mut split = id.split("/");
+//                let cluster = split.next();
+//                id_set.insert(cluster);
+//            }
+    
     //        if id_set.len() < ploidy {
     //            println!("clique partition not effective");
     //            for vertex in used_vertices.iter() {
@@ -957,6 +957,7 @@ pub fn estimate_epsilon(
         random_vec.push(rng.gen_range(0, num_iters));
     }
 
+    let mut part_stats = vec![Vec::new();ploidy];
     for i in random_vec.into_iter() {
         let part = generate_hap_block(
             i * block_len,
@@ -965,6 +966,11 @@ pub fn estimate_epsilon(
             all_frags,
             initial_epsilon,
         );
+        let mut part_lens: Vec<usize> = part.iter().map(|x| x.len()).collect();
+        part_lens.sort();
+        for j in 0..ploidy{
+            part_stats[j].push(part_lens[j]);
+        }
         let block = utils_frags::hap_block_from_partition(&part);
         let (binom_vec, _freq_vec) = get_partition_stats(&part, &block);
         for (good, bad) in binom_vec {
@@ -977,7 +983,13 @@ pub fn estimate_epsilon(
     }
 
     let percentile_index = epsilons.len() / 10;
+    let mut median_part_stats = vec![];
+    for j in 0..ploidy{
+        part_stats[j].sort();
+        median_part_stats.push(part_stats[j][num_tries/2]);
+    }
 
+    log::debug!("Average count partitions from local clustering : {:?}",median_part_stats);
     epsilons.sort_by(|a, b| a.partial_cmp(&b).unwrap());
     epsilons[percentile_index]
 }

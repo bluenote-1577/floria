@@ -13,6 +13,7 @@ pub struct Frag {
     pub positions: FxHashSet<usize>,
     pub first_position: usize,
     pub last_position: usize,
+    pub supp_aln: Option<String>
 }
 
 impl Hash for Frag {
@@ -77,7 +78,7 @@ pub struct HapBlock {
     pub blocks: Vec<FxHashMap<usize, FxHashMap<usize, usize>>>,
 }
 
-pub fn build_frag(id: String, counter_id: usize) -> Frag {
+pub fn build_frag(id: String, counter_id: usize, supp_aln: Option<String>) -> Frag {
     let toret = Frag {
         id: id,
         counter_id: counter_id,
@@ -86,6 +87,7 @@ pub fn build_frag(id: String, counter_id: usize) -> Frag {
         positions: FxHashSet::default(),
         first_position: usize::MAX,
         last_position: usize::MIN,
+        supp_aln: supp_aln
     };
 
     toret
@@ -105,6 +107,8 @@ pub fn update_frag(frag: &mut Frag, geno: usize, qual: u8, snp_pos: usize) {
 
 pub fn build_truncated_hap_block(block: &HapBlock, frag: &Frag, part: usize, current_startpos: usize) -> HapBlock{
     let ploidy = block.blocks.len();
+    //manual deepcopy
+
     let mut block_vec = block.blocks.clone();
     for i in 0..ploidy{
         for pos in block.blocks[i].keys(){
