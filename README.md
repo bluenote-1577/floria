@@ -48,7 +48,7 @@ glopp outputs the sequence of SNPs (i.e. the phasing) and the partition of reads
 
 The results are found in the output directory. This directory is specified by the `-o` option, or `glopp_out_dir` by default.
 
-### Phased haplotype output (-o option)
+### Phased haplotype output
 For each contig, glopp outputs a phased haplotype file `(contig_name)_phasing.txt` in the following format:
 
 1. Column 1 is (variant) : (genome position) where (variant) is the i-th variant, and the genome position is the the position of the genome on the reference.
@@ -57,7 +57,7 @@ For each contig, glopp outputs a phased haplotype file `(contig_name)_phasing.tx
 
 If using a bam file with multiple contigs being mapped to, the output file contains multiple phased haplotypes of the above format which are delimited by `**(contig name)**`.
 
-### Read partition output (-P option)
+### Read partition output 
 For each contig, glopp outputs a partition of reads in the file `(contig_name)_partition.txt` in the following format:
 
 ```
