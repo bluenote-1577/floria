@@ -28,10 +28,12 @@ cargo build --release
 ## Using glopp
 
 ```
-flopp -b bamfile.bam -c vcffile.vcf -p (ploidy) -o output_dir (Fix the ploidy)
-flopp -b bamfile.bam -c vcffile.vcf -o output_dir(Estimate ploidy using heuristic)
+glopp -b bamfile.bam -c vcffile.vcf -p (ploidy) -o output_dir (Fix the ploidy)
+glopp -b bamfile.bam -c vcffile.vcf -o output_dir (Estimate ploidy using heuristic)
 ```
 For a quick test, we provide a VCF and BAM files in the tests folder. Run ``glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -p 3 -o results.txt -P test_results`` to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
+
+The user can use the `-m` option to change the objective function. Other options are for testing or not fully developed yet. 
 
 ### BAM + VCF
 The standard mode of usage is to specify a bam file using the option **-b** and a vcf file using the option **-c**. The output is written to a text file with value of option **-o**. 
