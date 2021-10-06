@@ -18,6 +18,7 @@ rust-htslib="*"
 clap = "2"
 simple_logger="*"
 log="*"
+itertools = "0.8"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"

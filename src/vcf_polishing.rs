@@ -399,6 +399,7 @@ pub fn replace_with_filled_blocks<'a>(
             i * length_of_block,
             (i + 1) * length_of_block,
             all_frags,
+            usize::MAX
         )
         .into_iter()
         .collect();

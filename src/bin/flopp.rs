@@ -215,7 +215,7 @@ fn main() {
     let start_t = Instant::now();
     let mut all_frags_map;
     if bam {
-        all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file);
+        all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file, true);
     } else {
         all_frags_map = file_reader::get_frags_container(frag_file);
     }
@@ -463,6 +463,7 @@ fn main() {
                     &final_part,
                     first_iter,
                     contig,
+                    &FxHashMap::default()
                 );
             } else {
                 file_reader::write_blocks_to_file(
@@ -473,11 +474,12 @@ fn main() {
                     &final_part,
                     first_iter,
                     contig,
+                    &FxHashMap::default()
                 );
             }
 
             if bam_part_out {
-                file_reader::write_output_partition_to_file(&final_part, bam_part_out_dir, contig);
+                file_reader::write_output_partition_to_file(&final_part, bam_part_out_dir, contig,&FxHashMap::default());
             }
 
             first_iter = false;
