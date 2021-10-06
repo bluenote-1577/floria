@@ -62,8 +62,8 @@ For each contig, glopp outputs a partition of reads in the file `(contig_name)_p
 
 ```
 #1 (partition #1)
-(read_name1) (first SNP position covered) (last SNP position covered)
-(read_name2) (first SNP position covered) (last SNP position covered)
+(read_name1) (first SNP position covered) 
+(read_name2) (first SNP position covered)
 ...
 #2 (partition #2)
 ...
