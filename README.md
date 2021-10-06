@@ -41,8 +41,13 @@ glopp currently only uses SNP information and does not take into account indels.
 The bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
 
 ## Output
+
+glopp outputs the sequence of SNPs (i.e. the phasing) and the partition of reads associated to each haplotype. 
+
+The results are found in the output directory. This directory is specified by the `-o` option, or `glopp_out_dir` by default.
+
 ### Phased haplotype output (-o option)
-glopp outputs a phased haplotype file in the following format:
+For each contig, glopp outputs a phased haplotype file `(contig_name)_phasing.txt` in the following format:
 
 1. Column 1 is (variant) : (genome position) where (variant) is the i-th variant, and the genome position is the the position of the genome on the reference.
 2. The next k columns are the k phased haplotypes for an organism of ploidy k. 0 represents the reference allele, 1 the first alternate, and so forth. 
@@ -51,7 +56,8 @@ glopp outputs a phased haplotype file in the following format:
 If using a bam file with multiple contigs being mapped to, the output file contains multiple phased haplotypes of the above format which are delimited by `**(contig name)**`.
 
 ### Read partition output (-P option)
-If also using `-P` option, glopp outputs the read partition obtained by glopp. That is, set of reads corresponding to each haplotype. The format looks like:
+For each contig, glopp outputs a partition of reads in the file `(contig_name)_partition.txt` in the following format:
+
 ```
 #1 (partition #1)
 (read_name1) (first SNP position covered) (last SNP position covered)
@@ -60,7 +66,12 @@ If also using `-P` option, glopp outputs the read partition obtained by glopp. T
 #2 (partition #2)
 ...
 ```
+## Misc.
 
+### VCF requires contig headers
+We found that some variant callers don't put contig headers in the VCF file. In this situation, run `python scripts/write_contig_headers_vcf.py (vcf_file)` to get a new VCF with contig headers.
+
+### Output BAM partition
 To get a set of BAM files which correspond to the output read partition (i.e. the haplotypes), use
 
 ``python scripts/get_bam_partition.py (-P output file) (original BAM file) (prefix name for output)``
