@@ -111,6 +111,7 @@ pub fn write_blocks_to_file<P>(
     part: &Vec<FxHashSet<&Frag>>,
     first_iter: bool,
     contig: &String,
+    break_positions: &FxHashMap<usize,FxHashSet<usize>>
 ) where
     P: AsRef<Path>,
 {
@@ -137,6 +138,9 @@ pub fn write_blocks_to_file<P>(
         let title_string = format!("**{}**\n", contig);
         file.write_all(title_string.as_bytes()).unwrap();
         for pos in length_prev_block..length_prev_block + lengths[i] {
+            if break_positions.contains_key(&pos){
+                write!(file, "--------\n").unwrap();
+            }
             if snp_to_genome.len() == 0 {
                 write!(file, "{}:NA\t", pos).unwrap();
             } else {
@@ -182,7 +186,7 @@ pub fn write_blocks_to_file<P>(
 }
 
 //Given a vcf file and a bam file, we get a vector of frags.
-pub fn get_frags_from_bamvcf<P>(vcf_file: P, bam_file: P) -> FxHashMap<String, Vec<Frag>>
+pub fn get_frags_from_bamvcf<P>(vcf_file: P, bam_file: P, filter_supplementary: bool) -> FxHashMap<String, Vec<Frag>>
 where
     P: AsRef<Path>,
 {
@@ -260,12 +264,12 @@ where
     //Check the headers to see how many references there are.
     let header = Header::from_template(bam.header());
     let bam_header_view = HeaderViewBam::from_header(&header);
-    let mut number_references = 0;
-    for (id, content) in header.to_hashmap() {
-        if id == "SQ" {
-            number_references = content.len();
-        }
-    }
+//    let mut number_references = 0;
+//    for (id, content) in header.to_hashmap() {
+//        if id == "SQ" {
+//            number_references = content.len();
+//        }
+//    }
 
     //    if number_references > 1{
     //        dbg!(vcf_pos_to_snp_counter_map.keys());
@@ -305,9 +309,13 @@ where
                 let flags = aln_record.flags();
                 let errors_mask = 1796;
                 let secondary_mask = 256;
+                let supplementary_mask = 2048;
+                let mapq_supp_cutoff = 30;
+                let mapq_normal_cutoff = 5;
                 let id_to_frag = ref_id_to_frag
                     .entry(ref_chrom)
                     .or_insert(FxHashMap::default());
+                let mapq = aln_record.mapq();
 
                 let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
                 //Erroneous alignment, skip
@@ -320,6 +328,14 @@ where
                 if flags & secondary_mask > 0 {
                     //dbg!(&flags,&id_string);
                     continue;
+                }
+
+                if flags & supplementary_mask > 0{
+                    if filter_supplementary{
+                        if mapq < mapq_supp_cutoff{
+                            continue;
+                        }
+                    }
                 }
 
                 let id_string2 = id_string.clone();
@@ -375,7 +391,9 @@ where
         let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
         let id_to_frag = mem::replace(id_to_frag, FxHashMap::default());
         for (_id, frag) in id_to_frag.into_iter() {
-            if frag.positions.len() > 1 {
+            //IMPORTANT: I'm turning this off for metagenomics because some fragments may only
+            //index one read. However, this is still useful because we don't know ploidy info. 
+            if frag.positions.len() > 0 {
                 vec_frags.push(frag);
             }
         }
@@ -559,6 +577,7 @@ pub fn write_output_partition_to_file<P>(
     part: &Vec<FxHashSet<&Frag>>,
     out_bam_part_dir: P,
     contig: &String,
+    break_positions: &FxHashMap<usize,FxHashSet<usize>>
 ) where
     P: AsRef<Path>,
 {

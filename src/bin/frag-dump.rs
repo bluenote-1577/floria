@@ -38,7 +38,7 @@ fn main() {
     //CONSTANTS - Constants which users probably should not change.
 
     println!("Reading frags.");
-    let all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file);
+    let all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file, true);
     let mut all_frags = Vec::new();
     for (_id,vect) in all_frags_map.into_iter(){
         all_frags = vect;

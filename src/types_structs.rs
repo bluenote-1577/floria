@@ -36,7 +36,10 @@ pub struct SearchNode<'a> {
     pub freqs: Vec<usize>,
     pub error_vec: Vec<(usize,usize)>,
     pub block_id: usize,
-    pub parent_node: Option<Rc<SearchNode<'a>>>
+    pub parent_node: Option<Rc<SearchNode<'a>>>,
+    pub current_pos: usize,
+    pub broken_blocks: FxHashSet<usize>
+    
 }
 
 pub fn build_child_node<'a>(
@@ -46,6 +49,7 @@ pub fn build_child_node<'a>(
     parent_node_option: Option<Rc<SearchNode<'a>>>,
     error_vec: Vec<(usize,usize)>,
     score: f64,
+    current_pos: usize
 ) -> SearchNode<'a> {
     let mut new_freqs = vec![];
     let mut new_parent_node_option: Option<Rc<SearchNode>> = None;
@@ -69,6 +73,8 @@ pub fn build_child_node<'a>(
         error_vec: error_vec,
         block_id: block_id,
         parent_node: new_parent_node_option,
+        current_pos: current_pos,
+        broken_blocks: FxHashSet::default()
     };
 
     toret
@@ -105,16 +111,38 @@ pub fn update_frag(frag: &mut Frag, geno: usize, qual: u8, snp_pos: usize) {
     }
 }
 
-pub fn build_truncated_hap_block(block: &HapBlock, frag: &Frag, part: usize, current_startpos: usize) -> HapBlock{
+pub fn build_truncated_hap_block(block: &HapBlock, frag: &Frag, part: usize, current_startpos: usize) -> (FxHashSet<usize>,HapBlock){
     let ploidy = block.blocks.len();
-    //manual deepcopy
+    let mut blocks_broken = FxHashSet::default();
 
+    //manual deepcopy
     let mut block_vec = block.blocks.clone();
+    //count the number of SNPs after the current SNP. This is to check for breaks.
+    //this hack needs to be done to circumvent cirular contigs, where weird stuff can happen. 
+    let mut num_after = vec![0;ploidy];
+    let mut num_before = vec![0;ploidy];
+
+    //Add the +50 restriciton for circularity to avoid the case where a fragment covers snps
+    //1,2,3,... and n,n-1,n-2,... where n is the number of snps.  
     for i in 0..ploidy{
         for pos in block.blocks[i].keys(){
+            if *pos >= current_startpos && *pos < current_startpos+50{
+                num_after[i] += 1;
+            }
+
+            if *pos < current_startpos && *pos + 50 > current_startpos{
+                num_before[i] += 1;
+            }
+
             if *pos < current_startpos{
                 block_vec[i].remove(pos);
             }
+        }
+    }
+
+    for i in 0..ploidy{
+        if num_after[i] == 0 && num_before[i] != 0{
+            blocks_broken.insert(i);
         }
     }
 
@@ -125,7 +153,7 @@ pub fn build_truncated_hap_block(block: &HapBlock, frag: &Frag, part: usize, cur
         *site_counter += 1;
     }
 
-    return HapBlock{blocks : block_vec};
+    return (blocks_broken,HapBlock{blocks : block_vec});
 
 }
 

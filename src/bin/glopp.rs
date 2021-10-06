@@ -4,12 +4,8 @@ use flopp::file_reader;
 use flopp::global_clustering;
 use flopp::local_clustering;
 use flopp::types_structs::Frag;
-use flopp::types_structs::HapBlock;
 use flopp::utils_frags;
-use flopp::vcf_polishing;
 use fxhash::{FxHashMap, FxHashSet};
-use rayon::prelude::*;
-use simple_logger::SimpleLogger;
 use std::sync::Mutex;
 use std::time::Instant;
 fn main() {
@@ -44,9 +40,8 @@ fn main() {
                                .takes_value(true))
                           .arg(Arg::with_name("ploidy")
                               .short("p")
-                              .help("Ploidy of organism.")
+                              .help("Ploidy of organism. If not given, glopp will estimate the ploidy.")
                               .value_name("PLOIDY")
-                              .required(true)
                               .takes_value(true))
                           .arg(Arg::with_name("threads")
                               .short("t")
@@ -72,24 +67,21 @@ fn main() {
                               .takes_value(true)
                               .value_name("NUMBER OF SOLNS")
                               .help("Maximum number of solutions for beam search."))
-                        .arg(Arg::with_name("binomial factor")
-                              .short("s")
-                              .takes_value(true)
-                              .value_name("BINOMIAL FACTOR")
-                              .help("The normalizing factor for UPEM (sigma in the paper)"))
                           .arg(Arg::with_name("use_mec")
                               .short("m")
                               .help("Use MEC score instead of UPEM for cluster refinement. Use this when your haplotypes have unbalanced coverage."))
                             .arg(Arg::with_name("use_ref_bias")
                               .short("R")
-                              .help("Use MEC score instead of UPEM for cluster refinement. Use this when your haplotypes have unbalanced coverage."))
-
+                              .help("Use reference bias adjustment (in progress)."))
                           .arg(Arg::with_name("verbose")
                               .short("r")
                               .help("Verbose output."))
-
+                          .arg(Arg::with_name("dont_filter_supplementary")
+                              .short("S")
+                              .help("Use all supplementary alignments from the BAM file without filtering (filtering by default)."))
                           .get_matches();
 
+    let mut estimate_ploidy = false;
     let max_number_solns_str = matches.value_of("max_number_solns").unwrap_or("10");
     let max_number_solns = max_number_solns_str.parse::<usize>().unwrap();
     let num_t_str = matches.value_of("threads").unwrap_or("10");
@@ -97,14 +89,17 @@ fn main() {
         Ok(num_t) => num_t,
         Err(_) => panic!("Number of threads must be positive integer"),
     };
-    let ploidy = matches.value_of("ploidy").unwrap();
-    let ploidy = match ploidy.parse::<usize>() {
-        Ok(ploidy) => ploidy,
-        Err(_) => panic!("Must input valid ploidy"),
-    };
+
+    let large_numb = 300;
+    let ploidy = matches.value_of("ploidy").unwrap_or("300");
+    let mut ploidy = ploidy.parse::<usize>().unwrap();
+    if ploidy == large_numb {
+        estimate_ploidy = true;
+    }
 
     let use_mec = matches.is_present("use_mec");
     let use_ref_bias = matches.is_present("use_ref_bias");
+    let filter_supplementary = !matches.is_present("dont_filter_supplementary");
     // Set up our logger if the user passed the debug flag
     if matches.is_present("verbose") {
         simple_logger::SimpleLogger::new()
@@ -118,24 +113,10 @@ fn main() {
             .unwrap();
     }
 
-    let heuristic_multiplier_str = matches.value_of("binomial factor").unwrap_or("25.0");
-    let heuristic_multiplier = match heuristic_multiplier_str.parse::<f64>() {
-        Ok(heuristic_multiplier) => heuristic_multiplier,
-        Err(_) => panic!("Must input valid binomial normalization."),
-    };
-
     //If the user is splitting the bam file according to the output partition.
-    let bam_part_out;
-    let mut bam_part_out_dir = match matches.value_of("partition output") {
-        None => {
-            bam_part_out = false;
-            "_"
-        }
-        Some(bam_part_out_dir) => {
-            bam_part_out = true;
-            bam_part_out_dir
-        }
-    };
+    let part_out_dir = matches
+        .value_of("partition output")
+        .unwrap_or("glopp_out_dir");
 
     //If the user is getting frag files from BAM and VCF.
     let bam;
@@ -171,6 +152,7 @@ fn main() {
             "_"
         }
         Some(vcf_file) => {
+            panic!("Don't allow -v option for now.");
             vcf = true;
             vcf_file
         }
@@ -178,7 +160,7 @@ fn main() {
 
     //Using supplemental alignments/assembly graph
     let use_supp_anchor;
-    let mut contig_supp_string = match matches.value_of("supp_aln_anchor") {
+    let contig_supp_string = match matches.value_of("supp_aln_anchor") {
         None => {
             use_supp_anchor = false;
             "_"
@@ -251,13 +233,14 @@ fn main() {
 
     let polish = vcf;
     //If we estimate the frag error rate by clustering a few random test blocks.
-    let estimate_epsilon = true;
+    //    let estimate_epsilon = true;
 
     println!("Reading inputs (BAM/VCF/frags).");
     let start_t = Instant::now();
     let mut all_frags_map;
     if bam {
-        all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file);
+        all_frags_map =
+            file_reader::get_frags_from_bamvcf(vcf_file, bam_file, filter_supplementary);
     } else {
         all_frags_map = file_reader::get_frags_container(frag_file);
     }
@@ -283,6 +266,7 @@ fn main() {
     let first_iter = true;
 
     for (contig, all_frags) in all_frags_map.iter_mut() {
+        let mut prev_expected_score = f64::MAX;
         println!("Number of fragments {}", all_frags.len());
         for frag in all_frags.iter() {
             if let Some(sup_cont) = &frag.supp_aln {
@@ -296,14 +280,14 @@ fn main() {
             }
         }
         if snp_to_genome_pos_map.contains_key(contig) || bam == false {
-            let mut genotype_dict: &FxHashMap<usize, FxHashMap<usize, usize>> =
+            let mut _genotype_dict: &FxHashMap<usize, FxHashMap<usize, usize>> =
                 &FxHashMap::default();
             let mut snp_to_genome_pos: &Vec<usize> = &Vec::new();
 
             if bam == true {
                 snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
                 if polish == true {
-                    genotype_dict = genotype_dict_map.get(contig).unwrap();
+                    _genotype_dict = genotype_dict_map.get(contig).unwrap();
                 }
             }
             //I think this is done because there is assumd to be only 1 contig,
@@ -311,7 +295,7 @@ fn main() {
             //genotype_dict_map is empty in the case of using frags.
             else {
                 for value in genotype_dict_map.values() {
-                    genotype_dict = value;
+                    _genotype_dict = value;
                 }
                 for value in snp_to_genome_pos_map.values() {
                     snp_to_genome_pos = value;
@@ -329,8 +313,8 @@ fn main() {
 
             //The sample size correction factor for the binomial test used on the bases/errors.
             //let mut binomial_factor = (avg_read_length as f64) / heuristic_multiplier;
-            let mut binomial_factor = 1.0;
-            println!("Binomial adjustment factor is {}", binomial_factor);
+            let mut _binomial_factor = 1.0;
+            println!("Binomial adjustment factor is {}", _binomial_factor);
 
             //Final partitions
             let _parts: Mutex<Vec<(Vec<FxHashSet<&Frag>>, usize)>> = Mutex::new(vec![]);
@@ -354,24 +338,23 @@ fn main() {
             println!("Length of genome is {}", length_gn);
             println!("Length of each block is {}", length_block);
             //How many blocks we iterate through to estimate epsilon.
-            let num_epsilon_attempts = 20;
-            let mut epsilon = 0.03;
-            let num_iters = length_gn / length_block;
-            if estimate_epsilon {
-                epsilon = local_clustering::estimate_epsilon(
-                    num_iters,
-                    num_epsilon_attempts,
-                    ploidy,
-                    &all_frags,
-                    length_block,
-                    epsilon,
-                );
-            }
+            let mut epsilon = 0.05;
+            //            let num_iters = length_gn / length_block;
+            //            if estimate_epsilon {
+            //                epsilon = local_clustering::estimate_epsilon(
+            //                    num_iters,
+            //                    num_epsilon_attempts,
+            //                    ploidy,
+            //                    &all_frags,
+            //                    length_block,
+            //                    epsilon,
+            //                );
+            //            }
 
             //TEST TODO
             //epsilon = epsilon * ploidy as f64 / 4.0;
 
-            if epsilon == 0.0 {
+            if epsilon < 0.01 {
                 epsilon = 0.010;
             }
 
@@ -382,12 +365,29 @@ fn main() {
                 }
             };
 
-            println!("Estimated epsilon is {}", epsilon);
+            println!("Epsilon is {}", epsilon);
+
+            let num_estimate_tries = length_gn/50;
+            if estimate_ploidy {
+                ploidy = local_clustering::estimate_ploidy(
+                    length_gn,
+                    num_estimate_tries,
+                    &all_frags,
+                    epsilon,
+                );
+            }
+            println!("Ploidy is {}", ploidy);
             //Phasing occurs here
             let start_t = Instant::now();
             let initial_part;
+            //If first_pos = last_pos, then the initial_part is empty and we rely on the beam
+            //search to determine the correct initial partition.
+            let first_pos = 1;
+            let last_pos = 1;
             if !use_supp_anchor {
-                initial_part = global_clustering::get_initial_clique(all_frags, ploidy, epsilon);
+                initial_part = global_clustering::get_initial_clique(
+                    all_frags, ploidy, epsilon, first_pos, last_pos,
+                );
             } else {
                 //                initial_part = global_clustering::get_initial_clique(all_frags, ploidy, epsilon);
                 initial_part = global_clustering::get_initial_from_anchor(
@@ -397,26 +397,31 @@ fn main() {
                     &contig_anchors,
                 );
             }
-            let final_part = global_clustering::beam_search_phasing(
+            let (break_positions, final_part) = global_clustering::beam_search_phasing(
                 initial_part,
                 all_frags,
                 epsilon,
-                binomial_factor,
+                _binomial_factor,
                 cutoff_value,
                 max_number_solns,
                 use_mec,
                 use_supp_anchor,
-                use_ref_bias
+                use_ref_bias,
             );
             println!("Time taken for phasing {:?}", Instant::now() - start_t);
 
             let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
             let (f_binom_vec, f_freq_vec) =
                 local_clustering::get_partition_stats(&final_part, &final_block_unpolish);
-            let final_score = local_clustering::get_mec_score(&f_binom_vec, &f_freq_vec, 0.0, 0.0);
-            println!(
-                "Final MEC score for the partition is {:?}.",
-                -1.0 * final_score
+            let final_score =
+                -1.0 * local_clustering::get_mec_score(&f_binom_vec, &f_freq_vec, 0.0, 0.0);
+            println!("Final MEC score for the partition is {:?}.", final_score);
+
+            file_reader::write_output_partition_to_file(
+                &final_part,
+                part_out_dir,
+                contig,
+                &break_positions,
             );
 
             file_reader::write_blocks_to_file(
@@ -427,12 +432,8 @@ fn main() {
                 &final_part,
                 first_iter,
                 contig,
+                &break_positions,
             );
-
-            if !bam_part_out {
-                bam_part_out_dir = "glopp_bam"
-            }
-            file_reader::write_output_partition_to_file(&final_part, bam_part_out_dir, contig);
         }
     }
 }

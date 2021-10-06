@@ -7,13 +7,6 @@ extern crate time;
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
 
-#[cfg(debug_assertions)]
-macro_rules! debug {
-    ($x:expr) => {
-        dbg!($x)
-    };
-}
-
 #[cfg(not(debug_assertions))]
 macro_rules! debug {
     ($x:expr) => {
@@ -30,6 +23,7 @@ pub fn find_reads_in_interval<'a>(
     end: usize,
     //position_to_reads : &FxHashMap<usize,FxHashSet<&Frag>>,
     all_frags: &'a Vec<Frag>,
+    max_num_reads: usize
 ) -> FxHashSet<&'a Frag> {
     let mut final_set = FxHashSet::default();
     //Original method of doing this : This is slower than just iterating thorugh the entire fragment list. We can speed this up by
@@ -45,6 +39,9 @@ pub fn find_reads_in_interval<'a>(
 
     //Frags are sorted by first position so we can do this.
     for frag in all_frags.iter() {
+        if final_set.len() > max_num_reads{
+            break;
+        }
         if frag.last_position < start {
             continue;
         }
@@ -55,7 +52,8 @@ pub fn find_reads_in_interval<'a>(
         //Currently we use 1/3 quantile as the length of the block, i.e.
         //end-start. If a mapping is weird and the fragment
         //spans several regions, we ignore the fragment.
-        if frag.last_position - frag.first_position > 60 * (end - start) {
+        if false{
+        //if frag.last_position - frag.first_position > 60 * (end - start) {
             continue;
         }
 
@@ -75,7 +73,7 @@ pub fn generate_hap_block<'a>(
 ) -> Vec<FxHashSet<&'a Frag>> {
     //debug!(start);
     //debug!(end);
-    let all_reads = find_reads_in_interval(start, end, all_frags);
+    let all_reads = find_reads_in_interval(start, end, all_frags, 100);
     let partition = cluster_reads(&all_reads, ploidy, epsilon);
     partition
 }
@@ -422,7 +420,7 @@ fn populate_clusters3(
     }
 }
 
-fn populate_clusters2_binom(
+fn _populate_clusters2_binom(
     clusters: &mut Vec<FxHashSet<i32>>,
     used_vertices: &mut FxHashSet<i32>,
     vec_all_reads: &Vec<&&Frag>,
@@ -520,7 +518,7 @@ fn populate_clusters2_binom(
     }
 }
 
-fn populate_clusters1(
+fn _populate_clusters1(
     clusters: &mut Vec<FxHashSet<i32>>,
     used_vertices: &mut FxHashSet<i32>,
     vec_all_reads: &Vec<&&Frag>,
@@ -790,6 +788,35 @@ pub fn get_partition_stats(
     (binom_vec, freq_vec)
 }
 
+//Get a vector of read frequencies and error rates from a partition and its corresponding
+//haplotype block.
+pub fn get_partition_stats_ref_wild(
+    partition: &Vec<FxHashSet<&Frag>>,
+    hap_block: &HapBlock,
+) -> (Vec<((usize, usize),(usize,usize))>, Vec<usize>) {
+    let mut binom_vec = Vec::new();
+    let mut freq_vec = Vec::new();
+    let ploidy = partition.len();
+    for i in 0..ploidy {
+        let haplo = &hap_block.blocks[i];
+        let mut bases_ref = 0;
+        let mut bases_wild= 0;
+        let mut errors_ref = 0;
+        let mut errors_wild = 0;
+        for frag in partition[i].iter() {
+            let ((same_ref, diff_ref),(same_wild,diff_wild)) = utils_frags::distance_read_haplo_ref_wild(frag, haplo);
+            errors_ref += diff_ref;
+            errors_wild+= diff_wild;
+            bases_ref += same_ref;
+            bases_wild+= same_wild;
+        }
+        binom_vec.push(((bases_ref, errors_ref),(bases_wild,errors_wild)));
+        freq_vec.push(partition[i].len());
+    }
+
+    (binom_vec, freq_vec)
+}
+
 //Return pem score
 pub fn get_pem_score(
     binom_vec: &Vec<(usize, usize)>,
@@ -992,4 +1019,68 @@ pub fn estimate_epsilon(
     log::debug!("Average count partitions from local clustering : {:?}",median_part_stats);
     epsilons.sort_by(|a, b| a.partial_cmp(&b).unwrap());
     epsilons[percentile_index]
+}
+
+pub fn estimate_ploidy(
+    num_iters: usize,
+    num_tries: usize,
+    all_frags: &Vec<Frag>,
+    initial_epsilon: f64,
+) -> usize {
+    let mut rng = Pcg64::seed_from_u64(1);
+    let mut random_vec = Vec::new();
+
+    for _ in 0..num_tries {
+        random_vec.push(rng.gen_range(0, num_iters));
+    }
+    //println!("{:?}",random_vec);
+
+    let block_len = 1;
+    let ploidy_start = 2;
+    let ploidy_end = 6;
+    let error_rate = 0.06;
+    let num_ploidies = ploidy_end - ploidy_start;
+    let mut mec_vector = vec![0;num_ploidies];
+    let mut expected_errors_ref = vec![];
+    for ploidy in ploidy_start..ploidy_end{
+        let mut num_alleles = 0;
+        for i in random_vec.iter(){
+            let part = generate_hap_block(
+                i * block_len,
+                (i + 1) * block_len,
+                ploidy,
+                all_frags,
+                initial_epsilon,
+            );
+            let mut part_lens: Vec<usize> = part.iter().map(|x| x.len()).collect();
+            part_lens.sort();
+            let block = utils_frags::hap_block_from_partition(&part);
+            let (binom_vec, _freq_vec) = get_partition_stats(&part, &block);
+            for (good,bad) in binom_vec {
+                mec_vector[ploidy-2] += bad;
+                num_alleles +=good;
+                num_alleles +=bad;
+            }
+        }
+        expected_errors_ref.push(num_alleles as f64 * error_rate);
+    }
+
+    log::debug!("{:?}, {:?}",mec_vector, &expected_errors_ref);
+    for i in 0..num_ploidies-1{
+        let mec_threshold = 1.0 / (1.0 - error_rate) / (1.0 + 1.0/(i+3) as f64 );
+        if mec_vector[i] < expected_errors_ref[i] as usize{
+            println!("MEC error threshold, returning ploidy.");
+            return i + 2;
+        }
+        log::debug!("Expected MEC ratio {}, observed MEC ratio {}",mec_threshold, mec_vector[i+1] as f64 / mec_vector[i] as f64);
+        if (mec_vector[i+1] as f64 / mec_vector[i] as f64) < mec_threshold{
+        }
+        else{
+            println!("MEC decrease thereshold, returning ploidy.");
+            return i + 2;
+        }
+    }
+
+    
+    return ploidy_end-1;
 }

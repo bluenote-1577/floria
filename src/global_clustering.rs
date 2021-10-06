@@ -1,13 +1,7 @@
 use crate::local_clustering;
 use crate::types_structs;
 use crate::types_structs::{Frag, HapBlock, SearchNode};
-use crate::vcf_polishing;
-use rand::prelude::*;
-use rand_pcg::Pcg64;
-use statrs::distribution::{ChiSquared, Univariate};
-use std::collections::BinaryHeap;
 use std::mem;
-use std::ptr;
 use std::rc::Rc;
 extern crate time;
 use crate::utils_frags;
@@ -23,7 +17,7 @@ pub fn beam_search_phasing<'a>(
     use_mec: bool,
     use_supp_anchor: bool,
     use_ref_bias: bool,
-) -> Vec<FxHashSet<&'a Frag>> {
+) -> (FxHashMap<usize,FxHashSet<usize>>,Vec<FxHashSet<&'a Frag>>) {
     let mut partition = clique.clone();
     let ploidy = clique.len();
 
@@ -39,8 +33,8 @@ pub fn beam_search_phasing<'a>(
             }
         }
         //Allow frags with supp alignments to go to empty partition too
-        if part.len() == 0{
-            for (contig,vec) in supp_anchors.iter_mut(){
+        if part.len() == 0 {
+            for (_contig, vec) in supp_anchors.iter_mut() {
                 vec.push(i);
             }
         }
@@ -55,15 +49,23 @@ pub fn beam_search_phasing<'a>(
         error_vec: vec![(0, 0); ploidy],
         block_id: 0,
         parent_node: None,
+        current_pos: 0,
+        broken_blocks: FxHashSet::default()
     };
 
     let mut search_node_list = vec![(Rc::new(first_node), first_block)];
 
     for i in 0..all_reads.len() {
+        let mut max_num_soln_mut = max_number_solns;
+        if i < 30{
+           max_num_soln_mut = ploidy*max_number_solns; 
+        }
         let mut min_score = f64::MIN;
         let mut search_node_list_next = vec![];
         let frag = &all_reads[i];
         let mut frag_in_clique = false;
+        //If we use the clique construction, we don't
+        //want to add multiple copies of the same fragment.
         for j in 0..ploidy {
             if clique[j].contains(&frag) {
                 frag_in_clique = true;
@@ -99,9 +101,9 @@ pub fn beam_search_phasing<'a>(
                             div_factor,
                         );
                     dist = dist_alt + dist_ref;
-                }
-                else{
-                    let (same,diff) = utils_frags::distance_read_haplo(frag, &block.blocks[part_index]);
+                } else {
+                    let (same, diff) =
+                        utils_frags::distance_read_haplo(frag, &block.blocks[part_index]);
                     dist = 1.0
                         * utils_frags::stable_binom_cdf_p_rev(
                             (same + diff) as usize,
@@ -111,7 +113,6 @@ pub fn beam_search_phasing<'a>(
                             div_factor,
                         );
                 }
-            
 
                 if use_supp_anchor {
                     if let Some(cont) = &frag.supp_aln {
@@ -129,66 +130,73 @@ pub fn beam_search_phasing<'a>(
             //dbg!(p_value_list_lse);
             for j in 0..ploidy {
                 if p_value_list[j] - lse > cutoff_value {
-                    let (pem_score, new_error_vec) =
+                    //score is either the PEM or MEC score. I want to play around with using the
+                    //iterative sum of p-values as well.
+                    let (score, new_error_vec) =
                         read_to_node_value(node, frag, block, j, epsilon, div_factor, use_mec);
                     let new_node_score;
 
                     if !use_mec {
                         //new_node_score = node.score + p_value_list[j];
-                        new_node_score = pem_score;
+                        new_node_score = score;
                     } else {
-                        new_node_score = pem_score;
+                        new_node_score = score;
                     }
 
-                    let new_node = types_structs::build_child_node(
+                    let mut new_node = types_structs::build_child_node(
                         frag,
                         j,
                         0,
                         Some(Rc::clone(node)),
                         new_error_vec,
                         new_node_score,
+                        current_startpos
                     );
 
-                    if search_node_list_next.len() >= max_number_solns {
-                        if pem_score < min_score {
-                            continue;
-                        } else {
-                            let new_block = types_structs::build_truncated_hap_block(
-                                block,
-                                frag,
-                                j,
-                                current_startpos,
-                            );
-                            let toins = (Rc::new(new_node), new_block);
-
-                            match search_node_list_next.binary_search_by(
-                                |x: &(Rc<SearchNode>, HapBlock)| {
-                                    x.0.score
-                                        .partial_cmp(&(*(toins.0)).score)
-                                        .expect("Couldn't compare")
-                                },
-                            ) {
-                                Ok(pos) => search_node_list_next.insert(pos, toins),
-                                Err(pos) => search_node_list_next.insert(pos, toins),
-                            }
-                            search_node_list_next.pop();
-                        }
+                    if score <= min_score {
+                        continue;
                     } else {
-                        let new_block = types_structs::build_truncated_hap_block(
+                        let (broken_blocks_node,new_block) = types_structs::build_truncated_hap_block(
                             block,
                             frag,
                             j,
                             current_startpos,
                         );
+                        for index in broken_blocks_node{
+                            new_node.broken_blocks.insert(index);
+                        }
+                        let toins = (Rc::new(new_node), new_block);
 
-                        search_node_list_next.push((Rc::new(new_node), new_block));
+                        match search_node_list_next.binary_search_by(
+                            |x: &(Rc<SearchNode>, HapBlock)| {
+                                x.0.score
+                                    .partial_cmp(&(*(toins.0)).score)
+                                    .expect("Couldn't compare")
+                            },
+                        ) {
+                            Ok(pos) => search_node_list_next.insert(pos, toins),
+                            Err(pos) => search_node_list_next.insert(pos, toins),
+                        }
+                        if search_node_list_next.len() > max_num_soln_mut {
+                            search_node_list_next.pop();
+                        }
                     }
+                    //                    } else {
+                    //                        let new_block = types_structs::build_truncated_hap_block(
+                    //                            block,
+                    //                            frag,
+                    //                            j,
+                    //                            current_startpos,
+                    //                        );
+                    //
+                    //                        search_node_list_next.push((Rc::new(new_node), new_block));
+                    //                    }
 
                     //first time get max number of solutions, sort
-                    if search_node_list_next.len() == max_number_solns {
-                        search_node_list_next
-                            .sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
-                    }
+//                    if search_node_list_next.len() == max_number_solns {
+//                        search_node_list_next
+//                            .sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
+//                    }
 
                     min_score = search_node_list_next.iter().last().unwrap().0.score;
                 }
@@ -196,9 +204,9 @@ pub fn beam_search_phasing<'a>(
         }
 
         search_node_list_next.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
-        mem::replace(&mut search_node_list, search_node_list_next);
-        if search_node_list.len() > max_number_solns {
-            search_node_list.drain(max_number_solns..);
+        let _unused = mem::replace(&mut search_node_list, search_node_list_next);
+        if search_node_list.len() > max_num_soln_mut{
+            search_node_list.drain(max_num_soln_mut..);
         }
 
         if i % 100 == 0 {
@@ -220,7 +228,15 @@ pub fn beam_search_phasing<'a>(
     log::debug!("Partition count: {:?}", node_pointer.freqs);
     log::debug!("Best partition score: {}", node_pointer.score);
 
+    let mut break_positions = FxHashMap::default();
     loop {
+        let current_pos = node_pointer.current_pos;
+        if node_pointer.broken_blocks.len() > 0{
+            let haps_to_break = break_positions.entry(current_pos).or_insert(FxHashSet::default());
+            for index in node_pointer.broken_blocks.iter(){
+                haps_to_break.insert(*index);
+            }
+        }
         if node_pointer.parent_node.is_none() {
             break;
         } else {
@@ -233,7 +249,8 @@ pub fn beam_search_phasing<'a>(
             node_pointer = &node_pointer.parent_node.as_ref().unwrap();
         }
     }
-    partition
+    //dbg!(break_positions);
+    return (break_positions,partition);
 }
 
 fn read_to_node_value(
@@ -323,8 +340,11 @@ pub fn get_initial_clique<'a>(
     all_reads: &'a Vec<Frag>,
     ploidy: usize,
     epsilon: f64,
+    first_pos: usize,
+    last_pos: usize
 ) -> Vec<FxHashSet<&'a Frag>> {
-    let starting_clique_reads = local_clustering::find_reads_in_interval(1, 20, all_reads);
+    //let starting_clique_reads = local_clustering::find_reads_in_interval(first_pos, last_pos, all_reads);
+    let starting_clique_reads = FxHashSet::default();
     let use_binomial_dist = true;
     let mut partition = Vec::new();
     //let vec_all_reads: Vec<_> = all_reads.iter().collect();
@@ -560,7 +580,7 @@ pub fn get_initial_from_anchor<'a>(
                     }
                 } else {
                     //When using GLOPP, don't need a full clique output. Can just return partial
-                    //clique. 
+                    //clique.
                     //used_vertices.insert(best_vertex.0);
                     break;
                 }
