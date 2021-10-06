@@ -38,7 +38,7 @@ The user can use the `-m` option to change the objective function. Other options
 ### BAM + VCF
 The standard mode of usage is to specify a bam file using the option **-b** and a vcf file using the option **-c**. The output is written to a text file with value of option **-o**. 
 
-glopp currently only uses SNP information and does not take into account indels. However, the user may define their own fragments which can be indexed by other types of variants. 
+glopp currently only uses SNP information and does not take into account indels. 
 
 The bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
 
@@ -79,5 +79,9 @@ To get a set of BAM files which correspond to the output read partition (i.e. th
 ``python scripts/get_bam_partition.py (-P output file) (original BAM file) (prefix name for output)``
 
 This will output a set of bams labelled `prefix_name1.bam`, `prefix_name2.bam` and so forth. This script requires pysam.
+
+### Manually consensus for testing
+
+Suppose you already have a partitioning of reads. That is, you have bam files `bam_file1, bam_file2, bam_file3` and you want to use this partioning for the phasing. Use the `consensus` binary to get a phasing from the .bam files by `consensus -v (vcf_file) -b (bam_file1) (bam_file2) (bam_file3) -o (consensus_file.txt)`. This is useful for visualizing error rates.
 
 
