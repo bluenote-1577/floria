@@ -12,12 +12,13 @@ fn main() {
     let matches = App::new("glopp")
                           .version("0.1.0")
                           .setting(AppSettings::ArgRequiredElseHelp)
-                          .about("flopp - fast local polyploid phasing from long read sequencing.\n\nExample usage :\nflopp -b bamfile.bam -v vcffile.vcf -p (ploidy) -o results.txt (with VCF and BAM)\nflopp -f fragfile.frags -p (ploidy) -o unpolished_results.txt (with fragment file)\nflopp -f fragfile.frags -v vcffile.vcf -p (ploidy) -o polished_results.txt (polished output with fragment file and VCF)")
+                          .about("glopp - polyploid phasing from long read sequencing.\n\nExample usage :\nflopp -b bamfile.bam -v vcffile.vcf -p (ploidy) -o results.txt (with VCF and BAM)\nflopp -f fragfile.frags -p (ploidy) -o unpolished_results.txt (with fragment file)\nflopp -f fragfile.frags -v vcffile.vcf -p (ploidy) -o polished_results.txt (polished output with fragment file and VCF)")
                           .arg(Arg::with_name("frag")
                                .short("f")
                                .value_name("FRAGFILE")
                                .help("Input a fragment file.")
-                               .takes_value(true))
+                               .takes_value(true)
+                              .hidden(true))
                           .arg(Arg::with_name("vcf no polish")
                               .short("c")
                               .value_name("VCFFILE")
@@ -32,7 +33,8 @@ fn main() {
                                .short("v")
                                .help("Input a VCF: Mandatory if using BAM file; Enables genotype polishing if using frag file.")
                                .value_name("VCFFILE")
-                               .takes_value(true))
+                               .takes_value(true)
+                               .hidden(true))
                           .arg(Arg::with_name("supp_aln_anchor")
                                .short("a")
                                .help("Input names of neighbouring contigs when only phasing one contig. The adjacent contigs in an assembly graph will be used to anchor the initial partition when using glopp. Usage: -a contig_1,contig_2")
@@ -54,7 +56,7 @@ fn main() {
                               .value_name("OUTPUT")
                               .takes_value(true))
                           .arg(Arg::with_name("partition output")
-                              .short("h")
+                              .short("P")
                               .help("Partition BAM based on read partition. (default : no BAM output. Specify file name when using -h.)")
                               .value_name("PARTITION OUTPUT BAM")
                               .takes_value(true))
@@ -69,7 +71,7 @@ fn main() {
                               .help("Maximum number of solutions for beam search."))
                           .arg(Arg::with_name("use_mec")
                               .short("m")
-                              .help("Use MEC score instead of UPEM for cluster refinement. Use this when your haplotypes have unbalanced coverage."))
+                              .help("Use MEC score instead instead of a probabilistic objective function."))
                             .arg(Arg::with_name("use_ref_bias")
                               .short("R")
                               .help("Use reference bias adjustment (in progress)."))
@@ -199,6 +201,10 @@ fn main() {
 
     if vcf_nopolish && vcf {
         panic!("Only use one of the VCF options. -c if diploid VCF or choosing to polish, -v otherwise.\n");
+    }
+
+    if !bam && !frag{
+        panic!("Must input a BAM file.")
     }
 
     //Only haplotype variants in a certain range : TODO
@@ -367,7 +373,7 @@ fn main() {
 
             println!("Epsilon is {}", epsilon);
 
-            let num_estimate_tries = length_gn/50;
+            let num_estimate_tries = length_gn / 50;
             if estimate_ploidy {
                 ploidy = local_clustering::estimate_ploidy(
                     length_gn,
