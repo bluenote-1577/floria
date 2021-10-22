@@ -1038,7 +1038,7 @@ pub fn estimate_ploidy(
     let block_len = 1;
     let ploidy_start = 2;
     let ploidy_end = 6;
-    let error_rate = 0.06;
+    let error_rate = initial_epsilon;
     let num_ploidies = ploidy_end - ploidy_start;
     let mut mec_vector = vec![0;num_ploidies];
     let mut expected_errors_ref = vec![];
