@@ -2,7 +2,7 @@
 
 ## Introduction
 
-**glopp** is a software package for single individual haplotype phasing of polyploid organisms from long read sequencing. 
+**glopp** is a software package for single individual haplotype phasing of polyploid organisms from read sequencing. 
 
 Given 
 
