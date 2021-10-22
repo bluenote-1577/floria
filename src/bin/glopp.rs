@@ -17,8 +17,7 @@ fn main() {
                                .short("f")
                                .value_name("FRAGFILE")
                                .help("Input a fragment file.")
-                               .takes_value(true)
-                              .hidden(true))
+                               .takes_value(true))
                           .arg(Arg::with_name("vcf no polish")
                               .short("c")
                               .value_name("VCFFILE")
@@ -51,12 +50,13 @@ fn main() {
                               .value_name("THREADS")
                               .takes_value(true))
                           .arg(Arg::with_name("output")
-                              .short("o")
+                              .short("xxxx")
                               .help("Name of output file (default : glopp_out.txt)")
                               .value_name("OUTPUT")
-                              .takes_value(true))
+                              .takes_value(true)
+                              .hidden(true))
                           .arg(Arg::with_name("partition output")
-                              .short("P")
+                              .short("o")
                               .help("Partition BAM based on read partition. (default : no BAM output. Specify file name when using -h.)")
                               .value_name("PARTITION OUTPUT BAM")
                               .takes_value(true))
@@ -220,7 +220,7 @@ fn main() {
         }
     };
 
-    let output_blocks_str = matches.value_of("output").unwrap_or("glopp_output.txt");
+    let _output_blocks_str = matches.value_of("output").unwrap_or("glopp_output.txt");
 
     if bam && frag {
         panic!("If using frag as input, BAM file should not be specified")
@@ -373,7 +373,7 @@ fn main() {
 
             println!("Epsilon is {}", epsilon);
 
-            let num_estimate_tries = length_gn / 50;
+            let num_estimate_tries = 20;
             if estimate_ploidy {
                 ploidy = local_clustering::estimate_ploidy(
                     length_gn,
@@ -431,7 +431,7 @@ fn main() {
             );
 
             file_reader::write_blocks_to_file(
-                output_blocks_str,
+                part_out_dir,
                 &vec![final_block_unpolish],
                 &vec![length_gn],
                 &snp_to_genome_pos,
