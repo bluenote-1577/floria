@@ -12,7 +12,7 @@ fn main() {
         .about("Haplotype consensus module. ")
         .arg(
             Arg::with_name("vcf")
-                .short("v")
+                .short("c")
                 .value_name("VCFFILE")
                 .help("Input a VCF.")
                 .takes_value(true),

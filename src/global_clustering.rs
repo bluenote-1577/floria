@@ -246,8 +246,9 @@ pub fn beam_search_phasing<'a>(
             //                node_pointer.read.id,
             //                node_pointer.part
             //            );
-            node_pointer = &node_pointer.parent_node.as_ref().unwrap();
+            node_pointer = node_pointer.parent_node.as_ref().unwrap();
         }
+
     }
     //dbg!(break_positions);
     return (break_positions,partition);

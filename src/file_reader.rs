@@ -104,29 +104,29 @@ where
 
 //Write a vector of blocks into a file.
 pub fn write_blocks_to_file<P>(
-    filename: P,
+    out_part_dir: P,
     blocks: &Vec<HapBlock>,
     lengths: &Vec<usize>,
     snp_to_genome: &Vec<usize>,
     part: &Vec<FxHashSet<&Frag>>,
-    first_iter: bool,
+    _first_iter: bool,
     contig: &String,
     break_positions: &FxHashMap<usize,FxHashSet<usize>>
 ) where
     P: AsRef<Path>,
 {
     let ploidy = blocks[0].blocks.len();
+    let filename = out_part_dir
+        .as_ref()
+        .join(format!("{}_phasing.txt", contig));
+
     let file;
-    if first_iter {
-        file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(filename)
-            .unwrap();
-    } else {
-        file = OpenOptions::new().append(true).open(filename).unwrap();
-    }
+    file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(filename)
+        .unwrap();
     //let file = File::create(filename).expect("Can't create file");
     let mut file = LineWriter::new(file);
     let mut length_prev_block = 1;
