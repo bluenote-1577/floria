@@ -57,6 +57,8 @@ For each contig, glopp outputs a phased haplotype file `(contig_name)_phasing.tx
 
 If using a bam file with multiple contigs being mapped to, the output file contains multiple phased haplotypes of the above format which are delimited by `**(contig name)**`.
 
+Glopp will automatically detect regions that can not be phased across unambiguously. These regions are delimited by `--------` in this file. 
+
 ### Read partition output 
 For each contig, glopp outputs a partition of reads in the file `(contig_name)_partition.txt` in the following format:
 
