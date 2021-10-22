@@ -1,4 +1,4 @@
-# glopp : global polyploid phasing from long read sequencing.
+# glopp : polyploid phasing from read sequencing.
 
 ## Introduction
 
