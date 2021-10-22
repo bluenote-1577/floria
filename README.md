@@ -28,21 +28,28 @@ cargo build --release
 ## Using glopp
 
 ```
-flopp -b bamfile.bam -c vcffile.vcf -p (ploidy) -o results.txt -P output_partition_dir (Fix the ploidy)
-flopp -b bamfile.bam -c vcffile.vcf -o results.txt (Estimate ploidy using heuristic)
+glopp -b bamfile.bam -c vcffile.vcf -p (ploidy) -o output_dir (Fix the ploidy)
+glopp -b bamfile.bam -c vcffile.vcf -o output_dir (Estimate ploidy using heuristic)
 ```
-For a quick test, we provide a VCF and BAM files in the tests folder. Run ``glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -p 3 -o results.txt -P test_results`` to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
+For a quick test, we provide a VCF and BAM files in the tests folder. Run ``./target/release/glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -p 3 -o results.txt -P test_results`` to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
+
+The user can use the `-m` option to change the objective function. Other options are for testing or not fully developed yet. 
 
 ### BAM + VCF
 The standard mode of usage is to specify a bam file using the option **-b** and a vcf file using the option **-c**. The output is written to a text file with value of option **-o**. 
 
-glopp currently only uses SNP information and does not take into account indels. However, the user may define their own fragments which can be indexed by other types of variants. 
+glopp currently only uses SNP information and does not take into account indels. 
 
 The bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
 
 ## Output
-### Phased haplotype output (-o option)
-glopp outputs a phased haplotype file in the following format:
+
+glopp outputs the sequence of SNPs (i.e. the phasing) and the partition of reads associated to each haplotype. 
+
+The results are found in the output directory. This directory is specified by the `-o` option, or `glopp_out_dir` by default.
+
+### Phased haplotype output
+For each contig, glopp outputs a phased haplotype file `(contig_name)_phasing.txt` in the following format:
 
 1. Column 1 is (variant) : (genome position) where (variant) is the i-th variant, and the genome position is the the position of the genome on the reference.
 2. The next k columns are the k phased haplotypes for an organism of ploidy k. 0 represents the reference allele, 1 the first alternate, and so forth. 
@@ -50,21 +57,31 @@ glopp outputs a phased haplotype file in the following format:
 
 If using a bam file with multiple contigs being mapped to, the output file contains multiple phased haplotypes of the above format which are delimited by `**(contig name)**`.
 
-### Read partition output (-P option)
-If also using `-P` option, glopp outputs the read partition obtained by glopp. That is, set of reads corresponding to each haplotype. The format looks like:
+### Read partition output 
+For each contig, glopp outputs a partition of reads in the file `(contig_name)_partition.txt` in the following format:
+
 ```
 #1 (partition #1)
-(read_name1) (first SNP position covered) (last SNP position covered)
-(read_name2) (first SNP position covered) (last SNP position covered)
+(read_name1) (first SNP position covered) 
+(read_name2) (first SNP position covered)
 ...
 #2 (partition #2)
 ...
 ```
+## Misc.
 
+### VCF requires contig headers
+We found that some variant callers don't put contig headers in the VCF file. In this situation, run `python scripts/write_contig_headers_vcf.py (vcf_file)` to get a new VCF with contig headers.
+
+### Output BAM partition
 To get a set of BAM files which correspond to the output read partition (i.e. the haplotypes), use
 
 ``python scripts/get_bam_partition.py (-P output file) (original BAM file) (prefix name for output)``
 
 This will output a set of bams labelled `prefix_name1.bam`, `prefix_name2.bam` and so forth. This script requires pysam.
+
+### Manually consensus for testing
+
+Suppose you already have a partitioning of reads. That is, you have bam files `bam_file1, bam_file2, bam_file3` and you want to use this partioning for the phasing. Use the `consensus` binary to get a phasing from the .bam files by `consensus -v (vcf_file) -b (bam_file1) (bam_file2) (bam_file3) -o (consensus_file.txt)`. This is useful for visualizing error rates.
 
 
