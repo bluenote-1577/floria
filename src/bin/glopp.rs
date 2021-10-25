@@ -71,7 +71,8 @@ fn main() {
                               .help("Maximum number of solutions for beam search."))
                           .arg(Arg::with_name("use_mec")
                               .short("m")
-                              .help("Use MEC score instead instead of a probabilistic objective function."))
+                              .help("Use MEC score instead instead of a probabilistic objective function.")
+                              .hidden(true))
                             .arg(Arg::with_name("use_ref_bias")
                               .short("R")
                               .help("Use reference bias adjustment (in progress)."))
@@ -99,7 +100,8 @@ fn main() {
         estimate_ploidy = true;
     }
 
-    let use_mec = matches.is_present("use_mec");
+//    let use_mec = matches.is_present("use_mec");
+    let use_mec = true;
     let use_ref_bias = matches.is_present("use_ref_bias");
     let filter_supplementary = !matches.is_present("dont_filter_supplementary");
     // Set up our logger if the user passed the debug flag

@@ -593,7 +593,7 @@ pub fn write_output_partition_to_file<P>(
         vec_part.sort_by(|a, b| a.first_position.cmp(&b.first_position));
         write!(file, "#{}\n", i).unwrap();
         for frag in vec_part {
-            write!(file, "{}\t{}\n", frag.id.clone(), frag.first_position).unwrap();
+            write!(file, "{}\t{}\t{}\n", frag.id.clone(), frag.first_position, frag.last_position).unwrap();
         }
     }
 }
