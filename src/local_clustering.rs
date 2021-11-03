@@ -1,8 +1,11 @@
 use crate::types_structs::{Frag, HapBlock};
 use crate::vcf_polishing;
 use rand::prelude::*;
+use rand_core::SeedableRng;
+//use rand::rng::Rng;
 use rand_pcg::Pcg64;
-use statrs::distribution::{ChiSquared, Univariate};
+use statrs::distribution::{ChiSquared};
+use statrs::distribution::ContinuousCDF;
 extern crate time;
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
@@ -981,7 +984,7 @@ pub fn estimate_epsilon(
     let mut epsilons = Vec::new();
 
     for _ in 0..num_tries {
-        random_vec.push(rng.gen_range(0, num_iters));
+        random_vec.push(rng.gen_range(0..num_iters));
     }
 
     let mut part_stats = vec![Vec::new();ploidy];
@@ -1031,7 +1034,7 @@ pub fn estimate_ploidy(
     let mut random_vec = Vec::new();
 
     for _ in 0..num_tries {
-        random_vec.push(rng.gen_range(0, num_iters));
+        random_vec.push(rng.gen_range(0..num_iters));
     }
     //println!("{:?}",random_vec);
 

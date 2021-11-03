@@ -4,11 +4,11 @@ use std::process::Command; // Run programs
 
 #[test]
 fn three_ploidy_standard_test() {
-    let mut cmd = Command::cargo_bin("flopp").unwrap();
+    let mut cmd = Command::cargo_bin("glopp").unwrap();
     let assert = cmd
         .arg("-b")
         .arg("./tests/test_bams/pds_ploidy3.bam")
-        .arg("-v")
+        .arg("-c")
         .arg("./tests/test_vcfs/pds.vcf")
         .arg("-p")
         .arg("3")
@@ -21,7 +21,7 @@ fn three_ploidy_standard_test() {
 
 #[test]
 fn three_ploidy_fragment_test(){
-    let mut cmd = Command::cargo_bin("flopp").unwrap();
+    let mut cmd = Command::cargo_bin("glopp").unwrap();
     let assert = cmd
         .arg("-f")
         .arg("./tests/3xploidy_frags.txt")
