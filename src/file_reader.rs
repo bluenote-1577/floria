@@ -256,6 +256,7 @@ where
         pos_allele_map.insert(unr.pos(), al_vec);
     }
 
+//    let mut bam = bam::Reader::from_path(bam_file).unwrap();
     let mut bam = match bam::Reader::from_path(bam_file) {
         Ok(bam) => bam,
         Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting"),
@@ -342,9 +343,10 @@ where
 
                 let mut supp_aln = None;
                 if !id_to_frag.contains_key(&id_string) {
-                    if let Some(tag) = aln_record.aux(b"SA") {
+                    if let Ok(tag) = aln_record.aux(b"SA") {
                         if let Aux::String(v) = tag {
-                            let str_v = str::from_utf8(v).unwrap();
+                            let str_v = v;
+//                            let str_v = str::from_utf8(v).unwrap();
                             let split: Vec<&str> = str_v.split(';').collect();
                             let best_SA: Vec<&str> = split[0].split(',').collect();
                             let best_contig = best_SA[0];

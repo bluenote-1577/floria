@@ -1,6 +1,11 @@
 import pysam
 import subprocess
 import sys
+
+if len(sys.argv) < 2:
+    print("USAGE: read_part.txt bamfile.bam prefix_name")
+    exit()
+
 read_part_file = sys.argv[1]
 bam_file = sys.argv[2]
 pref_nam = sys.argv[3]

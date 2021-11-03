@@ -55,8 +55,8 @@ fn local_cluster_test(){
     let frags_map = file_reader::get_frags_container(flopp_dir.to_owned() + "/tests/test_file.txt");
     let frags = frags_map.get("frag_contig").unwrap();
     let indexed_reads = utils_frags::get_all_overlaps(frags);
-    let interval_reads_all  = local_clustering::find_reads_in_interval(1,100,frags);
-    let interval_reads_5= local_clustering::find_reads_in_interval(5,6,frags);
+    let interval_reads_all  = local_clustering::find_reads_in_interval(1,100,frags, usize::MAX);
+    let interval_reads_5= local_clustering::find_reads_in_interval(5,6,frags, usize::MAX);
 
     assert_eq!(interval_reads_all.len(),3);
     assert_eq!(interval_reads_5.len(),1);

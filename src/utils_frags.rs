@@ -1,7 +1,8 @@
 use crate::types_structs::Frag;
 use crate::types_structs::HapBlock;
 use fxhash::{FxHashMap, FxHashSet};
-use statrs::distribution::{ChiSquared, Univariate};
+use statrs::distribution::{ChiSquared};
+use statrs::distribution::ContinuousCDF;
 
 // Get the number # of different bases between the
 // two fragments
