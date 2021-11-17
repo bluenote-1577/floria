@@ -1,6 +1,8 @@
+use crate::file_reader;
+use crate::graph_processing;
 use crate::local_clustering;
 use crate::types_structs;
-use crate::types_structs::{Frag, HapBlock, SearchNode};
+use crate::types_structs::{Frag, HapBlock, HapNode, SearchNode};
 use std::mem;
 use std::rc::Rc;
 extern crate time;
@@ -9,7 +11,7 @@ use fxhash::{FxHashMap, FxHashSet};
 
 pub fn beam_search_phasing<'a>(
     clique: Vec<FxHashSet<&'a Frag>>,
-    all_reads: &'a Vec<Frag>,
+    all_reads: &'a Vec<&Frag>,
     epsilon: f64,
     div_factor: f64,
     cutoff_value: f64,
@@ -17,7 +19,7 @@ pub fn beam_search_phasing<'a>(
     use_mec: bool,
     use_supp_anchor: bool,
     use_ref_bias: bool,
-) -> (FxHashMap<usize,FxHashSet<usize>>,Vec<FxHashSet<&'a Frag>>) {
+) -> (FxHashMap<usize, FxHashSet<usize>>, Vec<FxHashSet<&'a Frag>>) {
     let mut partition = clique.clone();
     let ploidy = clique.len();
 
@@ -46,19 +48,19 @@ pub fn beam_search_phasing<'a>(
         part: usize::MAX,
         score: 0.0,
         freqs: starting_freq,
-        error_vec: vec![(0, 0); ploidy],
+        error_vec: vec![(0.0, 0.0); ploidy],
         block_id: 0,
         parent_node: None,
         current_pos: 0,
-        broken_blocks: FxHashSet::default()
+        broken_blocks: FxHashSet::default(),
     };
 
     let mut search_node_list = vec![(Rc::new(first_node), first_block)];
 
     for i in 0..all_reads.len() {
         let mut max_num_soln_mut = max_number_solns;
-        if i < 30{
-           max_num_soln_mut = ploidy*max_number_solns; 
+        if i < 25 {
+            max_num_soln_mut = ploidy * max_number_solns * ploidy * 5;
         }
         let mut min_score = f64::MIN;
         let mut search_node_list_next = vec![];
@@ -67,7 +69,7 @@ pub fn beam_search_phasing<'a>(
         //If we use the clique construction, we don't
         //want to add multiple copies of the same fragment.
         for j in 0..ploidy {
-            if clique[j].contains(&frag) {
+            if clique[j].contains(frag) {
                 frag_in_clique = true;
             }
         }
@@ -135,13 +137,7 @@ pub fn beam_search_phasing<'a>(
                     let (score, new_error_vec) =
                         read_to_node_value(node, frag, block, j, epsilon, div_factor, use_mec);
                     let new_node_score;
-
-                    if !use_mec {
-                        //new_node_score = node.score + p_value_list[j];
-                        new_node_score = score;
-                    } else {
-                        new_node_score = score;
-                    }
+                    new_node_score = score;
 
                     let mut new_node = types_structs::build_child_node(
                         frag,
@@ -150,19 +146,20 @@ pub fn beam_search_phasing<'a>(
                         Some(Rc::clone(node)),
                         new_error_vec,
                         new_node_score,
-                        current_startpos
+                        current_startpos,
                     );
 
                     if score <= min_score {
                         continue;
                     } else {
-                        let (broken_blocks_node,new_block) = types_structs::build_truncated_hap_block(
-                            block,
-                            frag,
-                            j,
-                            current_startpos,
-                        );
-                        for index in broken_blocks_node{
+                        let (broken_blocks_node, new_block) =
+                            types_structs::build_truncated_hap_block(
+                                block,
+                                frag,
+                                j,
+                                current_startpos,
+                            );
+                        for index in broken_blocks_node {
                             new_node.broken_blocks.insert(index);
                         }
                         let toins = (Rc::new(new_node), new_block);
@@ -193,10 +190,10 @@ pub fn beam_search_phasing<'a>(
                     //                    }
 
                     //first time get max number of solutions, sort
-//                    if search_node_list_next.len() == max_number_solns {
-//                        search_node_list_next
-//                            .sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
-//                    }
+                    //                    if search_node_list_next.len() == max_number_solns {
+                    //                        search_node_list_next
+                    //                            .sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
+                    //                    }
 
                     min_score = search_node_list_next.iter().last().unwrap().0.score;
                 }
@@ -205,7 +202,7 @@ pub fn beam_search_phasing<'a>(
 
         search_node_list_next.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
         let _unused = mem::replace(&mut search_node_list, search_node_list_next);
-        if search_node_list.len() > max_num_soln_mut{
+        if search_node_list.len() > max_num_soln_mut {
             search_node_list.drain(max_num_soln_mut..);
         }
 
@@ -231,9 +228,11 @@ pub fn beam_search_phasing<'a>(
     let mut break_positions = FxHashMap::default();
     loop {
         let current_pos = node_pointer.current_pos;
-        if node_pointer.broken_blocks.len() > 0{
-            let haps_to_break = break_positions.entry(current_pos).or_insert(FxHashSet::default());
-            for index in node_pointer.broken_blocks.iter(){
+        if node_pointer.broken_blocks.len() > 0 {
+            let haps_to_break = break_positions
+                .entry(current_pos)
+                .or_insert(FxHashSet::default());
+            for index in node_pointer.broken_blocks.iter() {
                 haps_to_break.insert(*index);
             }
         }
@@ -248,10 +247,9 @@ pub fn beam_search_phasing<'a>(
             //            );
             node_pointer = node_pointer.parent_node.as_ref().unwrap();
         }
-
     }
     //dbg!(break_positions);
-    return (break_positions,partition);
+    return (break_positions, partition);
 }
 
 fn read_to_node_value(
@@ -262,9 +260,11 @@ fn read_to_node_value(
     epsilon: f64,
     div_factor: f64,
     use_mec: bool,
-) -> (f64, Vec<(usize, usize)>) {
+) -> (f64, Vec<(f64, f64)>) {
     let ploidy = block.blocks.len();
-    let (same, diff) = utils_frags::distance_read_haplo(frag, &block.blocks[part_index]);
+    //    let (same, diff) = utils_frags::distance_read_haplo(frag, &block.blocks[part_index]);
+    let (same, diff) =
+        utils_frags::distance_read_haplo_epsilon_empty(frag, &block.blocks[part_index], epsilon);
     let mut new_error_vec = vec![];
     for i in 0..ploidy {
         if i == part_index {
@@ -274,13 +274,18 @@ fn read_to_node_value(
         }
     }
     if use_mec {
+        let mec: f64 = new_error_vec.iter().map(|x| x.1).sum();
         return (
-            local_clustering::get_mec_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
+            -1.0 * mec,
+            //            local_clustering::get_mec_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
             new_error_vec,
         );
     } else {
+        let mec: f64 = new_error_vec.iter().map(|x| x.1).sum();
+        panic!("Don't allow PEM for now");
         return (
-            local_clustering::get_pem_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
+            -1.0 * mec,
+            //            local_clustering::get_pem_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
             new_error_vec,
         );
     }
@@ -342,7 +347,7 @@ pub fn get_initial_clique<'a>(
     ploidy: usize,
     epsilon: f64,
     first_pos: usize,
-    last_pos: usize
+    last_pos: usize,
 ) -> Vec<FxHashSet<&'a Frag>> {
     //let starting_clique_reads = local_clustering::find_reads_in_interval(first_pos, last_pos, all_reads);
     let starting_clique_reads = FxHashSet::default();
@@ -627,3 +632,4 @@ pub fn get_initial_from_anchor<'a>(
 
     partition
 }
+
