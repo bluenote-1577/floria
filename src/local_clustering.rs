@@ -52,6 +52,11 @@ pub fn find_reads_in_interval<'a>(
             break;
         }
 
+        //TODO we use this routine in glopp estimate ploidy, don't want circular mappings.
+        if frag.last_position - frag.first_position > 10000{
+            continue;
+        }
+
         //Currently we use 1/3 quantile as the length of the block, i.e.
         //end-start. If a mapping is weird and the fragment
         //spans several regions, we ignore the fragment.
@@ -678,8 +683,8 @@ pub fn optimize_clustering<'a>(
     let mut prev_score = get_upem_score(&binom_vec, &freq_vec, epsilon, div_factor);
 
     if use_mec {
-        //prev_score = get_mec_score(&binom_vec, &freq_vec, epsilon, div_factor);
-        prev_score = get_pem_score(&binom_vec, &freq_vec, epsilon, div_factor);
+        prev_score = get_mec_score(&binom_vec, &freq_vec, epsilon, div_factor);
+//        prev_score = get_pem_score(&binom_vec, &freq_vec, epsilon, div_factor);
     }
 
     let mut best_part = partition;
@@ -695,8 +700,8 @@ pub fn optimize_clustering<'a>(
         let (new_binom_vec, new_freq_vec) = get_partition_stats(&new_part, &new_block);
         let mut new_score = get_upem_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
         if use_mec {
-            //new_score = get_mec_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
-            new_score = get_pem_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
+            new_score = get_mec_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
+//            new_score = get_pem_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
         }
 
 //        if new_score > prev_score{
@@ -1024,7 +1029,7 @@ pub fn estimate_epsilon(
     epsilons[percentile_index]
 }
 
-pub fn estimate_ploidy(
+pub fn estimate_ploidy_flopp(
     num_iters: usize,
     num_tries: usize,
     all_frags: &Vec<Frag>,

@@ -5,6 +5,7 @@ use flopp::global_clustering;
 use flopp::local_clustering;
 use flopp::types_structs::Frag;
 use flopp::utils_frags;
+use flopp::graph_processing;
 use fxhash::{FxHashMap, FxHashSet};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -69,9 +70,19 @@ fn main() {
                               .takes_value(true)
                               .value_name("NUMBER OF SOLNS")
                               .help("Maximum number of solutions for beam search."))
+                          .arg(Arg::with_name("num_iters_ploidy_est")
+                              .short("q")
+                              .takes_value(true)
+                              .value_name("")
+                              .help("")
+                              .hidden(true))
                           .arg(Arg::with_name("use_mec")
                               .short("m")
                               .help("Use MEC score instead instead of a probabilistic objective function.")
+                              .hidden(true))
+                          .arg(Arg::with_name("dont_use_mec")
+                              .short("u")
+                              .help("")
                               .hidden(true))
                             .arg(Arg::with_name("use_ref_bias")
                               .short("R")
@@ -100,8 +111,11 @@ fn main() {
         estimate_ploidy = true;
     }
 
-//    let use_mec = matches.is_present("use_mec");
-    let use_mec = true;
+    //    let use_mec = matches.is_present("use_mec");
+    let mut use_mec = true;
+    if matches.is_present("dont_use_mec") {
+        use_mec = false;
+    };
     let use_ref_bias = matches.is_present("use_ref_bias");
     let filter_supplementary = !matches.is_present("dont_filter_supplementary");
     // Set up our logger if the user passed the debug flag
@@ -205,7 +219,7 @@ fn main() {
         panic!("Only use one of the VCF options. -c if diploid VCF or choosing to polish, -v otherwise.\n");
     }
 
-    if !bam && !frag{
+    if !bam && !frag {
         panic!("Must input a BAM file.")
     }
 
@@ -274,6 +288,10 @@ fn main() {
     let first_iter = true;
 
     for (contig, all_frags) in all_frags_map.iter_mut() {
+        if all_frags.len() == 0 {
+            println!("Contig {} has no fragments", contig);
+            continue;
+        }
         let mut prev_expected_score = f64::MAX;
         println!("Number of fragments {}", all_frags.len());
         for frag in all_frags.iter() {
@@ -310,8 +328,12 @@ fn main() {
                 }
             }
 
-            //We need frags sorted by first position to make indexing easier.
+            //We need frags sorted by first position to make indexing easier. We want the
+            //counter_id to reflect the position in the vector. 
             all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+            for (i,frag) in all_frags.iter_mut().enumerate(){
+                frag.counter_id = i;
+            }
 
             //We use the median # bases spanned by fragments as the length of blocks.
             let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
@@ -375,15 +397,23 @@ fn main() {
 
             println!("Epsilon is {}", epsilon);
 
-            let num_estimate_tries = 20;
+            let num_estimate_tries = 10;
             if estimate_ploidy {
-                ploidy = local_clustering::estimate_ploidy(
+                ploidy = local_clustering::estimate_ploidy_flopp(
                     length_gn,
                     num_estimate_tries,
                     &all_frags,
                     epsilon,
                 );
+                let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
+                let num_locs = num_locs_string.parse::<usize>().unwrap();
+                let mut hap_graph = graph_processing::generate_hap_graph(length_gn, num_locs, &all_frags, epsilon, &snp_to_genome_pos );
+                let flow_up_vec = graph_processing::solve_lp_graph(&hap_graph);
+                graph_processing::get_best_paths(&mut hap_graph, flow_up_vec);
+
+                panic!("Not ipmlemented yet");
             }
+
             println!("Ploidy is {}", ploidy);
             //Phasing occurs here
             let start_t = Instant::now();
@@ -405,9 +435,10 @@ fn main() {
                     &contig_anchors,
                 );
             }
+            let all_frags_refs: Vec<&Frag> = all_frags.iter().collect();
             let (break_positions, final_part) = global_clustering::beam_search_phasing(
                 initial_part,
-                all_frags,
+                &all_frags_refs,
                 epsilon,
                 _binomial_factor,
                 cutoff_value,

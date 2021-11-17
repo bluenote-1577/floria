@@ -4,7 +4,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bam::header::Header;
 use rust_htslib::bam::record::Aux;
 use rust_htslib::bam::HeaderView as HeaderViewBam;
-use rust_htslib::bcf::record::GenotypeAllele;
+use rust_htslib::bcf::record::{GenotypeAllele};
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
 use rust_htslib::{bcf, bcf::Read as DUMMY_NAME2};
 use std::collections::BTreeMap;
@@ -120,6 +120,7 @@ pub fn write_blocks_to_file<P>(
         .as_ref()
         .join(format!("{}_phasing.txt", contig));
 
+    dbg!(&filename);
     let file;
     file = OpenOptions::new()
         .write(true)
@@ -312,7 +313,7 @@ where
                 let secondary_mask = 256;
                 let supplementary_mask = 2048;
                 let mapq_supp_cutoff = 30;
-                let mapq_normal_cutoff = 5;
+                let mapq_normal_cutoff = 15;
                 let id_to_frag = ref_id_to_frag
                     .entry(ref_chrom)
                     .or_insert(FxHashMap::default());
@@ -392,9 +393,20 @@ where
             .unwrap();
         let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
         let id_to_frag = mem::replace(id_to_frag, FxHashMap::default());
-        for (_id, frag) in id_to_frag.into_iter() {
+//        for (_id, frag) in id_to_frag.into_iter() {
+        for (_id, mut frag) in id_to_frag.into_iter(){
             //IMPORTANT: I'm turning this off for metagenomics because some fragments may only
             //index one read. However, this is still useful because we don't know ploidy info. 
+            let mut prev_pos = frag.first_position;
+            for pos in frag.first_position+1..frag.last_position{
+                if !frag.positions.contains(&pos) && (pos - prev_pos < 100){
+                    //random number. TODO TESTING GAPS IN FRAGMENTS
+//                    frag.seq_dict.insert(pos, 9);
+//                    frag.qual_dict.insert(pos, 7);
+//                    frag.positions.insert(pos);
+                }
+                prev_pos = pos;
+            }
             if frag.positions.len() > 0 {
                 vec_frags.push(frag);
             }
@@ -465,41 +477,44 @@ where
             continue;
         }
 
-        let genotypes = unr.genotypes().unwrap().get(0);
-        vcf_ploidy = genotypes.len();
-        let mut genotype_counter = FxHashMap::default();
-        for allele in genotypes.iter() {
-            match allele {
-                GenotypeAllele::Unphased(x) => {
-                    let count = genotype_counter.entry(*x as usize).or_insert(0);
-                    *count += 1
-                }
-                GenotypeAllele::Phased(x) => {
-                    let count = genotype_counter.entry(*x as usize).or_insert(0);
-                    *count += 1
-                }
-                GenotypeAllele::UnphasedMissing => {
-                    for i in 0..4 {
-                        let count = genotype_counter.entry(i).or_insert(0);
-                        *count += 1;
+
+        if let Ok(_) = unr.genotypes(){
+            let genotypes = unr.genotypes().unwrap().get(0);
+            vcf_ploidy = genotypes.len();
+            let mut genotype_counter = FxHashMap::default();
+            for allele in genotypes.iter() {
+                match allele {
+                    GenotypeAllele::Unphased(x) => {
+                        let count = genotype_counter.entry(*x as usize).or_insert(0);
+                        *count += 1
                     }
-                }
-                GenotypeAllele::PhasedMissing => {
-                    for i in 0..4 {
-                        let count = genotype_counter.entry(i).or_insert(0);
-                        *count += 1;
+                    GenotypeAllele::Phased(x) => {
+                        let count = genotype_counter.entry(*x as usize).or_insert(0);
+                        *count += 1
+                    }
+                    GenotypeAllele::UnphasedMissing => {
+                        for i in 0..4 {
+                            let count = genotype_counter.entry(i).or_insert(0);
+                            *count += 1;
+                        }
+                    }
+                    GenotypeAllele::PhasedMissing => {
+                        for i in 0..4 {
+                            let count = genotype_counter.entry(i).or_insert(0);
+                            *count += 1;
+                        }
                     }
                 }
             }
+            let genotype_dict = map_genotype_dict
+                .entry(String::from_utf8(ref_chrom_vcf.to_vec()).unwrap())
+                .or_insert(FxHashMap::default());
+            genotype_dict.insert(snp_counter, genotype_counter);
         }
 
-        let genotype_dict = map_genotype_dict
-            .entry(String::from_utf8(ref_chrom_vcf.to_vec()).unwrap())
-            .or_insert(FxHashMap::default());
         let positions_vec = map_positions_vec
             .entry(String::from_utf8(ref_chrom_vcf.to_vec()).unwrap())
             .or_insert(Vec::new());
-        genotype_dict.insert(snp_counter, genotype_counter);
         //+1 because htslib is 0 index by default
         positions_vec.push(unr.pos() as usize + 1);
         snp_counter += 1;

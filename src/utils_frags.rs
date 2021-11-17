@@ -1,7 +1,8 @@
 use crate::types_structs::Frag;
+use itertools::Itertools; // 0.8.2
 use crate::types_structs::HapBlock;
 use fxhash::{FxHashMap, FxHashSet};
-use statrs::distribution::{ChiSquared};
+use statrs::distribution::ChiSquared;
 use statrs::distribution::ContinuousCDF;
 
 // Get the number # of different bases between the
@@ -15,6 +16,50 @@ pub fn distance(r1: &Frag, r2: &Frag) -> (i32, i32) {
             same += 1;
         } else {
             diff += 1;
+        }
+    }
+
+    (same, diff)
+}
+
+pub fn distance_read_haplo_epsilon_empty(
+    r: &Frag,
+    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    epsilon: f64,
+) -> (f64, f64) {
+    let mut diff = 0.0;
+    let mut same = 0.0;
+    for pos in r.positions.iter() {
+        if !hap.contains_key(pos) {
+            if true {
+                diff += epsilon;
+                //TODO remove this just a test
+                if epsilon < 0.0001 {
+                    diff -= epsilon;
+                }
+            }
+            continue;
+        }
+
+        let frag_var = r.seq_dict.get(pos).unwrap();
+        let consensus_var = hap
+            .get(pos)
+            .unwrap()
+            .iter()
+            .max_by_key(|entry| entry.1)
+            .unwrap()
+            .0;
+        if *frag_var == *consensus_var {
+            same += 1.0;
+        } else {
+            let frag_var_count = hap.get(pos).unwrap().get(frag_var);
+            if let Some(count) = frag_var_count {
+                if count == hap.get(pos).unwrap().get(consensus_var).unwrap() {
+                    same += 1.0;
+                    continue;
+                }
+            }
+            diff += 1.0;
         }
     }
 
@@ -287,7 +332,7 @@ pub fn log_sum_exp(probs: &Vec<f64>) -> f64 {
 pub fn get_seq_err_correlations(
     partition: &Vec<FxHashSet<&Frag>>,
     hap_block: &HapBlock,
-    gap: usize
+    gap: usize,
 ) -> f64 {
     let ploidy = partition.len();
     let mut seq_err_corr_vec = vec![];
@@ -362,21 +407,20 @@ pub fn get_seq_err_correlations(
         }
     }
 
-//    dbg!(
-//        expected_diff_sum,
-//        max_diff_sum_ploidy,
-//        pos_max_diff_sum_ploidy,
-//    );
+    //    dbg!(
+    //        expected_diff_sum,
+    //        max_diff_sum_ploidy,
+    //        pos_max_diff_sum_ploidy,
+    //    );
 
     expected_diff_sum
-
 }
 
 pub fn err_correlations(
     r1: &Frag,
     hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
     seq_err_corr_map: &mut FxHashMap<usize, FxHashMap<(usize, usize), usize>>,
-    gap: usize
+    gap: usize,
 ) {
     for pos in r1.positions.iter() {
         if !hap.contains_key(pos) {
@@ -387,11 +431,77 @@ pub fn err_correlations(
         if r1.seq_dict.contains_key(&(*pos + gap)) {
             let next_var = *r1.seq_dict.get(&(*pos + gap)).unwrap();
             //last_pos-1 because positions are 1-indexed
-            let index = seq_err_corr_map.entry(*pos-1).or_insert(FxHashMap::default());
-            let count = index
-                .entry((current_var, next_var))
-                .or_insert(0);
+            let index = seq_err_corr_map
+                .entry(*pos - 1)
+                .or_insert(FxHashMap::default());
+            let count = index.entry((current_var, next_var)).or_insert(0);
             *count += 1;
         }
     }
+}
+
+pub fn split_part_using_breaks<'a>(
+    breaks: &FxHashMap<usize, FxHashSet<usize>>,
+    part_to_split: &Vec<FxHashSet<&Frag>>,
+    all_reads: &'a Vec<Frag>,
+) -> Vec<Vec<FxHashSet<&'a Frag>>> {
+    let mut breaks_with_min = FxHashMap::default();
+    for (key, value) in breaks {
+        if value.len() > 1 {
+            breaks_with_min.insert(key, value);
+        }
+    }
+    let ploidy = part_to_split.len();
+    let mut split_parts = vec![vec![FxHashSet::default(); ploidy]; breaks_with_min.len() + 1];
+    for (i, hap) in part_to_split.iter().enumerate() {
+        for read in hap.iter() {
+            if breaks_with_min.len() == 0 {
+                split_parts[0][i].insert(&all_reads[read.counter_id]);
+            } else {
+                for (j, break_pos) in breaks_with_min.keys().sorted().enumerate() {
+                    if read.first_position <= **break_pos {
+                        split_parts[j][i].insert(&all_reads[read.counter_id]);
+                    }
+                    if read.last_position >= **break_pos {
+                        split_parts[j + 1][i].insert(&all_reads[read.counter_id]);
+                    }
+                }
+            }
+        }
+    }
+    return split_parts;
+}
+
+pub fn get_range_with_lengths(
+    snp_to_genome_pos: &Vec<usize>,
+    block_length: usize,
+    overlap_len: usize,
+) -> Vec<(usize, usize)> {
+    let mut return_vec = vec![];
+    let mut cum_pos = 0;
+    let mut last_pos = snp_to_genome_pos[0];
+    let mut left_endpoint = 0;
+    let mut new_left_end = 0;
+    let mut hit_new_left = false;
+
+    for (i, pos) in snp_to_genome_pos.iter().enumerate() {
+        if i == snp_to_genome_pos.len() - 1 {
+            return_vec.push((left_endpoint, i));
+            break;
+        }
+        cum_pos += *pos - last_pos;
+        last_pos = *pos;
+        if cum_pos > block_length - overlap_len && hit_new_left == false {
+            new_left_end = i - 1;
+            hit_new_left = true;
+        }
+        if cum_pos > block_length {
+            cum_pos = 0;
+            return_vec.push((left_endpoint, i - 1));
+            left_endpoint = new_left_end;
+            hit_new_left = false;
+        }
+    }
+
+    return return_vec;
 }

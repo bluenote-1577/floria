@@ -1,7 +1,7 @@
 use fxhash::{FxHashMap, FxHashSet};
 use std::hash::{Hash, Hasher};
-use std::ptr;
 use std::rc::Rc;
+use crate::utils_frags;
 
 //Positions are inclusive
 #[derive(Eq, Debug, Clone)]
@@ -34,14 +34,13 @@ pub struct SearchNode<'a> {
     pub part: usize,
     pub score: f64,
     pub freqs: Vec<usize>,
-    pub error_vec: Vec<(usize, usize)>,
+    pub error_vec: Vec<(f64, f64)>,
     pub block_id: usize,
     pub parent_node: Option<Rc<SearchNode<'a>>>,
     pub current_pos: usize,
     pub broken_blocks: FxHashSet<usize>,
 }
 
-// Show that we're freeing
 impl Drop for SearchNode<'_> {
     fn drop(&mut self) {
         let mut prev = self.parent_node.take();
@@ -56,12 +55,63 @@ impl Drop for SearchNode<'_> {
     }
 }
 
+pub struct HapNode<'a> {
+    pub frag_set: FxHashSet<&'a Frag>,
+    pub out_edges: Vec<(usize,f64)>,
+    pub in_edges: Vec<(usize,f64)>,
+    pub column: usize,
+    pub row: usize,
+    cov: f64,
+    pub id: usize,
+    pub out_flows: Vec<(usize,f64)>
+}
+
+impl<'a> HapNode<'a> {
+    pub fn new(frag_set: FxHashSet<&'a Frag>) -> HapNode<'a> {
+        
+        let mut hap_map = FxHashMap::default();
+        for frag in frag_set.iter() {
+            for pos in frag.positions.iter() {
+                let var_at_pos = frag.seq_dict.get(pos).unwrap();
+                let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
+                let site_counter = sites.entry(*var_at_pos).or_insert(0);
+                *site_counter += 1;
+            }
+        }
+        let mut allele_cov_list = vec![];
+        for values1 in hap_map.values(){
+            for allele_count in values1.values(){
+                allele_cov_list.push(*allele_count as f64);
+            }
+        }
+
+        allele_cov_list.sort_by(|a,b| a.partial_cmp(&b).unwrap());
+        let cov = allele_cov_list[allele_cov_list.len()-1];
+        let toret = HapNode {
+            frag_set: frag_set,
+            out_edges: vec![],
+            in_edges: vec![],
+            column: usize::MAX,
+            row: usize::MAX,
+            id: usize::MAX,
+            cov: cov,
+            out_flows: vec![]
+        };
+        return toret;
+
+    }
+
+    pub fn cov(&self) -> f64{
+        return self.cov;
+    }
+}
+
 pub fn build_child_node<'a>(
     read: &'a Frag,
     part: usize,
     block_id: usize,
     parent_node_option: Option<Rc<SearchNode<'a>>>,
-    error_vec: Vec<(usize, usize)>,
+    error_vec: Vec<(f64, f64)>,
     score: f64,
     current_pos: usize,
 ) -> SearchNode<'a> {

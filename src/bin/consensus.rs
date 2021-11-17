@@ -72,7 +72,7 @@ fn main() {
         panic!("No VCF file input found");
     }
 
-    let output_blocks_str = matches.value_of("output").unwrap_or("consensus_out.txt");
+    let part_out_dir = matches.value_of("output").unwrap_or("glopp_out_dir");
     let mut snp_to_genome_pos_map: FxHashMap<String, Vec<usize>> = FxHashMap::default();
 
 
@@ -139,8 +139,16 @@ fn main() {
         -1.0 * final_score
     );
 
+    file_reader::write_output_partition_to_file(
+        &final_part_reference,
+        part_out_dir,
+        &String::from("cons"),
+        &FxHashMap::default()
+    );
+
+
     file_reader::write_blocks_to_file(
-        output_blocks_str,
+        part_out_dir,
         &vec![final_block_unpolish],
         &vec![length_gn],
         &snp_to_genome_pos,

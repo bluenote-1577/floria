@@ -20,6 +20,7 @@ clap = "2"
 simple_logger="*"
 log="*"
 itertools = "*"
+highs = "*"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"
