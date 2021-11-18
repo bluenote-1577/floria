@@ -107,7 +107,8 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
         x.push(pb.add_column(0., 0..));
     }
     for i in 0..edge_to_nodes.len() {
-        t.push(pb.add_column(1., 0..));
+//        t.push(pb.add_column(1., 0..));
+        t.push(pb.add_column(ae[i].sqrt(), 0..));
     }
 
     for (column_ind, hap_block) in hap_graph.iter().enumerate() {
@@ -170,8 +171,6 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
     }
     drop(file);
 
-    println!("Linear program finished.");
-
     let mut flow_update_vec = vec![];
     for i in 0..edge_to_nodes.len() {
         let (node1_id, node2_id) = edge_to_nodes[i];
@@ -180,7 +179,8 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
         let flow = solution.columns()[i];
         flow_update_vec.push(((node1.column, node1.row), (node2.column, node2.row), flow));
     }
-
+    
+    println!("Linear program finished.");
     return flow_update_vec;
 }
 
@@ -196,14 +196,14 @@ pub fn get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_u
             .out_flows
             .push((n2_inf.1, flow));
     }
-    let flow_cutoff = 5.0;
+    let flow_cutoff = 3.0;
     let max_num_paths = 5;
     let run_min_flow_cutoff = 3;
 
     let mut cfile = File::create("color_info.csv").expect("Can't create file");
 
     let mut path_counter = 0;
-    let mut already_seen_edges = FxHashSet::default();
+    let mut already_seen_edges = FxHashMap::default();
     loop {
         let mut min_flow = f64::MAX;
         let mut run_min_flow = f64::MAX;
@@ -234,8 +234,9 @@ pub fn get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_u
                         if *flow < flow_cutoff {
                             continue;
                         }
-                        if already_seen_edges.contains(&(node.id, hap_graph[i+1][*next_row_id].id)){
-                           mod_flow = *flow/2.; 
+                        if already_seen_edges.contains_key(&(node.id, hap_graph[i+1][*next_row_id].id)){
+                            let mult = already_seen_edges.get(&(node.id, hap_graph[i+1][*next_row_id].id)).unwrap();
+                           mod_flow = *flow/(1.5_f64.powf(*mult)); 
                         }
                         if sum_weight_max {
                             if trace_back_vec[i][node.row].0 + mod_flow
@@ -290,6 +291,8 @@ pub fn get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_u
                 node_path_colrow.push((best_node.column, best_node.row));
                 best_i = trace_back_vec[i][best_i].1;
 
+                //TODO do min_flow properly, new avg flow termination conditoin
+                //Single partition consensusing
                 if i != 0 {
                     if sum_weight_max {
                         let flow = score - trace_back_vec[i - 1][best_i].0;
@@ -302,11 +305,6 @@ pub fn get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_u
                 }
             }
 
-            println!(
-                "Highest weighted flow path is {}, with min flow {}, run min flow {}",
-                best_score, min_flow, run_min_flow
-            );
-
             node_path.reverse();
             node_path_colrow.reverse();
             for (l, node) in node_path.iter().enumerate() {
@@ -316,6 +314,12 @@ pub fn get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_u
                     write!(cfile, "{}-{},", node.column, node.id).unwrap();
                 }
             }
+            println!(
+                "Highest weighted flow path is {}, with min flow {}, run min flow {}",
+                best_score, min_flow, run_min_flow
+            );
+
+      
         }
         //Update edges
         for i in 0..node_path_colrow.len() - 1{
@@ -323,7 +327,8 @@ pub fn get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_u
             let (col2, row2) = node_path_colrow[i+1];
             let id1 = hap_graph[col1][row1].id;
             let id2 = hap_graph[col2][row2].id;
-            already_seen_edges.insert((id1,id2));
+            let edge_mult_count = already_seen_edges.entry((id1,id2)).or_insert(0.);
+            *edge_mult_count += 1.;
         }
         for i in 0..node_path_colrow.len() - 1 {
             let (col, row) = node_path_colrow[i];
@@ -507,8 +512,8 @@ fn merge_split_parts(
         let total_cov_1: usize = split_part[k].iter().map(|x| x.len()).sum();
         let total_cov_2: usize = split_part[k + 1].iter().map(|x| x.len()).sum();
         let cov_rat = total_cov_1 as f64 / (total_cov_2 + total_cov_1) as f64;
-        if cov_rat > 0.75 || cov_rat < 0.25 {
-            //        if true{
+//        if cov_rat > 0.75 || cov_rat < 0.25 {
+                    if true{
             tomerge.push(k);
         }
     }
