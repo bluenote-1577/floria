@@ -1,0 +1,2 @@
+tests/long-10305070.bam filter=lfs diff=lfs merge=lfs -text
+tests/10kcutoff-lofreq_500k_unif.vcfc_header filter=lfs diff=lfs merge=lfs -text
