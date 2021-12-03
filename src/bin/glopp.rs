@@ -73,9 +73,13 @@ fn main() {
                           .arg(Arg::with_name("num_iters_ploidy_est")
                               .short("q")
                               .takes_value(true)
+                              .value_name("NUMBER BLOCKS")
+                              .help("The number of blocks for flow graph construction when using fragments. (default 10)"))
+                          .arg(Arg::with_name("bam_block_length")
+                              .short("l")
+                              .takes_value(true)
                               .value_name("")
-                              .help("")
-                              .hidden(true))
+                              .help("Length of blocks for flow graph construction when using bam file. (default 15000)"))
                           .arg(Arg::with_name("use_mec")
                               .short("m")
                               .help("Use MEC score instead instead of a probabilistic objective function.")
@@ -93,6 +97,9 @@ fn main() {
                           .arg(Arg::with_name("dont_filter_supplementary")
                               .short("S")
                               .help("Use all supplementary alignments from the BAM file without filtering (filtering by default)."))
+                          .arg(Arg::with_name("dont_use_supplementary")
+                              .short("D")
+                              .help("Don't use supplementary alignments (use by default)."))
                           .get_matches();
 
     let mut estimate_ploidy = false;
@@ -111,6 +118,8 @@ fn main() {
         estimate_ploidy = true;
     }
 
+    let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
+    let block_length = block_length.parse::<usize>().unwrap();
     //    let use_mec = matches.is_present("use_mec");
     let mut use_mec = true;
     if matches.is_present("dont_use_mec") {
@@ -118,6 +127,7 @@ fn main() {
     };
     let use_ref_bias = matches.is_present("use_ref_bias");
     let filter_supplementary = !matches.is_present("dont_filter_supplementary");
+    let use_supplementary = !matches.is_present("dont_use_supplementary");
     // Set up our logger if the user passed the debug flag
     if matches.is_present("verbose") {
         simple_logger::SimpleLogger::new()
@@ -262,7 +272,7 @@ fn main() {
     let mut all_frags_map;
     if bam {
         all_frags_map =
-            file_reader::get_frags_from_bamvcf(vcf_file, bam_file, filter_supplementary);
+            file_reader::get_frags_from_bamvcf(vcf_file, bam_file, filter_supplementary, use_supplementary);
     } else {
         all_frags_map = file_reader::get_frags_container(frag_file);
     }
@@ -407,9 +417,10 @@ fn main() {
                 );
                 let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
                 let num_locs = num_locs_string.parse::<usize>().unwrap();
-                let mut hap_graph = graph_processing::generate_hap_graph(length_gn, num_locs, &all_frags, epsilon, &snp_to_genome_pos );
+                let mut hap_graph = graph_processing::generate_hap_graph(length_gn, num_locs, &all_frags, epsilon, &snp_to_genome_pos, max_number_solns, block_length );
                 let flow_up_vec = graph_processing::solve_lp_graph(&hap_graph);
-                graph_processing::get_best_paths(&mut hap_graph, flow_up_vec);
+                //graph_processing::get_best_paths(&mut hap_graph, flow_up_vec);
+                graph_processing::get_disjoint_paths(&mut hap_graph, flow_up_vec);
 
                 panic!("Not ipmlemented yet");
             }

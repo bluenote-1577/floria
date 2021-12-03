@@ -1,6 +1,7 @@
 use fxhash::{FxHashMap, FxHashSet};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::cmp::Ordering;
 use crate::utils_frags;
 
 //Positions are inclusive
@@ -29,6 +30,7 @@ impl PartialEq for Frag {
     }
 }
 
+#[derive(PartialEq)]
 pub struct SearchNode<'a> {
     pub read: &'a Frag,
     pub part: usize,
@@ -40,6 +42,20 @@ pub struct SearchNode<'a> {
     pub current_pos: usize,
     pub broken_blocks: FxHashSet<usize>,
 }
+
+impl Ord for SearchNode<'_>{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.score.partial_cmp(&other.score).unwrap()
+    }
+}
+
+impl PartialOrd for SearchNode<'_>{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for SearchNode<'_>{}
 
 impl Drop for SearchNode<'_> {
     fn drop(&mut self) {
@@ -63,7 +79,8 @@ pub struct HapNode<'a> {
     pub row: usize,
     cov: f64,
     pub id: usize,
-    pub out_flows: Vec<(usize,f64)>
+    pub out_flows: Vec<(usize,f64)>,
+    pub hap_map : FxHashMap<usize, FxHashMap<usize, usize>>,
 }
 
 impl<'a> HapNode<'a> {
@@ -85,8 +102,18 @@ impl<'a> HapNode<'a> {
             }
         }
 
+        let mut hap_map = FxHashMap::default();
+        for frag in frag_set.iter() {
+            for pos in frag.positions.iter() {
+                let var_at_pos = frag.seq_dict.get(pos).unwrap();
+                let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
+                let site_counter = sites.entry(*var_at_pos).or_insert(0);
+                *site_counter += 1;
+            }
+        }
+
         allele_cov_list.sort_by(|a,b| a.partial_cmp(&b).unwrap());
-        let cov = allele_cov_list[allele_cov_list.len()-1];
+        let cov = allele_cov_list.last().unwrap_or(&0.);
         let toret = HapNode {
             frag_set: frag_set,
             out_edges: vec![],
@@ -94,8 +121,9 @@ impl<'a> HapNode<'a> {
             column: usize::MAX,
             row: usize::MAX,
             id: usize::MAX,
-            cov: cov,
-            out_flows: vec![]
+            cov: *cov,
+            out_flows: vec![],
+            hap_map: hap_map
         };
         return toret;
 
@@ -143,8 +171,21 @@ pub fn build_child_node<'a>(
     toret
 }
 
+#[derive(Debug, PartialEq,Eq)]
 pub struct HapBlock {
     pub blocks: Vec<FxHashMap<usize, FxHashMap<usize, usize>>>,
+}
+
+impl Ord for HapBlock{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.blocks.len().partial_cmp(&other.blocks.len()).unwrap()
+    }
+}
+
+impl PartialOrd for HapBlock{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 pub fn build_frag(id: String, counter_id: usize, supp_aln: Option<String>) -> Frag {

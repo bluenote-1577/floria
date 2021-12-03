@@ -3,6 +3,7 @@ use crate::graph_processing;
 use crate::local_clustering;
 use crate::types_structs;
 use crate::types_structs::{Frag, HapBlock, HapNode, SearchNode};
+use std::collections::binary_heap::BinaryHeap;
 use std::mem;
 use std::rc::Rc;
 extern crate time;
@@ -55,15 +56,17 @@ pub fn beam_search_phasing<'a>(
         broken_blocks: FxHashSet::default(),
     };
 
-    let mut search_node_list = vec![(Rc::new(first_node), first_block)];
+    //    let mut search_node_list = vec![(Rc::new(first_node), first_block)];
+    let mut search_node_heap = BinaryHeap::new();
+    search_node_heap.push((Rc::new(first_node), first_block));
 
     for i in 0..all_reads.len() {
         let mut max_num_soln_mut = max_number_solns;
         if i < 25 {
-            max_num_soln_mut = ploidy * max_number_solns * ploidy * 5;
+            max_num_soln_mut = ploidy * max_number_solns;
         }
-        let mut min_score = f64::MIN;
-        let mut search_node_list_next = vec![];
+        //        let mut search_node_list_next = vec![];
+        let mut search_node_heap_next = BinaryHeap::new();
         let frag = &all_reads[i];
         let mut frag_in_clique = false;
         //If we use the clique construction, we don't
@@ -77,7 +80,7 @@ pub fn beam_search_phasing<'a>(
             continue;
         }
         let current_startpos = frag.first_position;
-        for (node, block) in search_node_list.iter() {
+        for (node, block) in search_node_heap.iter() {
             let mut p_value_list = vec![];
             for part_index in 0..ploidy {
                 let mut dist;
@@ -105,7 +108,7 @@ pub fn beam_search_phasing<'a>(
                     dist = dist_alt + dist_ref;
                 } else {
                     let (same, diff) =
-                        utils_frags::distance_read_haplo(frag, &block.blocks[part_index]);
+                        utils_frags::distance_read_haplo_epsilon_empty(frag, &block.blocks[part_index], epsilon);
                     dist = 1.0
                         * utils_frags::stable_binom_cdf_p_rev(
                             (same + diff) as usize,
@@ -137,7 +140,7 @@ pub fn beam_search_phasing<'a>(
                     let (score, new_error_vec) =
                         read_to_node_value(node, frag, block, j, epsilon, div_factor, use_mec);
                     let new_node_score;
-                    new_node_score = score;
+                    new_node_score = -score;
 
                     let mut new_node = types_structs::build_child_node(
                         frag,
@@ -149,79 +152,40 @@ pub fn beam_search_phasing<'a>(
                         current_startpos,
                     );
 
-                    if score <= min_score {
-                        continue;
-                    } else {
-                        let (broken_blocks_node, new_block) =
-                            types_structs::build_truncated_hap_block(
-                                block,
-                                frag,
-                                j,
-                                current_startpos,
-                            );
-                        for index in broken_blocks_node {
-                            new_node.broken_blocks.insert(index);
-                        }
-                        let toins = (Rc::new(new_node), new_block);
-
-                        match search_node_list_next.binary_search_by(
-                            |x: &(Rc<SearchNode>, HapBlock)| {
-                                x.0.score
-                                    .partial_cmp(&(*(toins.0)).score)
-                                    .expect("Couldn't compare")
-                            },
-                        ) {
-                            Ok(pos) => search_node_list_next.insert(pos, toins),
-                            Err(pos) => search_node_list_next.insert(pos, toins),
-                        }
-                        if search_node_list_next.len() > max_num_soln_mut {
-                            search_node_list_next.pop();
-                        }
+                    let (broken_blocks_node, new_block) =
+                        types_structs::build_truncated_hap_block(block, frag, j, current_startpos);
+                    for index in broken_blocks_node {
+                        new_node.broken_blocks.insert(index);
                     }
-                    //                    } else {
-                    //                        let new_block = types_structs::build_truncated_hap_block(
-                    //                            block,
-                    //                            frag,
-                    //                            j,
-                    //                            current_startpos,
-                    //                        );
-                    //
-                    //                        search_node_list_next.push((Rc::new(new_node), new_block));
-                    //                    }
+                    let toins = (Rc::new(new_node), new_block);
+                    search_node_heap_next.push(toins);
 
-                    //first time get max number of solutions, sort
-                    //                    if search_node_list_next.len() == max_number_solns {
-                    //                        search_node_list_next
-                    //                            .sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
-                    //                    }
-
-                    min_score = search_node_list_next.iter().last().unwrap().0.score;
+                    if search_node_heap_next.len() > max_num_soln_mut {
+                        search_node_heap_next.pop();
+                    }
                 }
             }
         }
 
-        search_node_list_next.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
-        let _unused = mem::replace(&mut search_node_list, search_node_list_next);
-        if search_node_list.len() > max_num_soln_mut {
-            search_node_list.drain(max_num_soln_mut..);
-        }
+        let _unused = mem::replace(&mut search_node_heap, search_node_heap_next);
 
         if i % 100 == 0 {
             log::trace!(
                 "Number of solutions before trimming: {}, {}, {}",
-                search_node_list.len(),
+                search_node_heap.len(),
                 i,
                 all_reads.len()
             );
 
-            let test_pointer = &search_node_list[0].0;
-            log::trace!("Partition best count:{}, {:?}", i, test_pointer.freqs);
-            let test_pointer = &search_node_list.iter().last().unwrap().0;
+//            let test_pointer = &search_node_heap.iter().first().unwrap().0;
+//            log::trace!("Partition best count:{}, {:?}", i, test_pointer.freqs);
+            let test_pointer = &search_node_heap.peek().unwrap().0;
             log::trace!("Partition worst count:{}, {:?}", i, test_pointer.freqs);
         }
     }
 
-    let mut node_pointer = &search_node_list[0].0;
+    let search_node_heap_to_list = search_node_heap.into_sorted_vec();
+    let mut node_pointer = &search_node_heap_to_list[0].0;
     log::debug!("Partition count: {:?}", node_pointer.freqs);
     log::debug!("Best partition score: {}", node_pointer.score);
 
@@ -632,4 +596,3 @@ pub fn get_initial_from_anchor<'a>(
 
     partition
 }
-

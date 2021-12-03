@@ -187,7 +187,7 @@ pub fn write_blocks_to_file<P>(
 }
 
 //Given a vcf file and a bam file, we get a vector of frags.
-pub fn get_frags_from_bamvcf<P>(vcf_file: P, bam_file: P, filter_supplementary: bool) -> FxHashMap<String, Vec<Frag>>
+pub fn get_frags_from_bamvcf<P>(vcf_file: P, bam_file: P, filter_supplementary: bool, use_supplementary: bool) -> FxHashMap<String, Vec<Frag>>
 where
     P: AsRef<Path>,
 {
@@ -320,6 +320,10 @@ where
                 let mapq = aln_record.mapq();
 
                 let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
+
+                if mapq < mapq_normal_cutoff{
+                    continue;
+                }
                 //Erroneous alignment, skip
                 if flags & errors_mask > 0 {
                     //dbg!(&flags,&id_string);
@@ -333,6 +337,9 @@ where
                 }
 
                 if flags & supplementary_mask > 0{
+                    if !use_supplementary{
+                        continue
+                    }
                     if filter_supplementary{
                         if mapq < mapq_supp_cutoff{
                             continue;
@@ -583,7 +590,12 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
         }
 
         for q in qual_block.iter() {
-            write!(file, "{}", (*q + 33) as char).unwrap();
+            if *q as usize + 33 > 255{
+                write!(file, "{}", (*q) as char).unwrap();
+            }
+            else{
+                write!(file, "{}", (*q + 33) as char).unwrap();
+            }
         }
 
         write!(file, "\n").unwrap();

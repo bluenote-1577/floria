@@ -31,12 +31,10 @@ pub fn distance_read_haplo_epsilon_empty(
     let mut same = 0.0;
     for pos in r.positions.iter() {
         if !hap.contains_key(pos) {
-            if true {
-                diff += epsilon;
-                //TODO remove this just a test
-                if epsilon < 0.0001 {
-                    diff -= epsilon;
-                }
+            diff += epsilon;
+            //TODO remove this just a test
+            if epsilon < 0.0001 {
+                diff -= epsilon;
             }
             continue;
         }
@@ -492,7 +490,7 @@ pub fn get_range_with_lengths(
         cum_pos += *pos - last_pos;
         last_pos = *pos;
         if cum_pos > block_length - overlap_len && hit_new_left == false {
-            new_left_end = i - 1;
+            new_left_end = i;
             hit_new_left = true;
         }
         if cum_pos > block_length {

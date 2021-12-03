@@ -21,6 +21,8 @@ simple_logger="*"
 log="*"
 itertools = "*"
 highs = "*"
+osqp = "*"
+petgraph = "*"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"
