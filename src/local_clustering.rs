@@ -644,11 +644,7 @@ fn _populate_clusters1(
 pub fn optimize_clustering<'a>(
     partition: Vec<FxHashSet<&'a Frag>>,
     epsilon: f64,
-    genotype_dict: &FxHashMap<usize, FxHashMap<usize, usize>>,
-    polish: bool,
     max_iters: usize,
-    div_factor: f64,
-    use_mec: bool,
 ) -> (f64, Vec<FxHashSet<&'a Frag>>, HapBlock) {
     let mut not_empty = false;
     for part in partition.iter() {
@@ -671,47 +667,26 @@ pub fn optimize_clustering<'a>(
         }
     }
 
-    //We need a set of positions to polish if we are using the VCF polishing.
-    let position_vec: Vec<usize> = set_of_positions.into_iter().collect();
-
-    if polish {
-        prev_hap_block =
-            vcf_polishing::polish_using_vcf(genotype_dict, &prev_hap_block, &position_vec);
-    }
-
-    let (binom_vec, freq_vec) = get_partition_stats(&partition, &prev_hap_block);
-    let mut prev_score = get_upem_score(&binom_vec, &freq_vec, epsilon, div_factor);
-
-    if use_mec {
-        prev_score = get_mec_score(&binom_vec, &freq_vec, epsilon, div_factor);
-//        prev_score = get_pem_score(&binom_vec, &freq_vec, epsilon, div_factor);
-    }
+    let binom_vec = get_mec_stats_epsilon(&partition, &prev_hap_block, epsilon);
+    let mut prev_score = binom_vec.iter().map(|x| x.1).sum();
+    prev_score *= -1.;
 
     let mut best_part = partition;
 
     //Iterate until an iteration yields a lower UPEM score -- return partition corresponding
     //to the best UPEM score.
     for _i in 0..max_iters {
-        let new_part = opt_iterate(&best_part, &prev_hap_block, epsilon, div_factor);
-        let mut new_block = utils_frags::hap_block_from_partition(&new_part);
-        if polish {
-            new_block = vcf_polishing::polish_using_vcf(genotype_dict, &new_block, &position_vec);
-        }
-        let (new_binom_vec, new_freq_vec) = get_partition_stats(&new_part, &new_block);
-        let mut new_score = get_upem_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
-        if use_mec {
-            new_score = get_mec_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
-//            new_score = get_pem_score(&new_binom_vec, &new_freq_vec, epsilon, div_factor);
-        }
-
+        let new_part = opt_iterate(&best_part, &prev_hap_block, epsilon);
+        let new_block = utils_frags::hap_block_from_partition(&new_part);
+        let new_binom_vec = get_mec_stats_epsilon(&new_part, &new_block,epsilon);
+        let new_score = new_binom_vec.iter().map(|x| x.1).sum::<f64>() * -1.;
 //        if new_score > prev_score{
-//            dbg!(_i, &new_binom_vec, new_score, prev_score, &new_freq_vec);
+//            dbg!(_i, &new_binom_vec, new_score, prev_score);
 //            if new_score.is_nan() {
-//                dbg!(_i, &new_binom_vec, new_score, &new_freq_vec);
+//                dbg!(_i, &new_binom_vec, new_score);
 //            }
 //        }
 
-        (new_score, new_freq_vec, new_binom_vec);
         if new_score > prev_score {
             prev_score = new_score;
             best_part = new_part;
@@ -796,6 +771,34 @@ pub fn get_partition_stats(
     (binom_vec, freq_vec)
 }
 
+//Include a pental for single coverage alleles. 
+pub fn get_mec_stats_epsilon(
+    partition: &Vec<FxHashSet<&Frag>>,
+    hap_block: &HapBlock,
+    epsilon : f64
+) -> Vec<(f64, f64)> {
+    let mut binom_vec = vec![];
+    for hap in hap_block.blocks.iter(){
+        let mut errors = 0.;
+        let mut bases = 0.;
+        for seq_dict in hap.values(){
+            let mut allele_counts : Vec<&usize>= seq_dict.values().collect();
+            allele_counts.sort();
+            let cons_bases = **allele_counts.last().unwrap();
+            bases += cons_bases as f64;
+            for i in 0..allele_counts.len()-1{
+                errors += *allele_counts[i] as f64;
+            }
+            //TODO Test if this is worthwhile. 
+            if cons_bases == 1{
+                errors += epsilon;
+            }
+        }
+        binom_vec.push((bases,errors));
+    }
+    binom_vec
+}
+
 //Get a vector of read frequencies and error rates from a partition and its corresponding
 //haplotype block.
 pub fn get_partition_stats_ref_wild(
@@ -872,23 +875,18 @@ pub fn get_mec_score(
 
 }
 
+
 fn opt_iterate<'a>(
     partition: &Vec<FxHashSet<&'a Frag>>,
     hap_block: &HapBlock,
     epsilon: f64,
-    div_factor: f64,
 ) -> Vec<FxHashSet<&'a Frag>> {
     let ploidy = partition.len();
-    let (binom_vec, freq_vec) = get_partition_stats(partition, hap_block);
-    let mut freq_vec = freq_vec;
-    let mut binom_p_vec = Vec::new();
-    let chi_square_val = chi_square_p(&freq_vec);
+    let binom_vec = get_mec_stats_epsilon(partition, hap_block, epsilon);
 
     for bases_errors in binom_vec.iter() {
         let bases = bases_errors.0;
         let errors = bases_errors.1;
-        let binom_logp_val = utils_frags::stable_binom_cdf_p_rev(bases + errors, errors, epsilon, div_factor);
-        binom_p_vec.push(binom_logp_val);
     }
 
     let mut best_moves = Vec::new();
@@ -899,15 +897,7 @@ fn opt_iterate<'a>(
         }
         for read in partition[i].iter() {
             let haplo_i = &hap_block.blocks[i];
-            let (bases_good_read, errors_read) = utils_frags::distance_read_haplo(read, haplo_i);
-            let bases_good_after = binom_vec[i].0 - bases_good_read;
-            let errors_after = binom_vec[i].1 - errors_read;
-            let new_binom_val_i = utils_frags::stable_binom_cdf_p_rev(
-                bases_good_after + errors_after,
-                errors_after,
-                epsilon,
-                div_factor,
-            );
+            let (_bases_good_read, errors_read) = utils_frags::distance_read_haplo_epsilon_empty(read, haplo_i, epsilon);
             for j in 0..ploidy {
                 if j == i {
                     continue;
@@ -915,31 +905,14 @@ fn opt_iterate<'a>(
 
                 //Test out new move
                 let haplo_j = &hap_block.blocks[j];
-                let (read_bases_good_movej, read_errors_movej) =
-                    utils_frags::distance_read_haplo(read, haplo_j);
+                let (_read_bases_good_movej, read_errors_movej) =
+                    utils_frags::distance_read_haplo_epsilon_empty(read, haplo_j, epsilon);
 
-                let bases_good_after_movej = binom_vec[j].0 + read_bases_good_movej;
-                let errors_after_movej = binom_vec[j].1 + read_errors_movej;
-                let new_binom_val_j = utils_frags::stable_binom_cdf_p_rev(
-                    bases_good_after_movej + errors_after_movej,
-                    errors_after_movej,
-                    epsilon,
-                    div_factor,
-                );
-
-                freq_vec[j] += 1;
-                freq_vec[i] -= 1;
-                let new_chi_square_val = chi_square_p(&freq_vec);
-
-                let new_score = new_binom_val_i + new_binom_val_j + new_chi_square_val;
-                let old_score = binom_p_vec[i] + binom_p_vec[j] + chi_square_val;
-                if new_score - old_score > 0.0 {
-                    best_moves.push((new_score - old_score, (i, read, j)));
+                let diff_score = errors_read - read_errors_movej;
+                if diff_score > 0.0 {
+                    best_moves.push((diff_score, (i, read, j)));
                     //dbg!(new_score,old_score,read_bases_good_movej,read_errors_movej);
                 }
-
-                freq_vec[i] += 1;
-                freq_vec[j] -= 1;
             }
         }
     }
@@ -947,11 +920,12 @@ fn opt_iterate<'a>(
     let mut moved_reads = FxHashSet::default();
     let mut new_part = partition.clone();
     best_moves.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-    let num_reads: usize = freq_vec.iter().sum();
-    let mut number_of_moves = num_reads / 10;
-    if best_moves.len() / 10 < number_of_moves / 5 {
-        number_of_moves = best_moves.len() / 5;
-    }
+//    let num_reads: usize = freq_vec.iter().sum();
+//    let mut number_of_moves = num_reads / 10;
+//    if best_moves.len() / 10 < number_of_moves / 5 {
+//        number_of_moves = best_moves.len() / 5;
+//    }
+    let number_of_moves = best_moves.len() / 5;
     //    dbg!(number_of_moves);
 
     for (mv_num, mv) in best_moves.iter().enumerate() {
@@ -959,13 +933,11 @@ fn opt_iterate<'a>(
         if moved_reads.contains(read) {
             continue;
         }
-        if freq_vec[i] == 1 {
+        if new_part[i].len() == 1 {
             continue;
         }
         new_part[j].insert(read);
         new_part[i].remove(read);
-        freq_vec[j] += 1;
-        freq_vec[i] -= 1;
         moved_reads.insert(read);
         if mv_num > number_of_moves {
             break;
