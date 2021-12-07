@@ -179,10 +179,10 @@ fn main() {
             vcf = false;
             "_"
         }
-        Some(vcf_file) => {
+        Some(_vcf_file) => {
             panic!("Don't allow -v option for now.");
             vcf = true;
-            vcf_file
+            _vcf_file
         }
     };
 
@@ -302,7 +302,7 @@ fn main() {
             println!("Contig {} has no fragments", contig);
             continue;
         }
-        let mut prev_expected_score = f64::MAX;
+        let mut _prev_expected_score = f64::MAX;
         println!("Number of fragments {}", all_frags.len());
         for frag in all_frags.iter() {
             if let Some(sup_cont) = &frag.supp_aln {
@@ -407,20 +407,20 @@ fn main() {
 
             println!("Epsilon is {}", epsilon);
 
-            let num_estimate_tries = 10;
+//            let num_estimate_tries = 10;
             if estimate_ploidy {
-                ploidy = local_clustering::estimate_ploidy_flopp(
-                    length_gn,
-                    num_estimate_tries,
-                    &all_frags,
-                    epsilon,
-                );
+//                ploidy = local_clustering::estimate_ploidy_flopp(
+//                    length_gn,
+//                    num_estimate_tries,
+//                    &all_frags,
+//                    epsilon,
+//                );
                 let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
                 let num_locs = num_locs_string.parse::<usize>().unwrap();
                 let mut hap_graph = graph_processing::generate_hap_graph(length_gn, num_locs, &all_frags, epsilon, &snp_to_genome_pos, max_number_solns, block_length );
                 let flow_up_vec = graph_processing::solve_lp_graph(&hap_graph);
                 //graph_processing::get_best_paths(&mut hap_graph, flow_up_vec);
-                graph_processing::get_disjoint_paths(&mut hap_graph, flow_up_vec);
+                graph_processing::get_disjoint_paths_rewrite(&mut hap_graph, flow_up_vec, epsilon, part_out_dir.to_string());
 
                 panic!("Not ipmlemented yet");
             }
@@ -469,9 +469,9 @@ fn main() {
 
             file_reader::write_output_partition_to_file(
                 &final_part,
+                vec![],
                 part_out_dir,
                 contig,
-                &break_positions,
             );
 
             file_reader::write_blocks_to_file(

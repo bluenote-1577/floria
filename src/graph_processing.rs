@@ -1,13 +1,13 @@
 use crate::file_reader;
 use crate::global_clustering;
 use crate::local_clustering;
-use crate::types_structs::{Frag, HapNode};
+use crate::types_structs::{Frag, HapNode, TraceBackNode};
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
 use highs::{RowProblem, Sense};
 use osqp::{CscMatrix, Problem, Settings};
 use petgraph::algo;
-use petgraph::dot::{Config, Dot};
+use petgraph::dot::Dot;
 use petgraph::prelude::*;
 use std::fs::File;
 use std::io::Write;
@@ -32,7 +32,7 @@ pub fn entry_list_to_csc<'a>(
                 current_col = 0;
                 indptr.push(0);
             }
-            for i in current_col..col_id {
+            for _i in current_col..col_id {
                 indptr.push(data.len());
             }
             current_col = col_id;
@@ -53,7 +53,7 @@ pub fn entry_list_to_csc<'a>(
     }
 }
 
-type Flow_up_vec = Vec<((usize, usize), (usize, usize), f64)>;
+type FlowUpVec = Vec<((usize, usize), (usize, usize), f64)>;
 
 pub fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
     //    let pseudo_count = 10.;
@@ -92,8 +92,8 @@ pub fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
                     }
                 }
             }
-            let sum: f64 = out_weights.iter().sum();
-            let normalized_out_weights: Vec<f64> = out_weights.iter().map(|x| x / sum).collect();
+            //            let sum: f64 = out_weights.iter().sum();
+            //            let _normalized_out_weights: Vec<f64> = out_weights.iter().map(|x| x / sum).collect();
             let mut out_edges_hap = vec![];
             for l in 0..hap_block2.len() {
                 if out_weights[l] > cutoff_val {
@@ -136,7 +136,7 @@ pub fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
     }
 }
 
-pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
+pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> FlowUpVec {
     let flow_cutoff = 3.0;
     let mut ae = vec![];
 
@@ -148,8 +148,8 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
     //QP variables
     // Vector looks like [x,t]
     let mut num_constraints = 0;
-    let mut A_entry = vec![];
-    let mut P_entry = vec![];
+    let mut a_entry = vec![];
+    let mut p_entry = vec![];
     let mut l = vec![];
     let mut u = vec![];
 
@@ -182,7 +182,7 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
     }
 
     for i in edge_to_nodes.len()..2 * edge_to_nodes.len() {
-        P_entry.push((i, i, 1. / ae[i - edge_to_nodes.len()]));
+        p_entry.push((i, i, 1. / ae[i - edge_to_nodes.len()]));
     }
 
     for (column_ind, hap_block) in hap_graph.iter().enumerate() {
@@ -219,10 +219,10 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
 
                 //QP variables
                 for in_edge_id in in_edge_ids {
-                    A_entry.push((*in_edge_id, num_constraints, 1.));
+                    a_entry.push((*in_edge_id, num_constraints, 1.));
                 }
                 for out_edge_id in out_edge_ids {
-                    A_entry.push((*out_edge_id, num_constraints, -1.));
+                    a_entry.push((*out_edge_id, num_constraints, -1.));
                 }
                 l.push(0.);
                 u.push(0.);
@@ -239,21 +239,21 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
 
     //QP variables
     for i in 0..t.len() {
-        A_entry.push((i, num_constraints, 1.));
-        A_entry.push((i + t.len(), num_constraints, -1.));
+        a_entry.push((i, num_constraints, 1.));
+        a_entry.push((i + t.len(), num_constraints, -1.));
         l.push(ae[i]);
         u.push(ae[i]);
         num_constraints += 1;
 
-        A_entry.push((i, num_constraints, 1.));
+        a_entry.push((i, num_constraints, 1.));
         l.push(0.);
         u.push(f64::MAX);
         num_constraints += 1;
     }
 
     //QP SOLVING
-    let P = entry_list_to_csc(P_entry, t.len() * 2, t.len() * 2);
-    let A = entry_list_to_csc(A_entry, t.len() * 2, num_constraints);
+    let p = entry_list_to_csc(p_entry, t.len() * 2, t.len() * 2);
+    let a = entry_list_to_csc(a_entry, t.len() * 2, num_constraints);
     let mut q = vec![0.; t.len() * 2];
     let lambda = 0.;
     for i in 0..x.len() {
@@ -264,11 +264,11 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
     let settings = Settings::default().verbose(false);
 
     // Create an OSQP problem
-    let mut prob = Problem::new(P, &q, A, &l, &u, &settings).expect("failed to setup problem");
+    let mut prob = Problem::new(p, &q, a, &l, &u, &settings).expect("failed to setup problem");
 
     // Solve problem
     let qp_solution = prob.solve();
-    println!("{:?}", qp_solution.x().expect("failed to solve problem"));
+    //    println!("{:?}", qp_solution.x().expect("failed to solve problem"));
 
     let solved = pb.optimise(Sense::Minimise).solve();
     let solution = solved.get_solution();
@@ -324,197 +324,7 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> Flow_up_vec {
     return flow_update_vec;
 }
 
-pub fn get_disjoint_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_up_vec) {
-    //Max flow = true doesn't work right now
-    let max_flow = false;
-    let flow_cutoff = 3.0;
-    let mut flow_graph_versatile = StableGraph::<(usize, usize), f64>::new();
-    //Update the graph to include flows.
-    for (n1_inf, n2_inf, flow) in flow_update_vec {
-        if flow < flow_cutoff {
-            continue;
-        }
-        hap_graph[n1_inf.0][n1_inf.1]
-            .out_flows
-            .push((n2_inf.1, flow));
-    }
-    //Populate the traceback vector and the container for the NodeIndex
-    let mut node_index_container = vec![];
-    let mut trace_back_vec = vec![];
-    for block in hap_graph.iter() {
-        let mut trace_back_block = vec![];
-        let mut node_index_block = vec![];
-        for node in block.iter() {
-            node_index_block.push(flow_graph_versatile.add_node((node.column, node.row)));
-            let is_sink = node.out_flows.is_empty();
-            let is_source = node.in_edges.is_empty();
-            if max_flow {
-                trace_back_block.push((0., (usize::MAX, usize::MAX), is_sink, is_source));
-            } else {
-                if is_source {
-                    trace_back_block.push((
-                        f64::MAX - 1.,
-                        (usize::MAX, usize::MAX),
-                        is_sink,
-                        is_source,
-                    ));
-                } else {
-                    trace_back_block.push((0., (usize::MAX, usize::MAX), is_sink, is_source));
-                }
-            }
-        }
-        node_index_container.push(node_index_block);
-        trace_back_vec.push(trace_back_block);
-    }
-
-    //Add edges using NodeIndices
-    for block in hap_graph.iter() {
-        for node in block.iter() {
-            let node1 = &node_index_container[node.column][node.row];
-            for (next_row, flow) in node.out_flows.iter() {
-                let node2 = &node_index_container[node.column + 1][*next_row];
-                flow_graph_versatile.add_edge(*node1, *node2, *flow);
-            }
-        }
-    }
-
-    let mut pet_graph_file = File::create("pet_graph.dot").expect("Can't create file");
-    write!(pet_graph_file, "{:?}", Dot::new(&flow_graph_versatile)).unwrap();
-    let mut iter_count = 0;
-    let mut all_joined_path_parts = vec![];
-
-    while flow_graph_versatile.node_count() > 0 {
-        //Top sort and find the maximal path
-        let top_order = algo::toposort(&flow_graph_versatile, None).unwrap();
-        for node_index in top_order {
-            let out_edges = flow_graph_versatile.edges(node_index);
-            for edge in out_edges {
-                let source = flow_graph_versatile.node_weight(edge.source()).unwrap();
-                let target = flow_graph_versatile.node_weight(edge.target()).unwrap();
-                let flow = edge.weight();
-                if max_flow {
-                    if trace_back_vec[source.0][source.1].0 + flow
-                        > trace_back_vec[target.0][target.1].0
-                    {
-                        trace_back_vec[target.0][target.1].0 =
-                            trace_back_vec[source.0][source.1].0 + flow;
-                        trace_back_vec[target.0][target.1].1 .0 = source.0;
-                        trace_back_vec[target.0][target.1].1 .1 = source.1;
-                    }
-                } else {
-                    if f64::min(trace_back_vec[source.0][source.1].0, *flow)
-                        > trace_back_vec[target.0][target.1].0
-                    {
-                        trace_back_vec[target.0][target.1].0 =
-                            f64::min(trace_back_vec[source.0][source.1].0, *flow);
-                        trace_back_vec[target.0][target.1].1 .0 = source.0;
-                        trace_back_vec[target.0][target.1].1 .1 = source.1;
-                    }
-                }
-            }
-        }
-
-        //Get best paths
-        let mut index_of_best_end_node = (usize::MAX, usize::MAX);
-        let mut best_score = f64::MIN;
-        let mut best_path = vec![];
-        for (i, block) in trace_back_vec.iter().enumerate() {
-            for (j, node) in block.iter().enumerate() {
-                if node.0 > best_score && node.2 {
-                    index_of_best_end_node = (i, j);
-                    best_score = node.0;
-                }
-            }
-        }
-        if index_of_best_end_node == (usize::MAX, usize::MAX) {
-            dbg!(&flow_graph_versatile);
-            panic!("Shouldn't get here");
-        }
-        println!("Iter {}, Node count {}", iter_count, flow_graph_versatile.node_count());
-        let mut joined_path_part = FxHashSet::default();
-        while index_of_best_end_node != (usize::MAX, usize::MAX) {
-            for frag in hap_graph[index_of_best_end_node.0][index_of_best_end_node.1]
-                .frag_set
-                .iter()
-            {
-                joined_path_part.insert(*frag);
-            }
-//            dbg!(index_of_best_end_node,trace_back_vec[index_of_best_end_node.0][index_of_best_end_node.1]);
-            best_path.push(index_of_best_end_node);
-            println!("{:?}", &index_of_best_end_node);
-            index_of_best_end_node =
-                trace_back_vec[index_of_best_end_node.0][index_of_best_end_node.1].1;
-        }
-        all_joined_path_parts.push(joined_path_part);
-
-        for (col, row) in best_path {
-                        //Reset the trace back vectors for nodes adjacent to the path
-            let node_index = node_index_container[col][row];
-            let out_neigh =
-                flow_graph_versatile.neighbors_directed(node_index, Direction::Outgoing).into_iter().collect::<Vec<_>>();
-            let in_neigh =
-                flow_graph_versatile.neighbors_directed(node_index, Direction::Incoming).into_iter().collect::<Vec<_>>();
-            //Remove the node
-            flow_graph_versatile
-                .remove_node(node_index)
-                .unwrap();
-
-            for neighbor in out_neigh {
-                let target = flow_graph_versatile.node_weight(neighbor).unwrap();
-                let is_source = flow_graph_versatile
-                    .neighbors_directed(
-                        node_index_container[target.0][target.1],
-                        Direction::Incoming,
-                    )
-                    .into_iter()
-                    .collect::<Vec<_>>()
-                    .is_empty();
-                let init_weight = if is_source { f64::MAX-1. } else { 0. };
-                trace_back_vec[target.0][target.1] = (
-                    init_weight,
-                    (usize::MAX, usize::MAX),
-                    //Removing in-nodes doesn't change sink-ness
-                    trace_back_vec[target.0][target.1].2,
-                    //May become a source now
-                    is_source,
-                    );
-            }
-
-            for neighbor in in_neigh {
-                let target = flow_graph_versatile.node_weight(neighbor).unwrap();
-                let is_source = trace_back_vec[target.0][target.1].3;
-                let init_weight = if is_source { f64::MAX-1. } else { 0. };
-                trace_back_vec[target.0][target.1] = (
-                    init_weight,
-                    (usize::MAX, usize::MAX),
-                    //May become a sink now
-                    flow_graph_versatile
-                        .neighbors_directed(
-                            node_index_container[target.0][target.1],
-                            Direction::Outgoing,
-                        )
-                        .into_iter()
-                        .collect::<Vec<_>>()
-                        .is_empty(),
-                    //Doesn't change source-ness
-                    trace_back_vec[target.0][target.1].3,
-                );
-            }
-
-            trace_back_vec[col][row].0 = f64::MIN;
-            trace_back_vec[col][row].1 = (usize::MAX, usize::MAX);
-        }
-        iter_count += 1;
-    }
-    file_reader::write_output_partition_to_file(
-        &all_joined_path_parts,
-        "./parts_joined/",
-        &format!("{}", iter_count),
-        &FxHashMap::default(),
-    );
-}
-
-pub fn get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_up_vec) {
+pub fn _get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: FlowUpVec) {
     println!("Getting best paths");
     let sum_weight_max = true;
     let min_flow_max = false;
@@ -568,7 +378,7 @@ pub fn get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: Flow_u
                         if already_seen_edges
                             .contains_key(&(node.id, hap_graph[i + 1][*next_row_id].id))
                         {
-                            let mult = already_seen_edges
+                            let _mult = already_seen_edges
                                 .get(&(node.id, hap_graph[i + 1][*next_row_id].id))
                                 .unwrap();
                             //                           mod_flow = *flow/(1.5_f64.powf(*mult));
@@ -730,6 +540,7 @@ pub fn generate_hap_graph<'a>(
         let mut mec_vector = vec![0.; num_ploidies];
         let mut parts_vector = vec![];
         let mut expected_errors_ref = vec![];
+        let mut endpoints_vector = vec![];
         // NOTE THE 1 INDEXING!
         let reads = local_clustering::find_reads_in_interval(
             random_vec[j].0 + 1,
@@ -764,7 +575,14 @@ pub fn generate_hap_graph<'a>(
 
             let split_part =
                 utils_frags::split_part_using_breaks(&break_pos, &optimized_part, &all_frags);
-            let split_part_merge = merge_split_parts(split_part, break_pos);
+            let endpoints;
+            if j != 0 {
+                endpoints = (random_vec[j - 1].1 + 1, random_vec[j].1 + 1);
+            } else {
+                endpoints = (random_vec[j].0 + 1, random_vec[j].1 + 1);
+            }
+            let (split_part_merge, split_part_endpoints) =
+                merge_split_parts(split_part, break_pos, endpoints);
             //            let block = utils_frags::hap_block_from_partition(&optimized_part);
             //            let (binom_vec, _freq_vec) = local_clustering::get_partition_stats(&part, &block);
             let binom_vec =
@@ -785,12 +603,13 @@ pub fn generate_hap_graph<'a>(
                 ind_parts.push(ind_part);
             }
             parts_vector.push(ind_parts);
+            endpoints_vector.push(split_part_endpoints);
 
             expected_errors_ref.push(num_alleles as f64 * error_rate);
 
             if ploidy > ploidy_start {
                 //                let mec_threshold = 1.0 / (1.0 - error_rate) / (1.0 + 1.0 / (ploidy + 1) as f64);
-                log::debug!(
+                log::trace!(
                     "MEC vector {:?}, error_thresh {:?}",
                     &mec_vector,
                     expected_errors_ref
@@ -798,7 +617,7 @@ pub fn generate_hap_graph<'a>(
                 let mec_threshold = 1.0
                     / (1.0 - error_rate)
                     / (1.0 + 1.0 / ((ploidy as f64).powf(0.75) + 1.32) as f64);
-                log::debug!(
+                log::trace!(
                     "Expected MEC ratio {}, observed MEC ratio {}",
                     mec_threshold,
                     mec_vector[ploidy - ploidy_start] as f64
@@ -826,14 +645,15 @@ pub fn generate_hap_graph<'a>(
         }
 
         let best_parts = mem::take(&mut parts_vector[best_ploidy - ploidy_start]);
-        for best_part in best_parts.iter() {
+        let best_endpoints = mem::take(&mut endpoints_vector[best_ploidy - ploidy_start]);
+        for (l, best_part) in best_parts.iter().enumerate() {
             let mut hap_node_block = vec![];
             let mut frag_best_part = vec![];
 
             for ind_part in best_part.iter() {
                 let frag_set: FxHashSet<&Frag> = ind_part.iter().map(|x| &all_frags[*x]).collect();
                 frag_best_part.push(frag_set.clone());
-                let mut hap_node = HapNode::new(frag_set);
+                let mut hap_node = HapNode::new(frag_set, best_endpoints[l]);
                 hap_node.column = column_counter;
                 hap_node.row = hap_node_block.len();
                 hap_node.id = hap_node_counter;
@@ -844,11 +664,11 @@ pub fn generate_hap_graph<'a>(
             hap_node_blocks.push(hap_node_block);
             file_reader::write_output_partition_to_file(
                 &frag_best_part,
+                vec![],
                 "./parts_graph/",
                 &format!("{}-{}-{}", column_counter - 1, random_vec[j].0, best_ploidy),
-                &FxHashMap::default(),
             );
-            println!("Coords: {}", random_vec[j].0)
+            println!("Coords: {}", random_vec[j].1)
         }
     }
     update_hap_graph(&mut hap_node_blocks);
@@ -858,19 +678,40 @@ pub fn generate_hap_graph<'a>(
 fn merge_split_parts(
     mut split_part: Vec<Vec<FxHashSet<&Frag>>>,
     break_pos: FxHashMap<usize, FxHashSet<usize>>,
-) -> Vec<Vec<FxHashSet<&Frag>>> {
+    original_snp_endpoints: (usize, usize),
+) -> (Vec<Vec<FxHashSet<&Frag>>>, Vec<(usize, usize)>) {
+    let mut breaks_with_min_sorted = vec![];
+    for (key, value) in break_pos.iter() {
+        if value.len() > 1 {
+            breaks_with_min_sorted.push(key);
+        }
+    }
+    breaks_with_min_sorted.sort();
+    assert!(breaks_with_min_sorted.len() == split_part.len() - 1);
+
+    let mut snp_breakpoints = vec![];
     let mut split_part_merge = vec![];
     let mut tomerge = vec![];
+    let mut left_endpoint_merged = original_snp_endpoints.0;
     for k in 0..split_part.len() - 1 {
         let total_cov_1: usize = split_part[k].iter().map(|x| x.len()).sum();
         let total_cov_2: usize = split_part[k + 1].iter().map(|x| x.len()).sum();
         let cov_rat = total_cov_1 as f64 / (total_cov_2 + total_cov_1) as f64;
         //TODO Merging stuff
+        if *breaks_with_min_sorted[k] <= left_endpoint_merged {
+            snp_breakpoints.push((left_endpoint_merged, *breaks_with_min_sorted[k]));
+            left_endpoint_merged = *breaks_with_min_sorted[k];
+            continue;
+        }
         if cov_rat > 0.75 || cov_rat < 0.25 {
             //        if true {
             tomerge.push(k);
+        } else {
+            snp_breakpoints.push((left_endpoint_merged, *breaks_with_min_sorted[k]));
+            left_endpoint_merged = *breaks_with_min_sorted[k];
         }
     }
+    snp_breakpoints.push((left_endpoint_merged, original_snp_endpoints.1));
 
     let mut new_part_empty = true;
     let mut new_part = vec![FxHashSet::default(); split_part[0].len()];
@@ -899,6 +740,7 @@ fn merge_split_parts(
     }
     if split_part_merge.len() > 1 {
         dbg!(&break_pos, split_part_merge.len());
+        dbg!(&snp_breakpoints);
         for part in split_part_merge.iter() {
             println!("---------------PART---------------");
             for (s, hap) in part.iter().enumerate() {
@@ -910,5 +752,293 @@ fn merge_split_parts(
             }
         }
     }
-    return split_part_merge;
+    //TODO
+    //    let snp_breakpoints =
+    //        vec![(original_snp_endpoints.0, original_snp_endpoints.1); snp_breakpoints.len()];
+    return (split_part_merge, snp_breakpoints);
+}
+
+pub fn get_disjoint_paths_rewrite(
+    hap_graph: &mut Vec<Vec<HapNode>>,
+    flow_update_vec: FlowUpVec,
+    epsilon: f64,
+    glopp_out_dir: String,
+) {
+    let flow_cutoff = 3.0;
+    let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
+    //Update the graph to include flows.
+    for (n1_inf, n2_inf, flow) in flow_update_vec {
+        if flow < flow_cutoff {
+            continue;
+        }
+        hap_graph[n1_inf.0][n1_inf.1]
+            .out_flows
+            .push((n2_inf.1, flow));
+    }
+    //Populate the traceback vector and the container for the NodeIndex
+    let mut node_index_container = vec![];
+    for block in hap_graph.iter() {
+        let mut node_index_block = vec![];
+        for node in block.iter() {
+            node_index_block.push(hap_petgraph.add_node((node.column, node.row)));
+        }
+        node_index_container.push(node_index_block);
+    }
+
+    //Add edges using NodeIndices
+    for block in hap_graph.iter() {
+        for node in block.iter() {
+            let node1 = &node_index_container[node.column][node.row];
+            for (next_row, flow) in node.out_flows.iter() {
+                let node2 = &node_index_container[node.column + 1][*next_row];
+                hap_petgraph.add_edge(*node1, *node2, *flow);
+            }
+        }
+    }
+
+    let num_starting_nodes = hap_petgraph.node_count();
+    let mut trace_back_vec = vec![
+        TraceBackNode {
+            score: 0.,
+            prev_ind: None,
+            is_sink: false,
+            is_source: false
+        };
+        num_starting_nodes
+    ];
+    for node_index in hap_petgraph.node_indices() {
+        let in_neigh: Vec<_> = hap_petgraph
+            .neighbors_directed(node_index, Direction::Incoming)
+            .into_iter()
+            .collect();
+        let out_neigh: Vec<_> = hap_petgraph
+            .neighbors_directed(node_index, Direction::Outgoing)
+            .into_iter()
+            .collect();
+        let is_source = in_neigh.is_empty();
+        let is_sink = out_neigh.is_empty();
+        let score;
+        if is_source {
+            score = f64::MAX;
+        } else {
+            score = 0.;
+        }
+        trace_back_vec[node_index.index()] = TraceBackNode {
+            score: score,
+            prev_ind: None,
+            is_sink: is_sink,
+            is_source: is_source,
+        };
+    }
+
+    let mut pet_graph_file = File::create("pet_graph.dot").expect("Can't create file");
+    write!(pet_graph_file, "{:?}", Dot::new(&hap_petgraph)).unwrap();
+    let mut iter_count = 0;
+    let mut all_joined_path_parts = vec![];
+    let mut path_parts_snp_endspoints = vec![];
+    let mut best_paths = vec![];
+    let mut read_to_parts_map = FxHashMap::default();
+
+    while hap_petgraph.node_count() > 0 {
+        if iter_count != 0 {
+            trace_back_vec = vec![
+                TraceBackNode {
+                    score: 0.,
+                    prev_ind: None,
+                    is_sink: false,
+                    is_source: false
+                };
+                num_starting_nodes
+            ];
+            for node_index in hap_petgraph.node_indices() {
+                let in_neigh: Vec<_> = hap_petgraph
+                    .neighbors_directed(node_index, Direction::Incoming)
+                    .into_iter()
+                    .collect();
+                let out_neigh: Vec<_> = hap_petgraph
+                    .neighbors_directed(node_index, Direction::Outgoing)
+                    .into_iter()
+                    .collect();
+                let is_source = in_neigh.is_empty();
+                let is_sink = out_neigh.is_empty();
+                let score;
+                if is_source {
+                    score = f64::MAX;
+                } else {
+                    score = 0.;
+                }
+                trace_back_vec[node_index.index()] = TraceBackNode {
+                    score: score,
+                    prev_ind: None,
+                    is_sink: is_sink,
+                    is_source: is_source,
+                };
+            }
+        }
+        //Top sort and find the maximal path
+        let top_order = algo::toposort(&hap_petgraph, None).unwrap();
+        let mut flow_cut_edges = vec![];
+        for node_index in top_order {
+            let out_edges = hap_petgraph.edges(node_index);
+            for edge in out_edges {
+                let source = edge.source();
+                let target = edge.target();
+                let flow = edge.weight();
+                //The second condition means that the new flow has to be at least a third
+                //of the smallest flow for the previous path: large dropoff indicates
+                //that the main strain for the next node is diff. than previous node.
+                if f64::min(trace_back_vec[source.index()].score, *flow)
+                    > trace_back_vec[target.index()].score
+                {
+                    if *flow < trace_back_vec[source.index()].score * 0.33
+                        && !trace_back_vec[source.index()].is_source
+                    {
+                        //Also cut off the edge from main strain to low cov strain if
+                        //the in-node has only one high cov in-edge
+                        //
+                        //              O
+                        //              |  100
+                        //              O
+                        //          90 / \  10
+                        //            O   O
+                        //
+                        //            Cut off 10-edge
+                        let in_neigh_source: Vec<_> = hap_petgraph
+                            .neighbors_directed(source, Direction::Incoming)
+                            .into_iter()
+                            .collect();
+                        let in_neigh_target: Vec<_> = hap_petgraph
+                            .neighbors_directed(target, Direction::Incoming)
+                            .into_iter()
+                            .collect();
+
+                        if in_neigh_source.len() == 1 {
+                            flow_cut_edges.push(edge.id());
+                            //                                flow_graph_versatile.remove_edge(edge.id());
+                        }
+                        if in_neigh_target.len() == 1 {
+                            trace_back_vec[target.index()].score = f64::MAX;
+                            trace_back_vec[target.index()].is_source = true;
+                        }
+                    } else {
+                        trace_back_vec[target.index()].score =
+                            f64::min(trace_back_vec[source.index()].score, *flow);
+                        trace_back_vec[target.index()].prev_ind = Some(source.index());
+                    }
+                }
+            }
+        }
+
+        for edge in flow_cut_edges {
+            hap_petgraph.remove_edge(edge);
+        }
+
+        //Get best paths
+        let mut index_of_best_end_node = None;
+        let mut best_score = f64::MIN;
+        let mut best_path = vec![];
+        for (i, trace_back_node) in trace_back_vec.iter().enumerate() {
+            if trace_back_node.score > best_score && trace_back_node.is_sink {
+                index_of_best_end_node = Some(i);
+                best_score = trace_back_node.score;
+            }
+        }
+        if let None = index_of_best_end_node {
+            dbg!(&hap_petgraph);
+            dbg!(&trace_back_vec.iter().enumerate());
+            panic!("Shouldn't get here");
+        }
+        println!(
+            "Iter {}, Node count {}",
+            iter_count,
+            hap_petgraph.node_count()
+        );
+        let mut joined_path_part = FxHashSet::default();
+        let mut snp_endpoints = (usize::MAX, usize::MIN);
+        while !index_of_best_end_node.is_none() {
+            let node_index = NodeIndex::new(index_of_best_end_node.unwrap());
+            if let None = hap_petgraph.node_weight(node_index) {
+                dbg!(&hap_petgraph, node_index, &trace_back_vec.len());
+                panic!();
+            }
+            let (col, row) = hap_petgraph.node_weight(node_index).unwrap();
+            let hap_graph_node = &hap_graph[*col][*row];
+
+            if hap_graph_node.snp_endpoints.0 < snp_endpoints.0 {
+                snp_endpoints.0 = hap_graph_node.snp_endpoints.0;
+            }
+            if hap_graph_node.snp_endpoints.1 > snp_endpoints.1 {
+                snp_endpoints.1 = hap_graph_node.snp_endpoints.1;
+            }
+
+            for frag in hap_graph_node.frag_set.iter() {
+                joined_path_part.insert(*frag);
+                let corresponding_partitions = read_to_parts_map
+                    .entry(*frag)
+                    .or_insert(FxHashSet::default());
+                corresponding_partitions.insert(iter_count);
+            }
+            //            dbg!(index_of_best_end_node,trace_back_vec[index_of_best_end_node.0][index_of_best_end_node.1]);
+            best_path.push(index_of_best_end_node);
+            println!("{:?}, {:?}", &index_of_best_end_node, snp_endpoints);
+            index_of_best_end_node = trace_back_vec[index_of_best_end_node.unwrap()].prev_ind;
+        }
+
+        for index in best_path.iter() {
+            let node_index = NodeIndex::new(index.unwrap());
+            hap_petgraph.remove_node(node_index);
+        }
+
+        all_joined_path_parts.push(joined_path_part);
+        path_parts_snp_endspoints.push(snp_endpoints);
+
+        iter_count += 1;
+
+        best_paths.push(best_path);
+    }
+    let mut all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
+    for (frag, part_ids) in read_to_parts_map {
+        let mut diff_part_vec = vec![];
+        for id in part_ids.iter() {
+            let block_with_id = &all_parts_block.blocks[*id];
+            let (_same, diff) =
+                utils_frags::distance_read_haplo_epsilon_empty(frag, block_with_id, epsilon);
+            diff_part_vec.push((diff, id));
+        }
+        let best_part = diff_part_vec
+            .iter()
+            .min_by(|x, y| x.partial_cmp(&y).unwrap())
+            .unwrap()
+            .1;
+        for id in part_ids.iter() {
+            if *id != *best_part {
+                all_joined_path_parts[*id].remove(frag);
+                utils_frags::remove_read_from_block(&mut all_parts_block, frag, *id);
+            }
+        }
+    }
+
+    let glopp_out_dir_copy = glopp_out_dir.clone();
+    let path_parts_snps_endpoints_copy = path_parts_snp_endspoints.clone();
+    file_reader::write_output_partition_to_file(
+        &all_joined_path_parts,
+        path_parts_snp_endspoints,
+        glopp_out_dir,
+        &format!("{}", iter_count),
+    );
+
+    let mut path_debug_file =
+        File::create(format!("{}/debug_paths.txt", glopp_out_dir_copy)).expect("Can't create file");
+    for (i, path) in best_paths.iter().enumerate() {
+        writeln!(path_debug_file, "{}", i).unwrap();
+        writeln!(
+            path_debug_file,
+            "{:?}",
+            path.iter().map(|x| hap_petgraph
+                .node_weight(NodeIndex::new(x.unwrap()))
+                .unwrap())
+        )
+        .unwrap();
+        writeln!(path_debug_file, "{:?}", path_parts_snps_endpoints_copy[i]).unwrap();
+    }
 }
