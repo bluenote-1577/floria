@@ -1,5 +1,4 @@
 use crate::types_structs::{Frag, HapBlock};
-use crate::vcf_polishing;
 use rand::prelude::*;
 use rand_core::SeedableRng;
 //use rand::rng::Rng;
@@ -700,7 +699,7 @@ pub fn optimize_clustering<'a>(
 }
 
 //Get the chiq-square log p value from a vector of frequencies.
-fn chi_square_p(freqs: &Vec<usize>) -> f64 {
+fn _chi_square_p(freqs: &Vec<usize>) -> f64 {
     let dof = (freqs.len() - 1) as f64;
 
     let mean: usize = freqs.iter().sum();
@@ -773,7 +772,7 @@ pub fn get_partition_stats(
 
 //Include a pental for single coverage alleles. 
 pub fn get_mec_stats_epsilon(
-    partition: &Vec<FxHashSet<&Frag>>,
+    _partition: &Vec<FxHashSet<&Frag>>,
     hap_block: &HapBlock,
     epsilon : f64
 ) -> Vec<(f64, f64)> {
@@ -844,7 +843,7 @@ pub fn get_pem_score(
 }
 
 //Return upem score
-fn get_upem_score(
+fn _get_upem_score(
     binom_vec: &Vec<(usize, usize)>,
     freq_vec: &Vec<usize>,
     p: f64,
@@ -855,7 +854,7 @@ fn get_upem_score(
         let bincdf = utils_frags::stable_binom_cdf_p_rev(stat.0 + stat.1, stat.1, p, div_factor);
         score += bincdf;
     }
-    score += chi_square_p(freq_vec);
+    score += _chi_square_p(freq_vec);
     score
 }
 
@@ -882,13 +881,6 @@ fn opt_iterate<'a>(
     epsilon: f64,
 ) -> Vec<FxHashSet<&'a Frag>> {
     let ploidy = partition.len();
-    let binom_vec = get_mec_stats_epsilon(partition, hap_block, epsilon);
-
-    for bases_errors in binom_vec.iter() {
-        let bases = bases_errors.0;
-        let errors = bases_errors.1;
-    }
-
     let mut best_moves = Vec::new();
 
     for i in 0..ploidy {
@@ -925,7 +917,7 @@ fn opt_iterate<'a>(
 //    if best_moves.len() / 10 < number_of_moves / 5 {
 //        number_of_moves = best_moves.len() / 5;
 //    }
-    let number_of_moves = best_moves.len() / 5;
+    let number_of_moves = best_moves.len() / 10;
     //    dbg!(number_of_moves);
 
     for (mv_num, mv) in best_moves.iter().enumerate() {

@@ -23,6 +23,7 @@ itertools = "*"
 highs = "*"
 osqp = "*"
 petgraph = "*"
+bio = "*"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"

@@ -1,10 +1,11 @@
 use crate::types_structs::{build_frag, update_frag, Frag, HapBlock};
 use crate::utils_frags;
+use bio::io::fastq;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bam::header::Header;
 use rust_htslib::bam::record::Aux;
 use rust_htslib::bam::HeaderView as HeaderViewBam;
-use rust_htslib::bcf::record::{GenotypeAllele};
+use rust_htslib::bcf::record::GenotypeAllele;
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
 use rust_htslib::{bcf, bcf::Read as DUMMY_NAME2};
 use std::collections::BTreeMap;
@@ -86,6 +87,9 @@ where
                         first_position: first_position,
                         last_position: last_position,
                         supp_aln: None,
+                        seq_string: vec![],
+                        qual_string: vec![],
+                        snp_pos_to_seq_pos: FxHashMap::default(),
                     };
 
                     all_frags.push(new_frag);
@@ -111,7 +115,7 @@ pub fn write_blocks_to_file<P>(
     part: &Vec<FxHashSet<&Frag>>,
     _first_iter: bool,
     contig: &String,
-    break_positions: &FxHashMap<usize,FxHashSet<usize>>
+    break_positions: &FxHashMap<usize, FxHashSet<usize>>,
 ) where
     P: AsRef<Path>,
 {
@@ -139,7 +143,7 @@ pub fn write_blocks_to_file<P>(
         let title_string = format!("**{}**\n", contig);
         file.write_all(title_string.as_bytes()).unwrap();
         for pos in length_prev_block..length_prev_block + lengths[i] {
-            if break_positions.contains_key(&pos){
+            if break_positions.contains_key(&pos) {
                 write!(file, "--------\n").unwrap();
             }
             if snp_to_genome.len() == 0 {
@@ -187,7 +191,12 @@ pub fn write_blocks_to_file<P>(
 }
 
 //Given a vcf file and a bam file, we get a vector of frags.
-pub fn get_frags_from_bamvcf<P>(vcf_file: P, bam_file: P, filter_supplementary: bool, use_supplementary: bool) -> FxHashMap<String, Vec<Frag>>
+pub fn get_frags_from_bamvcf<P>(
+    vcf_file: P,
+    bam_file: P,
+    filter_supplementary: bool,
+    use_supplementary: bool,
+) -> FxHashMap<String, Vec<Frag>>
 where
     P: AsRef<Path>,
 {
@@ -257,7 +266,7 @@ where
         pos_allele_map.insert(unr.pos(), al_vec);
     }
 
-//    let mut bam = bam::Reader::from_path(bam_file).unwrap();
+    //    let mut bam = bam::Reader::from_path(bam_file).unwrap();
     let mut bam = match bam::Reader::from_path(bam_file) {
         Ok(bam) => bam,
         Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting"),
@@ -266,12 +275,12 @@ where
     //Check the headers to see how many references there are.
     let header = Header::from_template(bam.header());
     let bam_header_view = HeaderViewBam::from_header(&header);
-//    let mut number_references = 0;
-//    for (id, content) in header.to_hashmap() {
-//        if id == "SQ" {
-//            number_references = content.len();
-//        }
-//    }
+    //    let mut number_references = 0;
+    //    for (id, content) in header.to_hashmap() {
+    //        if id == "SQ" {
+    //            number_references = content.len();
+    //        }
+    //    }
 
     //    if number_references > 1{
     //        dbg!(vcf_pos_to_snp_counter_map.keys());
@@ -321,7 +330,7 @@ where
 
                 let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
 
-                if mapq < mapq_normal_cutoff{
+                if mapq < mapq_normal_cutoff {
                     continue;
                 }
                 //Erroneous alignment, skip
@@ -336,16 +345,23 @@ where
                     continue;
                 }
 
-                if flags & supplementary_mask > 0{
-                    if !use_supplementary{
-                        continue
+                let is_supp;
+                if flags & supplementary_mask > 0 {
+                    is_supp = true;
+                    if !use_supplementary {
+                        continue;
                     }
-                    if filter_supplementary{
-                        if mapq < mapq_supp_cutoff{
+                    if filter_supplementary {
+                        if mapq < mapq_supp_cutoff {
                             continue;
                         }
                     }
                 }
+                else{
+                    is_supp = false;
+                }
+
+//                println!("{}-{}-{}",&alignment.record().seq().len(), flags , &id_string);
 
                 let id_string2 = id_string.clone();
 
@@ -354,17 +370,15 @@ where
                     if let Ok(tag) = aln_record.aux(b"SA") {
                         if let Aux::String(v) = tag {
                             let str_v = v;
-//                            let str_v = str::from_utf8(v).unwrap();
+                            //                            let str_v = str::from_utf8(v).unwrap();
                             let split: Vec<&str> = str_v.split(';').collect();
-                            let best_SA: Vec<&str> = split[0].split(',').collect();
-                            let best_contig = best_SA[0];
+                            let best_sa: Vec<&str> = split[0].split(',').collect();
+                            let best_contig = best_sa[0];
                             supp_aln = Some(String::from(best_contig));
                         }
                     }
                     counter_id += 1;
                 }
-
-                let frag_to_ins = build_frag(id_string, counter_id, supp_aln);
 
                 let readbase = alignment.record().seq()[alignment.qpos().unwrap()];
                 let qualbase = alignment.record().qual()[alignment.qpos().unwrap()];
@@ -379,8 +393,37 @@ where
                 {
                     //Only build the frag if the base is one of the SNP alleles.
                     if readbase == *allele {
-                        let mut frag = id_to_frag.entry(id_string2).or_insert(frag_to_ins);
-                        update_frag(&mut frag, i, qualbase, *snp_id);
+                        let mut frag;
+                        if id_to_frag.contains_key(&id_string2) {
+                            frag = id_to_frag.get_mut(&id_string2).unwrap();
+                        } else {
+                            if qualbase < 255 - 33{
+                                frag = id_to_frag.entry(id_string2).or_insert(build_frag(
+                                    id_string,
+                                    counter_id,
+                                    supp_aln,
+                                    alignment.record().seq().as_bytes(),
+                                    alignment.record().qual().iter().map(|x| x + 33).collect(),
+                                ));
+                            }
+                            else{
+                                frag = id_to_frag.entry(id_string2).or_insert(build_frag(
+                                    id_string,
+                                    counter_id,
+                                    supp_aln,
+                                    alignment.record().seq().as_bytes(),
+                                    alignment.record().qual().iter().map(|x| x + 0).collect(),
+                                ));
+                            }
+                        }
+                        //                        let mut frag = id_to_frag.entry(id_string2).or_insert(build_frag(
+                        //                            id_string,
+                        //                            counter_id,
+                        //                            supp_aln,
+                        //                            alignment.record().seq().as_bytes(),
+                        //                            alignment.record().qual().to_vec(),
+                        //                        ));
+                        update_frag(&mut frag, i, qualbase, *snp_id, alignment.qpos().unwrap());
                         break;
                     }
                 }
@@ -400,17 +443,17 @@ where
             .unwrap();
         let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
         let id_to_frag = mem::replace(id_to_frag, FxHashMap::default());
-//        for (_id, frag) in id_to_frag.into_iter() {
-        for (_id, mut frag) in id_to_frag.into_iter(){
+        //        for (_id, frag) in id_to_frag.into_iter() {
+        for (_id, mut frag) in id_to_frag.into_iter() {
             //IMPORTANT: I'm turning this off for metagenomics because some fragments may only
-            //index one read. However, this is still useful because we don't know ploidy info. 
+            //index one read. However, this is still useful because we don't know ploidy info.
             let mut prev_pos = frag.first_position;
-            for pos in frag.first_position+1..frag.last_position{
-                if !frag.positions.contains(&pos) && (pos - prev_pos < 100){
+            for pos in frag.first_position + 1..frag.last_position {
+                if !frag.positions.contains(&pos) && (pos - prev_pos < 100) {
                     //random number. TODO TESTING GAPS IN FRAGMENTS
-//                    frag.seq_dict.insert(pos, 9);
-//                    frag.qual_dict.insert(pos, 7);
-//                    frag.positions.insert(pos);
+//                                        frag.seq_dict.insert(pos, 9);
+//                                        frag.qual_dict.insert(pos, 7);
+//                                        frag.positions.insert(pos);
                 }
                 prev_pos = pos;
             }
@@ -459,7 +502,7 @@ where
     let mut last_ref_chrom: &[u8] = &[];
 
     for rec in vcf.records() {
-        let mut unr = rec.unwrap();
+        let unr = rec.unwrap();
         let alleles = unr.alleles();
         let mut is_snp = true;
         let record_rid = unr.rid().unwrap();
@@ -484,8 +527,7 @@ where
             continue;
         }
 
-
-        if let Ok(_) = unr.genotypes(){
+        if let Ok(_) = unr.genotypes() {
             let genotypes = unr.genotypes().unwrap().get(0);
             vcf_ploidy = genotypes.len();
             let mut genotype_counter = FxHashMap::default();
@@ -590,10 +632,9 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
         }
 
         for q in qual_block.iter() {
-            if *q as usize + 33 > 255{
+            if *q as usize + 33 > 255 {
                 write!(file, "{}", (*q) as char).unwrap();
-            }
-            else{
+            } else {
                 write!(file, "{}", (*q + 33) as char).unwrap();
             }
         }
@@ -604,9 +645,9 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
 
 pub fn write_output_partition_to_file<P>(
     part: &Vec<FxHashSet<&Frag>>,
+    snp_range_parts_vec: Vec<(usize, usize)>,
     out_bam_part_dir: P,
     contig: &String,
-    break_positions: &FxHashMap<usize,FxHashSet<usize>>
 ) where
     P: AsRef<Path>,
 {
@@ -621,8 +662,92 @@ pub fn write_output_partition_to_file<P>(
         let mut vec_part: Vec<&&Frag> = set.into_iter().collect();
         vec_part.sort_by(|a, b| a.first_position.cmp(&b.first_position));
         write!(file, "#{}\n", i).unwrap();
+
+        if !snp_range_parts_vec.is_empty() {
+            let part_fastq_reads = out_bam_part_dir
+                .as_ref()
+                .join(format!("{}_part.fastq", i));
+            let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
+            let mut fastq_writer = fastq::Writer::new(fastq_file);
+            //1-indexing for snp position already accounted for
+            let left_snp_pos = snp_range_parts_vec[i].0;
+            let right_snp_pos = snp_range_parts_vec[i].1;
+            for frag in vec_part.iter() {
+                if frag.first_position > right_snp_pos{
+                    continue;
+                }
+                if frag.last_position < left_snp_pos{
+                    continue;
+                }
+                let mut left_seq_pos;
+                //TODO testing some supp aln weirdness.
+                if false && frag.first_position > left_snp_pos {
+                    left_seq_pos = 0;
+                } else {
+                    let mut tmp = left_snp_pos;
+                    loop {
+                        if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
+                            left_seq_pos = frag.snp_pos_to_seq_pos[&tmp];
+                            break;
+                        }
+                        tmp += 1;
+                        if tmp > 500000{
+                            dbg!(&frag.first_position, &frag.last_position, left_snp_pos, right_snp_pos);
+                            panic!();
+                        }
+                    }
+                }
+                 if left_seq_pos > 50{
+                     left_seq_pos -= 50;
+                 }
+                 else{
+                     left_seq_pos = 0;
+                 }
+
+                let mut right_seq_pos;
+                if false && frag.last_position < right_snp_pos {
+                    right_seq_pos = frag.seq_string.len() - 1;
+                } else {
+                    let mut tmp = right_snp_pos;
+                    loop {
+                        if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
+                            right_seq_pos = frag.snp_pos_to_seq_pos[&tmp];
+                            break;
+                        }
+                        if tmp == 0 {
+                            dbg!(&frag.positions, left_snp_pos, right_snp_pos);
+                        }
+                        tmp -= 1;
+                    }
+                }
+                
+                if right_seq_pos < frag.seq_string.len() - 50 - 1{
+                    right_seq_pos += 50;
+                }
+                else{
+                    right_seq_pos = frag.seq_string.len() - 1;
+                }
+
+                fastq_writer
+                    .write(
+                        &frag.id,
+                        None,
+                        &frag.seq_string.as_slice()[left_seq_pos..right_seq_pos + 1],
+                        &frag.qual_string.as_slice()[left_seq_pos..right_seq_pos + 1],
+                    )
+                    .unwrap();
+            }
+        }
+
         for frag in vec_part {
-            write!(file, "{}\t{}\t{}\n", frag.id.clone(), frag.first_position, frag.last_position).unwrap();
+            write!(
+                file,
+                "{}\t{}\t{}\n",
+                frag.id.clone(),
+                frag.first_position,
+                frag.last_position
+            )
+            .unwrap();
         }
     }
 }

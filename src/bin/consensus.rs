@@ -141,9 +141,9 @@ fn main() {
 
     file_reader::write_output_partition_to_file(
         &final_part_reference,
+        vec![],
         part_out_dir,
         &String::from("cons"),
-        &FxHashMap::default()
     );
 
 

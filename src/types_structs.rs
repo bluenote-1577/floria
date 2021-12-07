@@ -2,8 +2,14 @@ use fxhash::{FxHashMap, FxHashSet};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::cmp::Ordering;
-use crate::utils_frags;
 
+#[derive(Debug, Clone)]
+pub struct TraceBackNode{
+    pub score: f64,
+    pub prev_ind: Option<usize>,
+    pub is_sink: bool,
+    pub is_source: bool
+}
 //Positions are inclusive
 #[derive(Eq, Debug, Clone)]
 pub struct Frag {
@@ -15,6 +21,9 @@ pub struct Frag {
     pub first_position: usize,
     pub last_position: usize,
     pub supp_aln: Option<String>,
+    pub seq_string: Vec<u8>,
+    pub qual_string: Vec<u8>,
+    pub snp_pos_to_seq_pos: FxHashMap<usize, usize>,
 }
 
 impl Hash for Frag {
@@ -81,10 +90,11 @@ pub struct HapNode<'a> {
     pub id: usize,
     pub out_flows: Vec<(usize,f64)>,
     pub hap_map : FxHashMap<usize, FxHashMap<usize, usize>>,
+    pub snp_endpoints : (usize,usize)
 }
 
 impl<'a> HapNode<'a> {
-    pub fn new(frag_set: FxHashSet<&'a Frag>) -> HapNode<'a> {
+    pub fn new(frag_set: FxHashSet<&'a Frag>, snp_endpoints: (usize,usize)) -> HapNode<'a> {
         
         let mut hap_map = FxHashMap::default();
         for frag in frag_set.iter() {
@@ -123,7 +133,8 @@ impl<'a> HapNode<'a> {
             id: usize::MAX,
             cov: *cov,
             out_flows: vec![],
-            hap_map: hap_map
+            hap_map: hap_map,
+            snp_endpoints: snp_endpoints
         };
         return toret;
 
@@ -188,7 +199,7 @@ impl PartialOrd for HapBlock{
     }
 }
 
-pub fn build_frag(id: String, counter_id: usize, supp_aln: Option<String>) -> Frag {
+pub fn build_frag(id: String, counter_id: usize, supp_aln: Option<String>, seq_string: Vec<u8>, qual_string: Vec<u8>) -> Frag {
     let toret = Frag {
         id: id,
         counter_id: counter_id,
@@ -198,15 +209,19 @@ pub fn build_frag(id: String, counter_id: usize, supp_aln: Option<String>) -> Fr
         first_position: usize::MAX,
         last_position: usize::MIN,
         supp_aln: supp_aln,
+        seq_string: seq_string,
+        qual_string: qual_string,
+        snp_pos_to_seq_pos: FxHashMap::default(),
     };
 
     toret
 }
 
-pub fn update_frag(frag: &mut Frag, geno: usize, qual: u8, snp_pos: usize) {
+pub fn update_frag(frag: &mut Frag, geno: usize, qual: u8, snp_pos: usize, seq_pos: usize) {
     frag.seq_dict.insert(snp_pos, geno);
     frag.qual_dict.insert(snp_pos, qual);
     frag.positions.insert(snp_pos);
+    frag.snp_pos_to_seq_pos.insert(snp_pos, seq_pos);
     if snp_pos < frag.first_position {
         frag.first_position = snp_pos;
     }

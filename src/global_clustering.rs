@@ -1,8 +1,5 @@
-use crate::file_reader;
-use crate::graph_processing;
-use crate::local_clustering;
 use crate::types_structs;
-use crate::types_structs::{Frag, HapBlock, HapNode, SearchNode};
+use crate::types_structs::{Frag, HapBlock, SearchNode};
 use std::collections::binary_heap::BinaryHeap;
 use std::mem;
 use std::rc::Rc;
@@ -186,8 +183,8 @@ pub fn beam_search_phasing<'a>(
 
     let search_node_heap_to_list = search_node_heap.into_sorted_vec();
     let mut node_pointer = &search_node_heap_to_list[0].0;
-    log::debug!("Partition count: {:?}", node_pointer.freqs);
-    log::debug!("Best partition score: {}", node_pointer.score);
+//    log::debug!("Partition count: {:?}", node_pointer.freqs);
+//    log::debug!("Best partition score: {}", node_pointer.score);
 
     let mut break_positions = FxHashMap::default();
     loop {
@@ -245,10 +242,10 @@ fn read_to_node_value(
             new_error_vec,
         );
     } else {
-        let mec: f64 = new_error_vec.iter().map(|x| x.1).sum();
+        let _mec: f64 = new_error_vec.iter().map(|x| x.1).sum();
         panic!("Don't allow PEM for now");
         return (
-            -1.0 * mec,
+            -1.0 * _mec,
             //            local_clustering::get_pem_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
             new_error_vec,
         );
@@ -307,11 +304,11 @@ pub fn get_read_graph<'a>(
 }
 
 pub fn get_initial_clique<'a>(
-    all_reads: &'a Vec<Frag>,
+    _all_reads: &'a Vec<Frag>,
     ploidy: usize,
     epsilon: f64,
-    first_pos: usize,
-    last_pos: usize,
+    _first_pos: usize,
+    _last_pos: usize,
 ) -> Vec<FxHashSet<&'a Frag>> {
     //let starting_clique_reads = local_clustering::find_reads_in_interval(first_pos, last_pos, all_reads);
     let starting_clique_reads = FxHashSet::default();

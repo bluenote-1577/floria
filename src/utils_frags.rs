@@ -348,9 +348,9 @@ pub fn get_seq_err_correlations(
     let mut list_of_p_values = vec![];
     let mut expected_diff_sum = 0.0;
     let mut max_diff_sum = 0.0;
-    let mut max_diff_sum_ploidy = 0.0;
+    let mut _max_diff_sum_ploidy = 0.0;
     let mut max_diff_sum_chi = 0.0;
-    let mut pos_max_diff_sum_ploidy = 0;
+    let mut _pos_max_diff_sum_ploidy = 0;
     for j in 0..ploidy {
         for i in seq_err_corr_vec[j].keys() {
             let mut running_diff_sum = 0.0;
@@ -502,4 +502,30 @@ pub fn get_range_with_lengths(
     }
 
     return return_vec;
+}
+
+pub fn add_read_to_block(
+    block: &mut HapBlock,
+    frag: &Frag,
+    part: usize
+){
+    for pos in frag.positions.iter() {
+        let var_at_pos = frag.seq_dict.get(pos).unwrap();
+        let sites = block.blocks[part].entry(*pos).or_insert(FxHashMap::default());
+        let site_counter = sites.entry(*var_at_pos).or_insert(0);
+        *site_counter += 1;
+    }
+}
+
+pub fn remove_read_from_block(
+    block: &mut HapBlock,
+    frag: &Frag,
+    part: usize
+){
+    for pos in frag.positions.iter() {
+        let var_at_pos = frag.seq_dict.get(pos).unwrap();
+        let sites = block.blocks[part].entry(*pos).or_insert(FxHashMap::default());
+        let site_counter = sites.entry(*var_at_pos).or_insert(0);
+        *site_counter -= 1;
+    }
 }

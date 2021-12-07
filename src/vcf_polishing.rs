@@ -115,7 +115,7 @@ pub fn polish_using_vcf(
 
 //Link two partitions by best MEC score permutation. This doesn't help much
 //on the simulated datasets. 
-fn get_best_perms_mec(part1: &Vec<FxHashSet<&Frag>>, part2: &Vec<FxHashSet<&Frag>>) -> Vec<Vec<usize>> {
+fn _get_best_perms_mec(part1: &Vec<FxHashSet<&Frag>>, part2: &Vec<FxHashSet<&Frag>>) -> Vec<Vec<usize>> {
     let ploidy = part1.len();
     let mut best_perms = Vec::new();
     let rangevec: Vec<usize> = (0..ploidy).collect();
@@ -138,7 +138,7 @@ fn get_best_perms_mec(part1: &Vec<FxHashSet<&Frag>>, part2: &Vec<FxHashSet<&Frag
 
             test_part.push(new_set);
         }
-        let score = get_mec_from_part(&test_part);
+        let score = _get_mec_from_part(&test_part);
         best_perms.push((-1*score,perm));
     }
     best_perms.sort_by(|a,b| b.0.cmp(&a.0));
@@ -246,7 +246,7 @@ fn clone_block_range (hap_block : &HapBlock, start : usize,end : usize) -> HapBl
     return new_hap_block;
 }
 
-fn get_mec_from_part(part : &Vec<FxHashSet<&Frag>>) -> i32{
+fn _get_mec_from_part(part : &Vec<FxHashSet<&Frag>>) -> i32{
 
     let block = utils_frags::hap_block_from_partition(part);
     let mut mec_score = 0;
