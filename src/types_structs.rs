@@ -1,4 +1,5 @@
 use fxhash::{FxHashMap, FxHashSet};
+use rust_htslib::bam::Record;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::cmp::Ordering;
@@ -20,10 +21,10 @@ pub struct Frag {
     pub positions: FxHashSet<usize>,
     pub first_position: usize,
     pub last_position: usize,
-    pub supp_aln: Option<String>,
-    pub seq_string: Vec<u8>,
-    pub qual_string: Vec<u8>,
-    pub snp_pos_to_seq_pos: FxHashMap<usize, usize>,
+    pub seq_string: Vec<Vec<u8>>,
+    pub qual_string: Vec<Vec<u8>>,
+    pub is_paired :bool, 
+    pub snp_pos_to_seq_pos: FxHashMap<usize,(u8, usize)>,
 }
 
 impl Hash for Frag {
@@ -199,7 +200,7 @@ impl PartialOrd for HapBlock{
     }
 }
 
-pub fn build_frag(id: String, counter_id: usize, supp_aln: Option<String>, seq_string: Vec<u8>, qual_string: Vec<u8>) -> Frag {
+pub fn build_frag(id: String, counter_id: usize, is_paired: bool) -> Frag {
     let toret = Frag {
         id: id,
         counter_id: counter_id,
@@ -208,20 +209,34 @@ pub fn build_frag(id: String, counter_id: usize, supp_aln: Option<String>, seq_s
         positions: FxHashSet::default(),
         first_position: usize::MAX,
         last_position: usize::MIN,
-        supp_aln: supp_aln,
-        seq_string: seq_string,
-        qual_string: qual_string,
+        seq_string: vec![vec![];2],
+        qual_string: vec![vec![];2],
+        is_paired: is_paired,
         snp_pos_to_seq_pos: FxHashMap::default(),
     };
 
     toret
 }
 
-pub fn update_frag(frag: &mut Frag, geno: usize, qual: u8, snp_pos: usize, seq_pos: usize) {
+pub fn update_frag(frag: &mut Frag, geno: usize, snp_pos: usize, qual: u8, pair_number: u8, is_supp: bool,  record: &Record, qpos : usize) {
     frag.seq_dict.insert(snp_pos, geno);
     frag.qual_dict.insert(snp_pos, qual);
     frag.positions.insert(snp_pos);
-    frag.snp_pos_to_seq_pos.insert(snp_pos, seq_pos);
+    let mut seq_pos = qpos;
+    if is_supp{
+        let clipping_offset = record.cigar().leading_hardclips();
+        seq_pos = qpos + clipping_offset as usize;
+    }
+    frag.snp_pos_to_seq_pos.insert(snp_pos, (pair_number, seq_pos as usize));
+    if !is_supp && frag.seq_string[pair_number as usize].len() == 0{
+        frag.seq_string[pair_number as usize] = record.seq().as_bytes();
+        if qual <= 255 - 33{
+        frag.qual_string[pair_number as usize] = record.qual().iter().map(|x| x + 33).collect();
+        }
+        else{
+            frag.qual_string[pair_number as usize] = record.qual().iter().map(|x| 255).collect();
+        }
+    }
     if snp_pos < frag.first_position {
         frag.first_position = snp_pos;
     }
@@ -257,8 +272,7 @@ pub fn build_truncated_hap_block(
             if *pos < current_startpos && *pos + 50 > current_startpos {
                 num_before[i] += 1;
             }
-
-            if *pos < current_startpos {
+if *pos < current_startpos {
                 block_vec[i].remove(pos);
             }
         }

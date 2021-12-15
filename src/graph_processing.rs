@@ -566,7 +566,6 @@ pub fn generate_hap_graph<'a>(
                 max_number_solns,
                 true,
                 false,
-                false,
             );
 
             //            let optimized_part = part;
@@ -699,12 +698,12 @@ fn merge_split_parts(
         let cov_rat = total_cov_1 as f64 / (total_cov_2 + total_cov_1) as f64;
         //TODO Merging stuff
         if *breaks_with_min_sorted[k] <= left_endpoint_merged {
-            snp_breakpoints.push((left_endpoint_merged, *breaks_with_min_sorted[k]));
-            left_endpoint_merged = *breaks_with_min_sorted[k];
+            tomerge.push(k);
+//            snp_breakpoints.push((left_endpoint_merged, *breaks_with_min_sorted[k]));
+//            left_endpoint_merged = *breaks_with_min_sorted[k];
             continue;
         }
         if cov_rat > 0.75 || cov_rat < 0.25 {
-            //        if true {
             tomerge.push(k);
         } else {
             snp_breakpoints.push((left_endpoint_merged, *breaks_with_min_sorted[k]));

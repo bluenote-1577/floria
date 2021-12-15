@@ -1,6 +1,7 @@
 use crate::types_structs::{build_frag, update_frag, Frag, HapBlock};
 use crate::utils_frags;
 use bio::io::fastq;
+use bio::alphabets::dna::revcomp;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bam::header::Header;
 use rust_htslib::bam::record::Aux;
@@ -86,9 +87,9 @@ where
                         positions: positions,
                         first_position: first_position,
                         last_position: last_position,
-                        supp_aln: None,
-                        seq_string: vec![],
-                        qual_string: vec![],
+                        seq_string: vec![vec![]; 2],
+                        qual_string: vec![vec![]; 2],
+                        is_paired: false,
                         snp_pos_to_seq_pos: FxHashMap::default(),
                     };
 
@@ -319,20 +320,34 @@ where
                 let snp_id = pos_to_snp_counter_map.get(&(pos_genome as i64)).unwrap();
                 let flags = aln_record.flags();
                 let errors_mask = 1796;
+                let first_in_pair_mask = 64;
+                let second_in_pair_mask = 128;
                 let secondary_mask = 256;
                 let supplementary_mask = 2048;
-                let mapq_supp_cutoff = 30;
+                let mapq_supp_cutoff = 59;
                 let mapq_normal_cutoff = 15;
                 let id_to_frag = ref_id_to_frag
                     .entry(ref_chrom)
                     .or_insert(FxHashMap::default());
                 let mapq = aln_record.mapq();
+                let is_paired;
+                let mut pair_number = 0;
 
                 let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
+
+                if flags & first_in_pair_mask > 0 {
+                    is_paired = true;
+                } else if flags & second_in_pair_mask > 0 {
+                    is_paired = true;
+                    pair_number = 1;
+                } else {
+                    is_paired = false;
+                }
 
                 if mapq < mapq_normal_cutoff {
                     continue;
                 }
+
                 //Erroneous alignment, skip
                 if flags & errors_mask > 0 {
                     //dbg!(&flags,&id_string);
@@ -356,27 +371,15 @@ where
                             continue;
                         }
                     }
-                }
-                else{
+                } else {
                     is_supp = false;
                 }
 
-//                println!("{}-{}-{}",&alignment.record().seq().len(), flags , &id_string);
+                //                println!("{}-{}-{}",&alignment.record().seq().len(), flags , &id_string);
 
                 let id_string2 = id_string.clone();
 
-                let mut supp_aln = None;
                 if !id_to_frag.contains_key(&id_string) {
-                    if let Ok(tag) = aln_record.aux(b"SA") {
-                        if let Aux::String(v) = tag {
-                            let str_v = v;
-                            //                            let str_v = str::from_utf8(v).unwrap();
-                            let split: Vec<&str> = str_v.split(';').collect();
-                            let best_sa: Vec<&str> = split[0].split(',').collect();
-                            let best_contig = best_sa[0];
-                            supp_aln = Some(String::from(best_contig));
-                        }
-                    }
                     counter_id += 1;
                 }
 
@@ -397,24 +400,9 @@ where
                         if id_to_frag.contains_key(&id_string2) {
                             frag = id_to_frag.get_mut(&id_string2).unwrap();
                         } else {
-                            if qualbase < 255 - 33{
-                                frag = id_to_frag.entry(id_string2).or_insert(build_frag(
-                                    id_string,
-                                    counter_id,
-                                    supp_aln,
-                                    alignment.record().seq().as_bytes(),
-                                    alignment.record().qual().iter().map(|x| x + 33).collect(),
-                                ));
-                            }
-                            else{
-                                frag = id_to_frag.entry(id_string2).or_insert(build_frag(
-                                    id_string,
-                                    counter_id,
-                                    supp_aln,
-                                    alignment.record().seq().as_bytes(),
-                                    alignment.record().qual().iter().map(|x| x + 0).collect(),
-                                ));
-                            }
+                            frag = id_to_frag
+                                .entry(id_string2)
+                                .or_insert(build_frag(id_string, counter_id, is_paired));
                         }
                         //                        let mut frag = id_to_frag.entry(id_string2).or_insert(build_frag(
                         //                            id_string,
@@ -423,7 +411,16 @@ where
                         //                            alignment.record().seq().as_bytes(),
                         //                            alignment.record().qual().to_vec(),
                         //                        ));
-                        update_frag(&mut frag, i, qualbase, *snp_id, alignment.qpos().unwrap());
+                        update_frag(
+                            &mut frag,
+                            i,
+                            *snp_id,
+                            qualbase,
+                            pair_number,
+                            is_supp,
+                            &aln_record,
+                            alignment.qpos().unwrap(),
+                        );
                         break;
                     }
                 }
@@ -443,7 +440,6 @@ where
             .unwrap();
         let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
         let id_to_frag = mem::replace(id_to_frag, FxHashMap::default());
-        //        for (_id, frag) in id_to_frag.into_iter() {
         for (_id, mut frag) in id_to_frag.into_iter() {
             //IMPORTANT: I'm turning this off for metagenomics because some fragments may only
             //index one read. However, this is still useful because we don't know ploidy info.
@@ -451,14 +447,28 @@ where
             for pos in frag.first_position + 1..frag.last_position {
                 if !frag.positions.contains(&pos) && (pos - prev_pos < 100) {
                     //random number. TODO TESTING GAPS IN FRAGMENTS
-//                                        frag.seq_dict.insert(pos, 9);
-//                                        frag.qual_dict.insert(pos, 7);
-//                                        frag.positions.insert(pos);
+                    //                                        frag.seq_dict.insert(pos, 9);
+                    //                                        frag.qual_dict.insert(pos, 7);
+                    //                                        frag.positions.insert(pos);
                 }
                 prev_pos = pos;
             }
             if frag.positions.len() > 0 {
                 vec_frags.push(frag);
+            }
+        }
+    }
+    for vec in ref_vec_frags.values(){
+        for frag in vec.iter(){
+            let mut vec_snp_seq : Vec<(usize,usize)> = frag.snp_pos_to_seq_pos.iter().map(|(x,y)| (*x,y.1)).collect();
+            vec_snp_seq.sort();
+            let mut prev_seq_pos = 0;
+            for item in vec_snp_seq.iter(){
+                if prev_seq_pos > item.1{
+                    dbg!(&vec_snp_seq, &frag.id);
+//                    panic!();
+                }
+                prev_seq_pos = item.1;
             }
         }
     }
@@ -664,78 +674,184 @@ pub fn write_output_partition_to_file<P>(
         write!(file, "#{}\n", i).unwrap();
 
         if !snp_range_parts_vec.is_empty() {
-            let part_fastq_reads = out_bam_part_dir
+            let part_fastq_reads = out_bam_part_dir.as_ref().join(format!("{}_part.fastq", i));
+            let part_fastq_reads_paired1 = out_bam_part_dir
                 .as_ref()
-                .join(format!("{}_part.fastq", i));
+                .join(format!("{}_part_paired1.fastq", i));
+            let part_fastq_reads_paired2 = out_bam_part_dir
+                .as_ref()
+                .join(format!("{}_part_paired2.fastq", i));
             let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
+            let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
+            let fastq_file2 = File::create(part_fastq_reads_paired2).expect("Can't create file");
             let mut fastq_writer = fastq::Writer::new(fastq_file);
+            let mut fastq_writer_paired1 = fastq::Writer::new(fastq_file1);
+            let mut fastq_writer_paired2 = fastq::Writer::new(fastq_file2);
             //1-indexing for snp position already accounted for
             let left_snp_pos = snp_range_parts_vec[i].0;
             let right_snp_pos = snp_range_parts_vec[i].1;
+            let extension = 50;
             for frag in vec_part.iter() {
-                if frag.first_position > right_snp_pos{
+                let mut found_primary = false;
+                for seq in frag.seq_string.iter() {
+                    if seq.len() != 0 {
+                        found_primary = true;
+                        break;
+                    }
+                }
+                if !found_primary {
+                    println!(
+                        "{} primary not found. Paired: {}",
+                        &frag.id, &frag.is_paired
+                    );
                     continue;
                 }
-                if frag.last_position < left_snp_pos{
+                if frag.first_position > right_snp_pos {
+                    continue;
+                }
+                if frag.last_position < left_snp_pos {
                     continue;
                 }
                 let mut left_seq_pos;
-                //TODO testing some supp aln weirdness.
-                if false && frag.first_position > left_snp_pos {
-                    left_seq_pos = 0;
-                } else {
-                    let mut tmp = left_snp_pos;
-                    loop {
-                        if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
-                            left_seq_pos = frag.snp_pos_to_seq_pos[&tmp];
-                            break;
-                        }
-                        tmp += 1;
-                        if tmp > 500000{
-                            dbg!(&frag.first_position, &frag.last_position, left_snp_pos, right_snp_pos);
-                            panic!();
-                        }
+                let mut tmp = left_snp_pos;
+                let left_read_pair;
+                loop {
+                    if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
+                        let info = frag.snp_pos_to_seq_pos[&tmp];
+                        left_seq_pos = info.1;
+                        left_read_pair = info.0;
+                        break;
+                    }
+                    tmp += 1;
+                    if tmp > 500000 {
+                        dbg!(
+                            &frag.first_position,
+                            &frag.last_position,
+                            left_snp_pos,
+                            right_snp_pos
+                        );
+                        panic!();
                     }
                 }
-                 if left_seq_pos > 50{
-                     left_seq_pos -= 50;
-                 }
-                 else{
-                     left_seq_pos = 0;
-                 }
+                if left_seq_pos > extension {
+                    left_seq_pos -= extension;
+                } else {
+                    left_seq_pos = 0;
+                }
 
                 let mut right_seq_pos;
-                if false && frag.last_position < right_snp_pos {
-                    right_seq_pos = frag.seq_string.len() - 1;
-                } else {
-                    let mut tmp = right_snp_pos;
-                    loop {
-                        if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
-                            right_seq_pos = frag.snp_pos_to_seq_pos[&tmp];
-                            break;
-                        }
-                        if tmp == 0 {
-                            dbg!(&frag.positions, left_snp_pos, right_snp_pos);
-                        }
-                        tmp -= 1;
+                let mut tmp = right_snp_pos;
+                let right_read_pair;
+                loop {
+                    if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
+                        let info = frag.snp_pos_to_seq_pos[&tmp];
+                        right_seq_pos = info.1;
+                        right_read_pair = info.0;
+                        break;
                     }
-                }
-                
-                if right_seq_pos < frag.seq_string.len() - 50 - 1{
-                    right_seq_pos += 50;
-                }
-                else{
-                    right_seq_pos = frag.seq_string.len() - 1;
+                    if tmp == 0 {
+                        dbg!(&frag.positions, left_snp_pos, right_snp_pos);
+                    }
+                    tmp -= 1;
                 }
 
-                fastq_writer
-                    .write(
-                        &frag.id,
-                        None,
-                        &frag.seq_string.as_slice()[left_seq_pos..right_seq_pos + 1],
-                        &frag.qual_string.as_slice()[left_seq_pos..right_seq_pos + 1],
-                    )
-                    .unwrap();
+                if right_seq_pos < frag.seq_string[right_read_pair as usize].len() - extension - 1 {
+                    right_seq_pos += extension;
+                } else {
+                    right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
+                }
+
+                if frag.is_paired {
+                    if frag.seq_string[0].len() == 0 {
+                        fastq_writer_paired1
+                            .write(
+                                &format!("{}/1", frag.id),
+                                None,
+                                //Write N instead
+                                &vec![78],
+                                &vec![20],
+                            )
+                            .unwrap();
+                    } else {
+                        fastq_writer_paired1
+                            .write(
+                                &format!("{}/1", frag.id),
+                                None,
+                                &frag.seq_string[0],
+                                &frag.qual_string[0],
+                            )
+                            .unwrap();
+                    }
+                    if frag.seq_string[1].len() == 0 {
+                        fastq_writer_paired2
+                            .write(
+                                &format!("{}/2", frag.id),
+                                None,
+                                //Write N instead
+                                &vec![78],
+                                &vec![20],
+                            )
+                            .unwrap();
+                    } else {
+                        fastq_writer_paired2
+                            .write(
+                                &format!("{}/2", frag.id),
+                                None,
+                                &revcomp(&frag.seq_string[1]),
+                                &frag.qual_string[1],
+                            )
+                            .unwrap();
+                    }
+
+                //                    if left_read_pair != right_read_pair {
+                //                        fastq_writer_paired1
+                //                            .write(
+                //                                &format!("{}/1", frag.id),
+                //                                None,
+                //                                &frag.seq_string[0].as_slice()[left_seq_pos..],
+                //                                &frag.qual_string[0].as_slice()[left_seq_pos..],
+                //                            )
+                //                            .unwrap();
+                //                        fastq_writer_paired2
+                //                            .write(
+                //                                &format!("{}/2", frag.id),
+                //                                None,
+                //                                &frag.seq_string[1].as_slice()[..right_seq_pos],
+                //                                &frag.qual_string[1].as_slice()[..right_seq_pos],
+                //                            )
+                //                            .unwrap();
+                //                    } else {
+                //                        let writer;
+                //                        if right_read_pair == 0 {
+                //                            writer = &mut fastq_writer_paired1;
+                //                        } else {
+                //                            writer = &mut fastq_writer_paired2;
+                //                        }
+                //                        writer
+                //                            .write(
+                //                                &format!("{}/{}", frag.id, right_read_pair + 1),
+                //                                None,
+                //                                &frag.seq_string[right_read_pair as usize].as_slice()
+                //                                    [left_seq_pos..right_seq_pos],
+                //                                &frag.qual_string[right_read_pair as usize].as_slice()
+                //                                    [left_seq_pos..right_seq_pos],
+                //                            )
+                //                            .unwrap();
+                //                    }
+                } else {
+                    if left_seq_pos > right_seq_pos{
+                        println!("{} left seq pos > right seq pos at {:?}", &frag.id, snp_range_parts_vec[i]);
+                        continue;
+                    }
+                    fastq_writer
+                        .write(
+                            &frag.id,
+                            None,
+                            &frag.seq_string[0].as_slice()[left_seq_pos..right_seq_pos + 1],
+                            &frag.qual_string[0].as_slice()[left_seq_pos..right_seq_pos + 1],
+                        )
+                        .unwrap();
+                }
             }
         }
 
@@ -751,3 +867,280 @@ pub fn write_output_partition_to_file<P>(
         }
     }
 }
+
+pub fn alignment_passed_check(
+    flags: u16,
+    mapq: u8,
+    use_supplementary: bool,
+    filter_supplementary: bool,
+) -> (bool, bool) {
+    let errors_mask = 1796;
+    let secondary_mask = 256;
+    let supplementary_mask = 2048;
+    let mapq_supp_cutoff = 59;
+    let mapq_normal_cutoff = 15;
+
+    let is_supp;
+    if flags & supplementary_mask > 0 {
+        is_supp = true;
+        if !use_supplementary {
+            return (false, true);
+        }
+        if filter_supplementary {
+            if mapq < mapq_supp_cutoff {
+                return (false, true);
+            }
+        }
+    } else {
+        is_supp = false;
+    }
+
+    if mapq < mapq_normal_cutoff {
+        return (false, is_supp);
+    }
+    //Erroneous alignment, skip
+    if flags & errors_mask > 0 {
+        //dbg!(&flags,&id_string);
+        return (false, is_supp);
+    }
+
+    //Secondary alignment, skip
+    if flags & secondary_mask > 0 {
+        //dbg!(&flags,&id_string);
+        return (false, is_supp);
+    }
+
+    return (true, is_supp);
+}
+
+//pub fn get_frags_from_bamvcf_rewrite<P>(
+//    vcf_file: P,
+//    bam_file: P,
+//    filter_supplementary: bool,
+//    use_supplementary: bool,
+//) -> FxHashMap<String, Vec<Frag>>
+//where
+//    P: AsRef<Path>,
+//{
+//    //Get which SNPS correspond to which positions on the genome.
+//    let mut vcf = match bcf::Reader::from_path(vcf_file) {
+//        Ok(vcf) => vcf,
+//        Err(_) => panic!("rust_htslib had an error reading the VCF file. Exiting."),
+//    };
+//    let mut snp_counter = 1;
+//    let mut vcf_set_of_pos = FxHashMap::default();
+//    let mut vcf_pos_allele_map = FxHashMap::default();
+//    let mut vcf_pos_to_snp_counter_map = FxHashMap::default();
+//    let mut vcf_snp_counter_to_pos_vec = FxHashMap::default();
+//    let mut all_set_of_pos = FxHashSet::default();
+//    let vcf_header = vcf.header().clone();
+//
+//    let mut last_ref_chrom: &[u8] = &[];
+//    for rec in vcf.records() {
+//        let unr = rec.unwrap();
+//        let alleles = unr.alleles();
+//        let mut al_vec = Vec::new();
+//        let mut is_snp = true;
+//
+//        let record_rid = unr.rid().unwrap();
+//        let ref_chrom_vcf = vcf_header.rid2name(record_rid).unwrap();
+//        //dbg!(String::from_utf8_lossy(ref_chrom_vcf));
+//        if last_ref_chrom != ref_chrom_vcf {
+//            snp_counter = 1;
+//            last_ref_chrom = ref_chrom_vcf;
+//        }
+//        let set_of_pos = vcf_set_of_pos
+//            .entry(ref_chrom_vcf)
+//            .or_insert(FxHashSet::default());
+//        let pos_allele_map = vcf_pos_allele_map
+//            .entry(ref_chrom_vcf)
+//            .or_insert(FxHashMap::default());
+//        let pos_to_snp_counter_map = vcf_pos_to_snp_counter_map
+//            .entry(ref_chrom_vcf)
+//            .or_insert(FxHashMap::default());
+//        let snp_counter_to_pos_vec = vcf_snp_counter_to_pos_vec
+//            .entry(ref_chrom_vcf)
+//            .or_insert(vec![]);
+//
+//        for allele in alleles.iter() {
+//            if allele.len() > 1 {
+//                is_snp = false;
+//                break;
+//            }
+//            al_vec.push(allele[0]);
+//        }
+//
+//        //Only allow snps for now
+//        if !is_snp {
+//            continue;
+//        }
+//
+//        set_of_pos.insert(unr.pos());
+//        all_set_of_pos.insert(unr.pos());
+//        pos_to_snp_counter_map.insert(unr.pos(), snp_counter);
+//        snp_counter_to_pos_vec.push(unr.pos());
+//        snp_counter += 1;
+//        pos_allele_map.insert(unr.pos(), al_vec);
+//    }
+//
+//    let mut bam = match bam::Reader::from_path(bam_file) {
+//        Ok(bam) => bam,
+//        Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting"),
+//    };
+//
+//    //Check the headers to see how many references there are.
+//    let header = Header::from_template(bam.header());
+//    let bam_header_view = HeaderViewBam::from_header(&header);
+//
+//    //This may be important : We assume that distinct reads have different names. Paired end reads
+//    //work okay though, if they're mapped properly and only have one name per pair in the BAM file.
+//    let mut ref_id_to_frag = FxHashMap::default();
+//    let mut counter_id = 0;
+//    let mut prev_pos = 0;
+//    let mut prev_ref = vec![];
+//    let mut current_left_snp_index = 0;
+//
+//    //Do stuff
+//    for rec_wrap in bam.records() {
+//        let aln_record = rec_wrap.unwrap();
+//        let tid = aln_record.tid();
+//        let ref_chrom = bam_header_view.tid2name(tid as u32);
+//
+//        let map_pos = aln_record.pos();
+//        if map_pos < prev_pos && ref_chrom == prev_ref {
+//            panic!("BAM file not sorted. Please sort the BAM file by coordinate.");
+//        }
+//        if ref_chrom != prev_ref {
+//            prev_ref = ref_chrom.to_vec();
+//        }
+//
+//        prev_pos = map_pos;
+//
+//        //dbg!(String::from_utf8_lossy(ref_chrom));
+//        let get_ref_chrom = vcf_snp_counter_to_pos_vec.get(ref_chrom);
+//        let snp_counter_to_pos_vec = match get_ref_chrom {
+//            Some(snp_counter_to_pos_vec) => snp_counter_to_pos_vec,
+//            None => continue,
+//        };
+//        let pos_to_snp_counter_map = &vcf_pos_to_snp_counter_map[&ref_chrom];
+//        let pos_allele_map = &vcf_pos_allele_map[&ref_chrom];
+//
+//        if pos_to_snp_counter_map.contains_key(&map_pos) {
+//            current_left_snp_index = pos_to_snp_counter_map[&map_pos];
+//        }
+//
+//        let flags = aln_record.flags();
+//        let mapq = aln_record.mapq();
+//        let (passed_check, is_supp) =
+//            alignment_passed_check(flags, mapq, use_supplementary, filter_supplementary);
+//        if !passed_check {
+//            continue;
+//        }
+//        let id_to_frag = ref_id_to_frag
+//            .entry(ref_chrom)
+//            .or_insert(FxHashMap::default());
+//        let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
+//        if id_to_frag.contains_key(&id_string) {
+//            let frag = id_to_frag.get_mut(&id_string).unwrap();
+//            update_rewrite_frag(
+//                &mut frag,
+//                &aln_record,
+//                current_left_snp_index,
+//                snp_counter_to_pos_vec,
+//                pos_to_snp_counter_map,
+//                pos_allele_map,
+//                is_supp,
+//            )
+//        } else {
+//            let new_frag = build_rewrite_frag(
+//                counter_id,
+//                &aln_record,
+//                current_left_snp_index,
+//                id_string,
+//                snp_counter_to_pos_vec,
+//                pos_to_snp_counter_map,
+//                pos_allele_map,
+//                is_supp,
+//            );
+//            id_to_frag.insert(id_string, new_frag);
+//            counter_id += 1;
+//        }
+//        //TODO TEMP
+//        id_to_frag.insert(
+//            id_string.clone(),
+//            build_frag(id_string.clone(), 0, None, vec![], vec![]),
+//        );
+//    }
+//
+//    let mut ref_vec_frags = FxHashMap::default();
+//    let mut keys = FxHashSet::default();
+//    for ref_chrom in ref_id_to_frag.keys() {
+//        ref_vec_frags.insert(String::from_utf8(ref_chrom.to_vec()).unwrap(), Vec::new());
+//        keys.insert(ref_chrom.clone());
+//    }
+//    for ref_chrom in keys {
+//        let vec_frags = ref_vec_frags
+//            .get_mut(&String::from_utf8(ref_chrom.to_vec()).unwrap())
+//            .unwrap();
+//        let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
+//        let id_to_frag = mem::replace(id_to_frag, FxHashMap::default());
+//        for (_id, mut frag) in id_to_frag.into_iter() {
+//            //IMPORTANT: I'm turning this off for metagenomics because some fragments may only
+//            //index one read. However, this is still useful because we don't know ploidy info.
+//            let mut prev_pos = frag.first_position;
+//            for pos in frag.first_position + 1..frag.last_position {
+//                if !frag.positions.contains(&pos) && (pos - prev_pos < 100) {
+//                    //random number. TODO TESTING GAPS IN FRAGMENTS
+//                    //                                        frag.seq_dict.insert(pos, 9);
+//                    //                                        frag.qual_dict.insert(pos, 7);
+//                    //                                        frag.positions.insert(pos);
+//                }
+//                prev_pos = pos;
+//            }
+//            if frag.positions.len() > 0 {
+//                vec_frags.push(frag);
+//            }
+//        }
+//    }
+//
+//    ref_vec_frags
+//}
+
+//fn build_rewrite_frag(
+//    counter_id: usize,
+//    record: &Record,
+//    current_left_snp_index: usize,
+//    id_string: String,
+//    snp_counter_to_pos_vec: &Vec<i64>,
+//    pos_to_snp_counter_map: &FxHashMap<i64, usize>,
+//    pos_allele_map: &FxHashMap<i64, Vec<u8>>,
+//    is_supp: bool,
+//) -> Frag {
+//    //Get range of SNPs indexed by alignment.
+//    let map_pos = record.pos();
+//    let map_seq
+//    let leftmost_possible_snp;
+//    let mut possible_snp_positions = vec![];
+//    if current_left_snp_index == 0{
+//        leftmost_possible_snp = 0;
+//    }
+//    else{
+//        leftmost_possible_snp = current_left_snp_index - 1;
+//    }
+//    for i in leftmost_possible_snp..snp_counter_to_pos_vec.len(){
+//
+//    }
+//}
+//
+//fn update_rewrite_frag(
+//    frag: &mut Frag,
+//    record: &Record,
+//    current_left_snp_index: usize,
+//    snp_counter_to_pos_vec: &Vec<i64>,
+//    pos_to_snp_counter_map: &FxHashMap<i64, usize>,
+//    pos_allele_map: &FxHashMap<i64, Vec<u8>>,
+//    is_supp: bool,
+//) {
+//}
+
+//let new_frag = build_new_frag(counter_id, &aln_record,current_left_snp_index, id_string, &snp_counter_to_pos_vec, &pos_to_snp_counter_map, &pos_allele_map);
