@@ -15,7 +15,6 @@ pub fn beam_search_phasing<'a>(
     cutoff_value: f64,
     max_number_solns: usize,
     use_mec: bool,
-    use_supp_anchor: bool,
     use_ref_bias: bool,
 ) -> (FxHashMap<usize, FxHashSet<usize>>, Vec<FxHashSet<&'a Frag>>) {
     let mut partition = clique.clone();
@@ -23,22 +22,6 @@ pub fn beam_search_phasing<'a>(
 
     let first_block = utils_frags::hap_block_from_partition(&clique);
     let random_frag = &all_reads[0];
-
-    let mut supp_anchors = FxHashMap::default();
-    for (i, part) in clique.iter().enumerate() {
-        for read in part.iter() {
-            if let Some(cont) = &read.supp_aln {
-                let map_ent = supp_anchors.entry(cont).or_insert(vec![]);
-                map_ent.push(i);
-            }
-        }
-        //Allow frags with supp alignments to go to empty partition too
-        if part.len() == 0 {
-            for (_contig, vec) in supp_anchors.iter_mut() {
-                vec.push(i);
-            }
-        }
-    }
 
     let starting_freq = vec![1; clique.len()];
     let first_node = SearchNode {
@@ -116,15 +99,6 @@ pub fn beam_search_phasing<'a>(
                         );
                 }
 
-                if use_supp_anchor {
-                    if let Some(cont) = &frag.supp_aln {
-                        if supp_anchors.contains_key(cont) {
-                            if !supp_anchors.get(cont).unwrap().contains(&part_index) {
-                                dist = f64::MIN;
-                            }
-                        }
-                    }
-                }
                 p_value_list.push(dist);
             }
             let lse = utils_frags::log_sum_exp(&p_value_list);
@@ -428,168 +402,168 @@ pub fn get_initial_clique<'a>(
     partition
 }
 
-pub fn get_initial_from_anchor<'a>(
-    all_reads: &'a Vec<Frag>,
-    ploidy: usize,
-    epsilon: f64,
-    contig_anchors: &Vec<String>,
-) -> Vec<FxHashSet<&'a Frag>> {
-    //get anchors
-    let num_anchors = contig_anchors.len();
-    let mut used_anchors = vec![];
-    if num_anchors > ploidy {
-        panic!("Number of anchor contigs greater than ploidy. Exiting");
-    }
-    let mut starting_clique_reads = FxHashMap::default();
-    let mut starting_clique_reads_vec = vec![];
-    for frag in all_reads.iter() {
-        if let Some(contig) = &frag.supp_aln {
-            if contig_anchors.contains(contig) {
-                let anchor_to_frags = starting_clique_reads.entry(contig).or_insert(vec![]);
-                anchor_to_frags.push(frag);
-                starting_clique_reads_vec.push(frag);
-            }
-        }
-    }
-
-    let use_binomial_dist = true;
-    let vec_all_reads = starting_clique_reads_vec;
-    let mut partition = Vec::new();
-    let (mut vec_all_edges, _adj_list_edges) =
-        get_read_graph(&vec_all_reads, epsilon, use_binomial_dist);
-
-    //Return empty partitions if no edges are found
-    if vec_all_edges.len() == 0 {
-        let mut clusters: Vec<FxHashSet<&Frag>> = Vec::new();
-        for _i in 0..ploidy {
-            clusters.push(FxHashSet::default());
-        }
-
-        log::debug!("Empty initial partitioning!");
-        return clusters;
-    }
-
-    //Finding max clique
-    //println!("{:?}",vec_all_edges);
-    vec_all_edges.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-    let mut best_edge = vec_all_edges.first().unwrap();
-    for edge in vec_all_edges.iter() {
-        let cont1 = vec_all_reads[edge.1 as usize].supp_aln.as_ref().unwrap();
-        let cont2 = vec_all_reads[edge.2 as usize].supp_aln.as_ref().unwrap();
-        if cont1 != cont2 {
-            best_edge = edge;
-            used_anchors.push(cont1);
-            used_anchors.push(cont2);
-            log::debug!("Clique between anchors {}-{}", cont1, cont2);
-            break;
-        }
-    }
-
-    let mut used_vertices = FxHashSet::default();
-    used_vertices.insert(best_edge.1);
-    used_vertices.insert(best_edge.2);
-
-    //Greedily find a max clique once the first two vertices are found. Greedily do this by adding
-    //edges which maximizes the minimum of the distance between all other vertices in the putative clique.
-    for _i in 0..ploidy - 2 {
-        //min_dist_map contains the minimum distance from each vertex in the putative clique to
-        //the other every other vertex. I.e. the key is a different vertex and the value is the
-        //minimum distance from the clique to the key.
-
-        let mut vertices_meeting_clique_map = FxHashMap::default();
-        let mut min_dist_map = FxHashMap::default();
-
-        for edge in vec_all_edges.iter() {
-            if used_vertices.contains(&edge.1) && !used_vertices.contains(&edge.2) {
-                let met_cliques_set = vertices_meeting_clique_map
-                    .entry(edge.2)
-                    .or_insert(FxHashSet::default());
-                met_cliques_set.insert(edge.1);
-
-                if min_dist_map.contains_key(&edge.2) {
-                    if *min_dist_map.get(&edge.2).unwrap() < edge.0 {
-                        continue;
-                    }
-                }
-                min_dist_map.insert(edge.2, edge.0);
-            } else if used_vertices.contains(&edge.2) && !used_vertices.contains(&edge.1) {
-                let met_cliques_set = vertices_meeting_clique_map
-                    .entry(edge.1)
-                    .or_insert(FxHashSet::default());
-                met_cliques_set.insert(edge.2);
-
-                if min_dist_map.contains_key(&edge.1) {
-                    if *min_dist_map.get(&edge.1).unwrap() < edge.0 {
-                        continue;
-                    }
-                }
-                min_dist_map.insert(edge.1, edge.0);
-            }
-        }
-
-        let mut sorted_dict_to_vec: Vec<_> = min_dist_map.into_iter().collect();
-        sorted_dict_to_vec.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        if sorted_dict_to_vec.len() == 0 {
-            continue;
-        }
-
-        for vertex in sorted_dict_to_vec.iter().rev() {
-            if *vertices_meeting_clique_map.get(&vertex.0).unwrap() == used_vertices {
-                let best_vertex = vertex;
-                if used_anchors.len() != num_anchors {
-                    let frag = &vec_all_reads[best_vertex.1 as usize];
-                    let cont = frag.supp_aln.as_ref().unwrap();
-                    if !used_anchors.contains(&cont) {
-                        used_vertices.insert(best_vertex.0);
-                        used_anchors.push(&cont);
-                        log::debug!("Clique for anchors {}", cont);
-                        break;
-                    }
-                } else {
-                    //When using GLOPP, don't need a full clique output. Can just return partial
-                    //clique.
-                    //used_vertices.insert(best_vertex.0);
-                    break;
-                }
-            }
-        }
-    }
-
-    let mut clusters = Vec::new();
-    for vertex in used_vertices.iter() {
-        let mut cluster = FxHashSet::default();
-        cluster.insert(*vertex);
-        clusters.push(cluster);
-    }
-
-    if clusters.len() < ploidy {
-        loop {
-            clusters.push(FxHashSet::default());
-            if clusters.len() == ploidy {
-                break;
-            }
-        }
-    }
-
-    for cluster in clusters.iter() {
-        let mut frag_set = FxHashSet::default();
-        for vertex in cluster.iter() {
-            let vertex_usize = *vertex as usize;
-            frag_set.insert(vec_all_reads[vertex_usize]);
-        }
-        partition.push(frag_set)
-    }
-
-    for frag_set in partition.iter() {
-        for frag in frag_set.iter() {
-            log::debug!(
-                "Clique: {},{},{}",
-                frag.id,
-                frag.first_position,
-                frag.last_position
-            );
-        }
-    }
-
-    partition
-}
+//pub fn get_initial_from_anchor<'a>(
+//    all_reads: &'a Vec<Frag>,
+//    ploidy: usize,
+//    epsilon: f64,
+//    contig_anchors: &Vec<String>,
+//) -> Vec<FxHashSet<&'a Frag>> {
+//    //get anchors
+//    let num_anchors = contig_anchors.len();
+//    let mut used_anchors = vec![];
+//    if num_anchors > ploidy {
+//        panic!("Number of anchor contigs greater than ploidy. Exiting");
+//    }
+//    let mut starting_clique_reads = FxHashMap::default();
+//    let mut starting_clique_reads_vec = vec![];
+//    for frag in all_reads.iter() {
+//        if let Some(contig) = &frag.supp_aln {
+//            if contig_anchors.contains(contig) {
+//                let anchor_to_frags = starting_clique_reads.entry(contig).or_insert(vec![]);
+//                anchor_to_frags.push(frag);
+//                starting_clique_reads_vec.push(frag);
+//            }
+//        }
+//    }
+//
+//    let use_binomial_dist = true;
+//    let vec_all_reads = starting_clique_reads_vec;
+//    let mut partition = Vec::new();
+//    let (mut vec_all_edges, _adj_list_edges) =
+//        get_read_graph(&vec_all_reads, epsilon, use_binomial_dist);
+//
+//    //Return empty partitions if no edges are found
+//    if vec_all_edges.len() == 0 {
+//        let mut clusters: Vec<FxHashSet<&Frag>> = Vec::new();
+//        for _i in 0..ploidy {
+//            clusters.push(FxHashSet::default());
+//        }
+//
+//        log::debug!("Empty initial partitioning!");
+//        return clusters;
+//    }
+//
+//    //Finding max clique
+//    //println!("{:?}",vec_all_edges);
+//    vec_all_edges.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+//    let mut best_edge = vec_all_edges.first().unwrap();
+//    for edge in vec_all_edges.iter() {
+//        let cont1 = vec_all_reads[edge.1 as usize].supp_aln.as_ref().unwrap();
+//        let cont2 = vec_all_reads[edge.2 as usize].supp_aln.as_ref().unwrap();
+//        if cont1 != cont2 {
+//            best_edge = edge;
+//            used_anchors.push(cont1);
+//            used_anchors.push(cont2);
+//            log::debug!("Clique between anchors {}-{}", cont1, cont2);
+//            break;
+//        }
+//    }
+//
+//    let mut used_vertices = FxHashSet::default();
+//    used_vertices.insert(best_edge.1);
+//    used_vertices.insert(best_edge.2);
+//
+//    //Greedily find a max clique once the first two vertices are found. Greedily do this by adding
+//    //edges which maximizes the minimum of the distance between all other vertices in the putative clique.
+//    for _i in 0..ploidy - 2 {
+//        //min_dist_map contains the minimum distance from each vertex in the putative clique to
+//        //the other every other vertex. I.e. the key is a different vertex and the value is the
+//        //minimum distance from the clique to the key.
+//
+//        let mut vertices_meeting_clique_map = FxHashMap::default();
+//        let mut min_dist_map = FxHashMap::default();
+//
+//        for edge in vec_all_edges.iter() {
+//            if used_vertices.contains(&edge.1) && !used_vertices.contains(&edge.2) {
+//                let met_cliques_set = vertices_meeting_clique_map
+//                    .entry(edge.2)
+//                    .or_insert(FxHashSet::default());
+//                met_cliques_set.insert(edge.1);
+//
+//                if min_dist_map.contains_key(&edge.2) {
+//                    if *min_dist_map.get(&edge.2).unwrap() < edge.0 {
+//                        continue;
+//                    }
+//                }
+//                min_dist_map.insert(edge.2, edge.0);
+//            } else if used_vertices.contains(&edge.2) && !used_vertices.contains(&edge.1) {
+//                let met_cliques_set = vertices_meeting_clique_map
+//                    .entry(edge.1)
+//                    .or_insert(FxHashSet::default());
+//                met_cliques_set.insert(edge.2);
+//
+//                if min_dist_map.contains_key(&edge.1) {
+//                    if *min_dist_map.get(&edge.1).unwrap() < edge.0 {
+//                        continue;
+//                    }
+//                }
+//                min_dist_map.insert(edge.1, edge.0);
+//            }
+//        }
+//
+//        let mut sorted_dict_to_vec: Vec<_> = min_dist_map.into_iter().collect();
+//        sorted_dict_to_vec.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+//        if sorted_dict_to_vec.len() == 0 {
+//            continue;
+//        }
+//
+//        for vertex in sorted_dict_to_vec.iter().rev() {
+//            if *vertices_meeting_clique_map.get(&vertex.0).unwrap() == used_vertices {
+//                let best_vertex = vertex;
+//                if used_anchors.len() != num_anchors {
+//                    let frag = &vec_all_reads[best_vertex.1 as usize];
+//                    let cont = frag.supp_aln.as_ref().unwrap();
+//                    if !used_anchors.contains(&cont) {
+//                        used_vertices.insert(best_vertex.0);
+//                        used_anchors.push(&cont);
+//                        log::debug!("Clique for anchors {}", cont);
+//                        break;
+//                    }
+//                } else {
+//                    //When using GLOPP, don't need a full clique output. Can just return partial
+//                    //clique.
+//                    //used_vertices.insert(best_vertex.0);
+//                    break;
+//                }
+//            }
+//        }
+//    }
+//
+//    let mut clusters = Vec::new();
+//    for vertex in used_vertices.iter() {
+//        let mut cluster = FxHashSet::default();
+//        cluster.insert(*vertex);
+//        clusters.push(cluster);
+//    }
+//
+//    if clusters.len() < ploidy {
+//        loop {
+//            clusters.push(FxHashSet::default());
+//            if clusters.len() == ploidy {
+//                break;
+//            }
+//        }
+//    }
+//
+//    for cluster in clusters.iter() {
+//        let mut frag_set = FxHashSet::default();
+//        for vertex in cluster.iter() {
+//            let vertex_usize = *vertex as usize;
+//            frag_set.insert(vec_all_reads[vertex_usize]);
+//        }
+//        partition.push(frag_set)
+//    }
+//
+//    for frag_set in partition.iter() {
+//        for frag in frag_set.iter() {
+//            log::debug!(
+//                "Clique: {},{},{}",
+//                frag.id,
+//                frag.first_position,
+//                frag.last_position
+//            );
+//        }
+//    }
+//
+//    partition
+//}

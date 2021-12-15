@@ -35,11 +35,6 @@ fn main() {
                                .value_name("VCFFILE")
                                .takes_value(true)
                                .hidden(true))
-                          .arg(Arg::with_name("supp_aln_anchor")
-                               .short("a")
-                               .help("Input names of neighbouring contigs when only phasing one contig. The adjacent contigs in an assembly graph will be used to anchor the initial partition when using glopp. Usage: -a contig_1,contig_2")
-                               .value_name("CONTIG1,CONTIG2")
-                               .takes_value(true))
                           .arg(Arg::with_name("ploidy")
                               .short("p")
                               .help("Ploidy of organism. If not given, glopp will estimate the ploidy.")
@@ -186,28 +181,6 @@ fn main() {
         }
     };
 
-    //Using supplemental alignments/assembly graph
-    let use_supp_anchor;
-    let contig_supp_string = match matches.value_of("supp_aln_anchor") {
-        None => {
-            use_supp_anchor = false;
-            "_"
-        }
-        Some(contig_names) => {
-            use_supp_anchor = true;
-            contig_names
-        }
-    };
-
-    let contig_anchors: Vec<String> = contig_supp_string
-        .split(',')
-        .into_iter()
-        .map(|s| s.to_owned())
-        .collect();
-    if contig_anchors.len() < 2 && use_supp_anchor {
-        panic!("Number of supplementary contig anchors must exceed 1. Exiting");
-    }
-
     //Use a VCF without polishing.
     let vcf_nopolish;
     let vcf_file_nopolish = match matches.value_of("vcf no polish") {
@@ -304,17 +277,7 @@ fn main() {
         }
         let mut _prev_expected_score = f64::MAX;
         println!("Number of fragments {}", all_frags.len());
-        for frag in all_frags.iter() {
-            if let Some(sup_cont) = &frag.supp_aln {
-                log::trace!(
-                    "{}, {}, {}, {}",
-                    sup_cont,
-                    frag.first_position,
-                    frag.last_position,
-                    frag.id
-                );
-            }
-        }
+        
         if snp_to_genome_pos_map.contains_key(contig) || bam == false {
             let mut _genotype_dict: &FxHashMap<usize, FxHashMap<usize, usize>> =
                 &FxHashMap::default();
@@ -433,19 +396,9 @@ fn main() {
             //search to determine the correct initial partition.
             let first_pos = 1;
             let last_pos = 1;
-            if !use_supp_anchor {
                 initial_part = global_clustering::get_initial_clique(
                     all_frags, ploidy, epsilon, first_pos, last_pos,
                 );
-            } else {
-                //                initial_part = global_clustering::get_initial_clique(all_frags, ploidy, epsilon);
-                initial_part = global_clustering::get_initial_from_anchor(
-                    all_frags,
-                    ploidy,
-                    epsilon,
-                    &contig_anchors,
-                );
-            }
             let all_frags_refs: Vec<&Frag> = all_frags.iter().collect();
             let (break_positions, final_part) = global_clustering::beam_search_phasing(
                 initial_part,
@@ -455,7 +408,6 @@ fn main() {
                 cutoff_value,
                 max_number_solns,
                 use_mec,
-                use_supp_anchor,
                 use_ref_bias,
             );
             println!("Time taken for phasing {:?}", Instant::now() - start_t);
