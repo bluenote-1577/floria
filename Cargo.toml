@@ -21,7 +21,6 @@ simple_logger="*"
 log="*"
 itertools = "*"
 highs = "*"
-osqp = "*"
 petgraph = "*"
 bio = "*"
 
