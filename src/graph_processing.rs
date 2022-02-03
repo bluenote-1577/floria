@@ -120,7 +120,7 @@ pub fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
                 let out_edges_hap = &out_edges_block[j];
                 for (k, prob) in out_edges_hap {
                     hap_node.out_edges.push((*k, *prob));
-                    println!("BLOCK {}: {}-{} weight {}", i, j, k, prob);
+                    log::trace!("BLOCK {}: {}-{} weight {}", i, j, k, prob);
                 }
             }
         }
@@ -136,7 +136,7 @@ pub fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
     }
 }
 
-pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> FlowUpVec {
+pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> FlowUpVec {
     let flow_cutoff = 3.0;
     let mut ae = vec![];
 
@@ -273,7 +273,7 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> FlowUpVec {
     let solved = pb.optimise(Sense::Minimise).solve();
     let solution = solved.get_solution();
 
-    let mut file = File::create("graph.csv").expect("Can't create file");
+    let mut file = File::create(format!("{}/graph.csv",glopp_out_dir)).expect("Can't create file");
     for i in 0..edge_to_nodes.len() {
         if solution.columns()[i] < flow_cutoff {
             continue;
@@ -292,7 +292,7 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>) -> FlowUpVec {
     }
     drop(file);
 
-    let mut file = File::create("qp_graph.csv").expect("Can't create file");
+    let mut file = File::create(format!("{}/qp_graph.csv", glopp_out_dir)).expect("Can't create file");
     for i in 0..edge_to_nodes.len() {
         if qp_solution.x().unwrap()[i] < flow_cutoff {
             continue;
@@ -505,6 +505,7 @@ pub fn generate_hap_graph<'a>(
     snp_to_genome_pos: &'a Vec<usize>,
     max_number_solns: usize,
     block_length: usize,
+    glopp_out_dir: String,
 ) -> Vec<Vec<HapNode<'a>>> {
     let using_bam;
     //Using frags instead of bam
@@ -527,7 +528,7 @@ pub fn generate_hap_graph<'a>(
     }
 
     let random_vec = iter_vec[0..iter_vec.len()].to_vec();
-    dbg!(&random_vec);
+    log::trace!("SNP Endpoints {:?}", &random_vec);
 
     let ploidy_start = 1;
     let ploidy_end = 6;
@@ -537,6 +538,9 @@ pub fn generate_hap_graph<'a>(
     let mut hap_node_counter = 0;
     let mut column_counter = 0;
     for j in 0..random_vec.len() {
+        if j % 10 == 0{
+            println!("Iteration {j}/{}, SNP coords {} ", random_vec.len(), random_vec[j].1);
+        }
         let mut mec_vector = vec![0.; num_ploidies];
         let mut parts_vector = vec![];
         let mut expected_errors_ref = vec![];
@@ -549,6 +553,9 @@ pub fn generate_hap_graph<'a>(
             usize::MAX,
         );
         let mut best_ploidy = ploidy_start;
+        if reads.is_empty(){
+            continue;
+        }
         for ploidy in ploidy_start..ploidy_end {
             best_ploidy = ploidy;
             let mut num_alleles = 0.0;
@@ -627,17 +634,17 @@ pub fn generate_hap_graph<'a>(
                     < mec_threshold
                 {
                 } else {
-                    println!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
+                    log::trace!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
                     best_ploidy -= 1;
                     break;
                 }
                 if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
-                    println!("MEC error threshold, returning ploidy {}.", ploidy);
+                    log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
                     break;
                 }
             } else {
                 if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
-                    println!("MEC error threshold, returning ploidy {}.", ploidy);
+                    log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
                     break;
                 }
             }
@@ -645,6 +652,8 @@ pub fn generate_hap_graph<'a>(
 
         let best_parts = mem::take(&mut parts_vector[best_ploidy - ploidy_start]);
         let best_endpoints = mem::take(&mut endpoints_vector[best_ploidy - ploidy_start]);
+        let local_part_dir = format!("{}/local_parts/",glopp_out_dir);
+
         for (l, best_part) in best_parts.iter().enumerate() {
             let mut hap_node_block = vec![];
             let mut frag_best_part = vec![];
@@ -661,15 +670,17 @@ pub fn generate_hap_graph<'a>(
             }
             column_counter += 1;
             hap_node_blocks.push(hap_node_block);
+
             file_reader::write_output_partition_to_file(
                 &frag_best_part,
                 vec![],
-                "./parts_graph/",
+                local_part_dir.clone(),
                 &format!("{}-{}-{}", column_counter - 1, random_vec[j].0, best_ploidy),
             );
-            println!("Coords: {}", random_vec[j].1)
         }
     }
+
+    println!("Phasing done");
     update_hap_graph(&mut hap_node_blocks);
     hap_node_blocks
 }
@@ -738,13 +749,13 @@ fn merge_split_parts(
         }
     }
     if split_part_merge.len() > 1 {
-        dbg!(&break_pos, split_part_merge.len());
-        dbg!(&snp_breakpoints);
+//        dbg!(&break_pos, split_part_merge.len());
+//        dbg!(&snp_breakpoints);
         for part in split_part_merge.iter() {
-            println!("---------------PART---------------");
+            log::trace!("---------------PART---------------");
             for (s, hap) in part.iter().enumerate() {
-                println!("---------------HAP {} ---------------", s);
-                println!("{}", hap.len());
+                log::trace!("---------------HAP {} ---------------", s);
+                log::trace!("{}", hap.len());
                 //                        for read in hap{
                 //                            println!("{}-{}",read.first_position, read.last_position);
                 //                        }
@@ -830,7 +841,7 @@ pub fn get_disjoint_paths_rewrite(
         };
     }
 
-    let mut pet_graph_file = File::create("pet_graph.dot").expect("Can't create file");
+    let mut pet_graph_file = File::create(format!("{}/pet_graph.dot", glopp_out_dir)).expect("Can't create file");
     write!(pet_graph_file, "{:?}", Dot::new(&hap_petgraph)).unwrap();
     let mut iter_count = 0;
     let mut all_joined_path_parts = vec![];
@@ -947,7 +958,7 @@ pub fn get_disjoint_paths_rewrite(
             dbg!(&trace_back_vec.iter().enumerate());
             panic!("Shouldn't get here");
         }
-        println!(
+        log::trace!(
             "Iter {}, Node count {}",
             iter_count,
             hap_petgraph.node_count()
@@ -979,7 +990,7 @@ pub fn get_disjoint_paths_rewrite(
             }
             //            dbg!(index_of_best_end_node,trace_back_vec[index_of_best_end_node.0][index_of_best_end_node.1]);
             best_path.push(index_of_best_end_node);
-            println!("{:?}, {:?}", &index_of_best_end_node, snp_endpoints);
+            log::trace!("{:?}, {:?}", &index_of_best_end_node, snp_endpoints);
             index_of_best_end_node = trace_back_vec[index_of_best_end_node.unwrap()].prev_ind;
         }
 
@@ -995,6 +1006,8 @@ pub fn get_disjoint_paths_rewrite(
 
         best_paths.push(best_path);
     }
+
+    println!("Number of haplotigs/disjoint paths: {}", best_paths.len());
     let mut all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
     for (frag, part_ids) in read_to_parts_map {
         let mut diff_part_vec = vec![];
@@ -1023,7 +1036,7 @@ pub fn get_disjoint_paths_rewrite(
         &all_joined_path_parts,
         path_parts_snp_endspoints,
         glopp_out_dir,
-        &format!("{}", iter_count),
+        &format!("all-{}",iter_count),
     );
 
     let mut path_debug_file =

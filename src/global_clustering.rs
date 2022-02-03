@@ -17,6 +17,10 @@ pub fn beam_search_phasing<'a>(
     use_mec: bool,
     use_ref_bias: bool,
 ) -> (FxHashMap<usize, FxHashSet<usize>>, Vec<FxHashSet<&'a Frag>>) {
+    if all_reads.len() == 0{
+        return (FxHashMap::default(), vec![]);
+        panic!("Don't do phasing without any reads");
+    }
     let mut partition = clique.clone();
     let ploidy = clique.len();
 

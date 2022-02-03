@@ -1,7 +1,8 @@
 use crate::types_structs::{build_frag, update_frag, Frag, HapBlock};
 use crate::utils_frags;
-use bio::io::fastq;
 use bio::alphabets::dna::revcomp;
+use bio::io::fastq;
+use bio::io::fastq::Writer;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bam::header::Header;
 use rust_htslib::bam::record::Aux;
@@ -276,16 +277,6 @@ where
     //Check the headers to see how many references there are.
     let header = Header::from_template(bam.header());
     let bam_header_view = HeaderViewBam::from_header(&header);
-    //    let mut number_references = 0;
-    //    for (id, content) in header.to_hashmap() {
-    //        if id == "SQ" {
-    //            number_references = content.len();
-    //        }
-    //    }
-
-    //    if number_references > 1{
-    //        dbg!(vcf_pos_to_snp_counter_map.keys());
-    //    }
 
     //This may be important : We assume that distinct reads have different names. I can see this
     //being a problem in some weird bad cases, so be careful.
@@ -458,15 +449,19 @@ where
             }
         }
     }
-    for vec in ref_vec_frags.values(){
-        for frag in vec.iter(){
-            let mut vec_snp_seq : Vec<(usize,usize)> = frag.snp_pos_to_seq_pos.iter().map(|(x,y)| (*x,y.1)).collect();
+    for vec in ref_vec_frags.values() {
+        for frag in vec.iter() {
+            let mut vec_snp_seq: Vec<(usize, usize)> = frag
+                .snp_pos_to_seq_pos
+                .iter()
+                .map(|(x, y)| (*x, y.1))
+                .collect();
             vec_snp_seq.sort();
             let mut prev_seq_pos = 0;
-            for item in vec_snp_seq.iter(){
-                if prev_seq_pos > item.1{
-                    dbg!(&vec_snp_seq, &frag.id);
-//                    panic!();
+            for item in vec_snp_seq.iter() {
+                if prev_seq_pos > item.1 {
+                    //dbg!(&vec_snp_seq, &frag.id);
+                    //                    panic!();
                 }
                 prev_seq_pos = item.1;
             }
@@ -653,18 +648,22 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
     }
 }
 
-pub fn write_output_partition_to_file<P>(
+pub fn write_output_partition_to_file(
     part: &Vec<FxHashSet<&Frag>>,
     snp_range_parts_vec: Vec<(usize, usize)>,
-    out_bam_part_dir: P,
+    out_bam_part_dir: String,
     contig: &String,
-) where
-    P: AsRef<Path>,
+)
 {
     fs::create_dir_all(&out_bam_part_dir).unwrap();
-    let contig_path = out_bam_part_dir
-        .as_ref()
-        .join(format!("{}_part.txt", contig));
+    fs::create_dir_all(&format!("{}/local_parts",out_bam_part_dir)).unwrap();
+    fs::create_dir_all(&format!("{}/short_reads",out_bam_part_dir)).unwrap();
+    fs::create_dir_all(&format!("{}/long_reads",out_bam_part_dir)).unwrap();
+
+    let contig_path = &format!("{}/{}_part.txt", out_bam_part_dir, contig);
+//        out_bam_part_dir
+//        .as_ref()
+//        .join(format!("{}_part.txt", contig));
     let file = File::create(contig_path).expect("Can't create file");
     let mut file = LineWriter::new(file);
 
@@ -673,24 +672,24 @@ pub fn write_output_partition_to_file<P>(
         vec_part.sort_by(|a, b| a.first_position.cmp(&b.first_position));
         write!(file, "#{}\n", i).unwrap();
 
+        //Non-empty means that we're writing the final partition after path collection
         if !snp_range_parts_vec.is_empty() {
-            let part_fastq_reads = out_bam_part_dir.as_ref().join(format!("{}_part.fastq", i));
-            let part_fastq_reads_paired1 = out_bam_part_dir
-                .as_ref()
-                .join(format!("{}_part_paired1.fastq", i));
-            let part_fastq_reads_paired2 = out_bam_part_dir
-                .as_ref()
-                .join(format!("{}_part_paired2.fastq", i));
+            let part_fastq_reads = format!("{}/long_reads/{}_part.fastq",out_bam_part_dir, i);
+            let part_fastq_reads_paired1 = format!("{}/short_reads/{}_part_paired1.fastq",out_bam_part_dir, i);
+            let part_fastq_reads_paired2 = format!("{}/short_reads/{}_part_paired2.fastq",out_bam_part_dir, i);
+
             let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
             let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
             let fastq_file2 = File::create(part_fastq_reads_paired2).expect("Can't create file");
+
             let mut fastq_writer = fastq::Writer::new(fastq_file);
             let mut fastq_writer_paired1 = fastq::Writer::new(fastq_file1);
             let mut fastq_writer_paired2 = fastq::Writer::new(fastq_file2);
+
             //1-indexing for snp position already accounted for
             let left_snp_pos = snp_range_parts_vec[i].0;
             let right_snp_pos = snp_range_parts_vec[i].1;
-            let extension = 50;
+            let extension = 25;
             for frag in vec_part.iter() {
                 let mut found_primary = false;
                 for seq in frag.seq_string.iter() {
@@ -700,12 +699,13 @@ pub fn write_output_partition_to_file<P>(
                     }
                 }
                 if !found_primary {
-                    println!(
-                        "{} primary not found. Paired: {}",
-                        &frag.id, &frag.is_paired
-                    );
+//                    println!(
+//                        "{} primary not found. Paired: {}",
+//                        &frag.id, &frag.is_paired
+//                    );
                     continue;
                 }
+                //Circularity weirdness. Throw away these reads, unfortunately, for now.
                 if frag.first_position > right_snp_pos {
                     continue;
                 }
@@ -723,12 +723,13 @@ pub fn write_output_partition_to_file<P>(
                         break;
                     }
                     tmp += 1;
-                    if tmp > 500000 {
+                    if tmp - left_snp_pos > 10000000{
                         dbg!(
                             &frag.first_position,
                             &frag.last_position,
                             left_snp_pos,
-                            right_snp_pos
+                            right_snp_pos,
+                            &frag.snp_pos_to_seq_pos,
                         );
                         panic!();
                     }
@@ -762,85 +763,21 @@ pub fn write_output_partition_to_file<P>(
                 }
 
                 if frag.is_paired {
-                    if frag.seq_string[0].len() == 0 {
-                        fastq_writer_paired1
-                            .write(
-                                &format!("{}/1", frag.id),
-                                None,
-                                //Write N instead
-                                &vec![78],
-                                &vec![20],
-                            )
-                            .unwrap();
-                    } else {
-                        fastq_writer_paired1
-                            .write(
-                                &format!("{}/1", frag.id),
-                                None,
-                                &frag.seq_string[0],
-                                &frag.qual_string[0],
-                            )
-                            .unwrap();
-                    }
-                    if frag.seq_string[1].len() == 0 {
-                        fastq_writer_paired2
-                            .write(
-                                &format!("{}/2", frag.id),
-                                None,
-                                //Write N instead
-                                &vec![78],
-                                &vec![20],
-                            )
-                            .unwrap();
-                    } else {
-                        fastq_writer_paired2
-                            .write(
-                                &format!("{}/2", frag.id),
-                                None,
-                                &revcomp(&frag.seq_string[1]),
-                                &frag.qual_string[1],
-                            )
-                            .unwrap();
-                    }
-
-                //                    if left_read_pair != right_read_pair {
-                //                        fastq_writer_paired1
-                //                            .write(
-                //                                &format!("{}/1", frag.id),
-                //                                None,
-                //                                &frag.seq_string[0].as_slice()[left_seq_pos..],
-                //                                &frag.qual_string[0].as_slice()[left_seq_pos..],
-                //                            )
-                //                            .unwrap();
-                //                        fastq_writer_paired2
-                //                            .write(
-                //                                &format!("{}/2", frag.id),
-                //                                None,
-                //                                &frag.seq_string[1].as_slice()[..right_seq_pos],
-                //                                &frag.qual_string[1].as_slice()[..right_seq_pos],
-                //                            )
-                //                            .unwrap();
-                //                    } else {
-                //                        let writer;
-                //                        if right_read_pair == 0 {
-                //                            writer = &mut fastq_writer_paired1;
-                //                        } else {
-                //                            writer = &mut fastq_writer_paired2;
-                //                        }
-                //                        writer
-                //                            .write(
-                //                                &format!("{}/{}", frag.id, right_read_pair + 1),
-                //                                None,
-                //                                &frag.seq_string[right_read_pair as usize].as_slice()
-                //                                    [left_seq_pos..right_seq_pos],
-                //                                &frag.qual_string[right_read_pair as usize].as_slice()
-                //                                    [left_seq_pos..right_seq_pos],
-                //                            )
-                //                            .unwrap();
-                //                    }
+                    write_paired_reads_no_trim(
+                        &mut fastq_writer_paired1,
+                        &mut fastq_writer_paired2,
+                        left_read_pair,
+                        right_read_pair,
+                        left_seq_pos,
+                        right_seq_pos,
+                        &frag,
+                    );
                 } else {
-                    if left_seq_pos > right_seq_pos{
-                        println!("{} left seq pos > right seq pos at {:?}", &frag.id, snp_range_parts_vec[i]);
+                    if left_seq_pos > right_seq_pos {
+                        println!(
+                            "{} left seq pos > right seq pos at {:?}",
+                            &frag.id, snp_range_parts_vec[i]
+                        );
                         continue;
                     }
                     fastq_writer
@@ -864,6 +801,147 @@ pub fn write_output_partition_to_file<P>(
                 frag.last_position
             )
             .unwrap();
+        }
+    }
+}
+
+fn write_paired_reads_no_trim<W: Write>(
+    fastq_writer_paired1: &mut Writer<W>,
+    fastq_writer_paired2: &mut Writer<W>,
+    left_read_pair: u8,
+    right_read_pair: u8,
+    left_seq_pos: usize,
+    right_seq_pos: usize,
+    frag: &Frag,
+) {
+    if frag.seq_string[0].len() == 0 {
+        fastq_writer_paired1
+            .write(
+                &format!("{}/1", frag.id),
+                None,
+                //Write N instead
+                &vec![78],
+                &vec![20],
+            )
+            .unwrap();
+    } else {
+        fastq_writer_paired1
+            .write(
+                &format!("{}/1", frag.id),
+                None,
+                &frag.seq_string[0],
+                &frag.qual_string[0],
+            )
+            .unwrap();
+    }
+    if frag.seq_string[1].len() == 0 {
+        fastq_writer_paired2
+            .write(
+                &format!("{}/2", frag.id),
+                None,
+                //Write N instead
+                &vec![78],
+                &vec![20],
+            )
+            .unwrap();
+    } else {
+        fastq_writer_paired2
+            .write(
+                &format!("{}/2", frag.id),
+                None,
+                &revcomp(&frag.seq_string[1]),
+                &frag.qual_string[1],
+            )
+            .unwrap();
+    }
+}
+
+fn write_paired_reads<W: Write>(
+    fastq_writer_paired1: &mut Writer<W>,
+    fastq_writer_paired2: &mut Writer<W>,
+    left_read_pair: u8,
+    right_read_pair: u8,
+    left_seq_pos: usize,
+    right_seq_pos: usize,
+    frag: &Frag,
+) {
+    
+    if left_read_pair == right_read_pair {
+        let writer;
+        let other_writer;
+        let read_pair;
+        let other_read_pair;
+        if left_read_pair == 0 {
+            read_pair = 0;
+            other_read_pair = 1;
+            writer = fastq_writer_paired1;
+            other_writer = fastq_writer_paired2;
+        } else {
+            read_pair = 1;
+            other_read_pair = 0;
+            writer = fastq_writer_paired2;
+            other_writer = fastq_writer_paired1;
+        }
+        writer
+            .write(
+                &format!("{}/{}", frag.id, read_pair),
+                None,
+                &frag.seq_string[read_pair as usize].as_slice()[left_seq_pos..right_seq_pos + 1],
+                &frag.qual_string[read_pair as usize].as_slice()[left_seq_pos..right_seq_pos + 1],
+            )
+            .unwrap();
+        other_writer
+            .write(
+                &format!("{}/{}", frag.id, other_read_pair),
+                None,
+                //Write N instead
+                &vec![78],
+                &vec![20],
+            )
+            .unwrap();
+    } else {
+        if frag.seq_string[left_read_pair as usize].len() == 0 {
+            fastq_writer_paired1
+                .write(
+                    &format!("{}/1", frag.id),
+                    None,
+                    //Write N instead
+                    &vec![78],
+                    &vec![20],
+                )
+                .unwrap();
+        } else {
+            fastq_writer_paired1
+                .write(
+                    &format!("{}/1", frag.id),
+                    None,
+                    &frag.seq_string[left_read_pair as usize].as_slice()[left_seq_pos..],
+                    &frag.qual_string[left_read_pair as usize].as_slice()[left_seq_pos..],
+                )
+                .unwrap();
+        }
+        if frag.seq_string[right_read_pair as usize].len() == 0 {
+            fastq_writer_paired2
+                .write(
+                    &format!("{}/2", frag.id),
+                    None,
+                    //Write N instead
+                    &vec![78],
+                    &vec![20],
+                )
+                .unwrap();
+        } else {
+            let qual_cut_string = &frag.qual_string[right_read_pair as usize].as_slice()[..right_seq_pos];
+            let rev_quals: Vec<u8> = qual_cut_string.into_iter().rev().map(|x| *x).collect();
+            fastq_writer_paired2
+                .write(
+                    &format!("{}/2", frag.id),
+                    None,
+                    &revcomp(&frag.seq_string[right_read_pair as usize].as_slice()[..right_seq_pos]),
+                    //TODO Do we need to flip this as well?
+                    rev_quals.as_slice(),
+                )
+                .unwrap();
         }
     }
 }
