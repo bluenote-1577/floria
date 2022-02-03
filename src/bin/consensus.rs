@@ -72,7 +72,7 @@ fn main() {
         panic!("No VCF file input found");
     }
 
-    let part_out_dir = matches.value_of("output").unwrap_or("glopp_out_dir");
+    let part_out_dir = matches.value_of("output").unwrap_or("glopp_out_dir").to_string();
     let mut snp_to_genome_pos_map: FxHashMap<String, Vec<usize>> = FxHashMap::default();
 
 
@@ -142,13 +142,13 @@ fn main() {
     file_reader::write_output_partition_to_file(
         &final_part_reference,
         vec![],
-        part_out_dir,
+        part_out_dir.clone(),
         &String::from("cons"),
     );
 
 
     file_reader::write_blocks_to_file(
-        part_out_dir,
+        part_out_dir.clone(),
         &vec![final_block_unpolish],
         &vec![length_gn],
         &snp_to_genome_pos,
