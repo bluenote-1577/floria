@@ -1,4 +1,4 @@
-# glopp : polyploid phasing from read sequencing.
+# glopp (name to be decided) : polyploid phasing from read sequencing
 
 ## Introduction
 
@@ -14,11 +14,13 @@ Given
 ### Requirements 
 
 1. [rust](https://www.rust-lang.org/tools/install) and associated tools such as cargo are required and assumed to be in PATH.
+2. [cmake](https://cmake.org/download/) version > 3.12 is required. It's sufficient to download the binary from the link and do `PATH="/path/to/cmake-3.xx.x-linux-x86_64/bin/:$PATH"` before installation. 
 ### Install
 
 ```
 git clone https://github.com/bluenote-1577/glopp
 cd glopp
+git checkout flow
 cargo build --release
 ./target/release/glopp -h
 ```
@@ -28,10 +30,9 @@ cargo build --release
 ## Using glopp
 
 ```
-glopp -b bamfile.bam -c vcffile.vcf -p (ploidy) -o output_dir (Fix the ploidy)
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir (Estimate ploidy using heuristic)
 ```
-For a quick test, we provide a VCF and BAM files in the tests folder. Run ``./target/release/glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -p 3 -o results`` to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
+For a quick test, we provide a VCF and BAM files in the tests folder. Run ``./target/release/glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -o results`` to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
 
 ### BAM + VCF
 The standard mode of usage is to specify a bam file using the option **-b** and a vcf file using the option **-c**. The output is written to a text file with value of option **-o**. 
