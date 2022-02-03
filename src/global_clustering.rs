@@ -19,7 +19,6 @@ pub fn beam_search_phasing<'a>(
 ) -> (FxHashMap<usize, FxHashSet<usize>>, Vec<FxHashSet<&'a Frag>>) {
     if all_reads.len() == 0{
         return (FxHashMap::default(), vec![]);
-        panic!("Don't do phasing without any reads");
     }
     let mut partition = clique.clone();
     let ploidy = clique.len();
@@ -67,7 +66,7 @@ pub fn beam_search_phasing<'a>(
         for (node, block) in search_node_heap.iter() {
             let mut p_value_list = vec![];
             for part_index in 0..ploidy {
-                let mut dist;
+                let dist;
                 if use_ref_bias {
                     let ((same_ref, diff_ref), (same_alt, diff_alt)) =
                         utils_frags::distance_read_haplo_ref_wild(frag, &block.blocks[part_index]);
@@ -184,7 +183,7 @@ fn read_to_node_value(
     block: &HapBlock,
     part_index: usize,
     epsilon: f64,
-    div_factor: f64,
+    _div_factor: f64,
     use_mec: bool,
 ) -> (f64, Vec<(f64, f64)>) {
     let ploidy = block.blocks.len();

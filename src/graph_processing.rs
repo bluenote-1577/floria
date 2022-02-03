@@ -541,7 +541,7 @@ pub fn generate_hap_graph<'a>(
     let mut column_counter = 0;
     for j in 0..random_vec.len() {
         if j % 10 == 0{
-            println!("Iteration {j}/{}, SNP coords {} ", random_vec.len(), random_vec[j].1);
+            println!("Iteration {}/{}, SNP coords {} ", j,random_vec.len(), random_vec[j].1);
         }
         let mut mec_vector = vec![0.; num_ploidies];
         let mut parts_vector = vec![];

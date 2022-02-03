@@ -6,7 +6,7 @@ use flopp::graph_processing;
 use flopp::local_clustering;
 use flopp::types_structs::Frag;
 use flopp::utils_frags;
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxHashMap};
 use std::sync::Mutex;
 use std::time::Instant;
 fn main() {
