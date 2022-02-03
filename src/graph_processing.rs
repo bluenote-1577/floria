@@ -5,7 +5,7 @@ use crate::types_structs::{Frag, HapNode, TraceBackNode};
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
 use highs::{RowProblem, Sense};
-use osqp::{CscMatrix, Problem, Settings};
+//use osqp::{CscMatrix, Problem, Settings};
 use petgraph::algo;
 use petgraph::dot::Dot;
 use petgraph::prelude::*;
@@ -13,45 +13,47 @@ use std::fs::File;
 use std::io::Write;
 use std::mem;
 
-pub fn entry_list_to_csc<'a>(
-    mut entry_list: Vec<(usize, usize, f64)>,
-    ncols: usize,
-    nrows: usize,
-) -> CscMatrix<'a> {
-    //Traverse each column first
+//Not using osqp anymore. 
 
-    let mut indptr = vec![];
-    let mut indices = vec![];
-    let mut data = vec![];
-    entry_list.sort_by(|x, y| x.0.cmp(&y.0));
-    let mut current_col = usize::MAX;
-    for entry in entry_list {
-        let col_id = entry.0;
-        if col_id != current_col {
-            if current_col == usize::MAX {
-                current_col = 0;
-                indptr.push(0);
-            }
-            for _i in current_col..col_id {
-                indptr.push(data.len());
-            }
-            current_col = col_id;
-        }
-        let row_id = entry.1;
-        let val = entry.2;
-        indices.push(row_id);
-        data.push(val);
-    }
-    indptr.push(data.len());
-
-    CscMatrix {
-        nrows: nrows,
-        ncols: ncols,
-        indptr: indptr.into(),
-        indices: indices.into(),
-        data: data.into(),
-    }
-}
+//pub fn entry_list_to_csc<'a>(
+//    mut entry_list: Vec<(usize, usize, f64)>,
+//    ncols: usize,
+//    nrows: usize,
+//) -> CscMatrix<'a> {
+//    //Traverse each column first
+//
+//    let mut indptr = vec![];
+//    let mut indices = vec![];
+//    let mut data = vec![];
+//    entry_list.sort_by(|x, y| x.0.cmp(&y.0));
+//    let mut current_col = usize::MAX;
+//    for entry in entry_list {
+//        let col_id = entry.0;
+//        if col_id != current_col {
+//            if current_col == usize::MAX {
+//                current_col = 0;
+//                indptr.push(0);
+//            }
+//            for _i in current_col..col_id {
+//                indptr.push(data.len());
+//            }
+//            current_col = col_id;
+//        }
+//        let row_id = entry.1;
+//        let val = entry.2;
+//        indices.push(row_id);
+//        data.push(val);
+//    }
+//    indptr.push(data.len());
+//
+//    CscMatrix {
+//        nrows: nrows,
+//        ncols: ncols,
+//        indptr: indptr.into(),
+//        indices: indices.into(),
+//        data: data.into(),
+//    }
+//}
 
 type FlowUpVec = Vec<((usize, usize), (usize, usize), f64)>;
 
@@ -252,22 +254,22 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> F
     }
 
     //QP SOLVING
-    let p = entry_list_to_csc(p_entry, t.len() * 2, t.len() * 2);
-    let a = entry_list_to_csc(a_entry, t.len() * 2, num_constraints);
-    let mut q = vec![0.; t.len() * 2];
-    let lambda = 0.;
-    for i in 0..x.len() {
-        q[i] = lambda;
-    }
-
-    // Disable verbose output
-    let settings = Settings::default().verbose(false);
-
-    // Create an OSQP problem
-    let mut prob = Problem::new(p, &q, a, &l, &u, &settings).expect("failed to setup problem");
-
-    // Solve problem
-    let qp_solution = prob.solve();
+//    let p = entry_list_to_csc(p_entry, t.len() * 2, t.len() * 2);
+//    let a = entry_list_to_csc(a_entry, t.len() * 2, num_constraints);
+//    let mut q = vec![0.; t.len() * 2];
+//    let lambda = 0.;
+//    for i in 0..x.len() {
+//        q[i] = lambda;
+//    }
+//
+//    // Disable verbose output
+//    let settings = Settings::default().verbose(false);
+//
+//    // Create an OSQP problem
+//    let mut prob = Problem::new(p, &q, a, &l, &u, &settings).expect("failed to setup problem");
+//
+//    // Solve problem
+//    let qp_solution = prob.solve();
     //    println!("{:?}", qp_solution.x().expect("failed to solve problem"));
 
     let solved = pb.optimise(Sense::Minimise).solve();
@@ -292,24 +294,24 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> F
     }
     drop(file);
 
-    let mut file = File::create(format!("{}/qp_graph.csv", glopp_out_dir)).expect("Can't create file");
-    for i in 0..edge_to_nodes.len() {
-        if qp_solution.x().unwrap()[i] < flow_cutoff {
-            continue;
-        }
-        writeln!(
-            file,
-            "{},{}-{},{}-{},{}",
-            &qp_solution.x().unwrap()[i],
-            hap_graph_vec[edge_to_nodes[i].0].column,
-            edge_to_nodes[i].0,
-            hap_graph_vec[edge_to_nodes[i].1].column,
-            edge_to_nodes[i].1,
-            ae[i]
-        )
-        .unwrap();
-    }
-    drop(file);
+//    let mut file = File::create(format!("{}/qp_graph.csv", glopp_out_dir)).expect("Can't create file");
+//    for i in 0..edge_to_nodes.len() {
+//        if qp_solution.x().unwrap()[i] < flow_cutoff {
+//            continue;
+//        }
+//        writeln!(
+//            file,
+//            "{},{}-{},{}-{},{}",
+//            &qp_solution.x().unwrap()[i],
+//            hap_graph_vec[edge_to_nodes[i].0].column,
+//            edge_to_nodes[i].0,
+//            hap_graph_vec[edge_to_nodes[i].1].column,
+//            edge_to_nodes[i].1,
+//            ae[i]
+//        )
+//        .unwrap();
+//    }
+//    drop(file);
 
     let mut flow_update_vec = vec![];
     for i in 0..edge_to_nodes.len() {
