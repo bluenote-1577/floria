@@ -5,7 +5,6 @@ use bio::io::fastq;
 use bio::io::fastq::Writer;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bam::header::Header;
-use rust_htslib::bam::record::Aux;
 use rust_htslib::bam::HeaderView as HeaderViewBam;
 use rust_htslib::bcf::record::GenotypeAllele;
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
@@ -431,7 +430,7 @@ where
             .unwrap();
         let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
         let id_to_frag = mem::replace(id_to_frag, FxHashMap::default());
-        for (_id, mut frag) in id_to_frag.into_iter() {
+        for (_id, frag) in id_to_frag.into_iter() {
             //IMPORTANT: I'm turning this off for metagenomics because some fragments may only
             //index one read. However, this is still useful because we don't know ploidy info.
             let mut prev_pos = frag.first_position;
@@ -820,10 +819,10 @@ pub fn write_output_partition_to_file(
 fn write_paired_reads_no_trim<W: Write>(
     fastq_writer_paired1: &mut Writer<W>,
     fastq_writer_paired2: &mut Writer<W>,
-    left_read_pair: u8,
-    right_read_pair: u8,
-    left_seq_pos: usize,
-    right_seq_pos: usize,
+    _left_read_pair: u8,
+    _right_read_pair: u8,
+    _left_seq_pos: usize,
+    _right_seq_pos: usize,
     frag: &Frag,
 ) {
     if frag.seq_string[0].len() == 0 {
@@ -868,7 +867,7 @@ fn write_paired_reads_no_trim<W: Write>(
     }
 }
 
-fn write_paired_reads<W: Write>(
+fn _write_paired_reads<W: Write>(
     fastq_writer_paired1: &mut Writer<W>,
     fastq_writer_paired2: &mut Writer<W>,
     left_read_pair: u8,
