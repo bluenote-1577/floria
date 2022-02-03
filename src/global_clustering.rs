@@ -144,19 +144,6 @@ pub fn beam_search_phasing<'a>(
 
         let _unused = mem::replace(&mut search_node_heap, search_node_heap_next);
 
-        if i % 100 == 0 {
-            log::trace!(
-                "Number of solutions before trimming: {}, {}, {}",
-                search_node_heap.len(),
-                i,
-                all_reads.len()
-            );
-
-//            let test_pointer = &search_node_heap.iter().first().unwrap().0;
-//            log::trace!("Partition best count:{}, {:?}", i, test_pointer.freqs);
-            let test_pointer = &search_node_heap.peek().unwrap().0;
-            log::trace!("Partition worst count:{}, {:?}", i, test_pointer.freqs);
-        }
     }
 
     let search_node_heap_to_list = search_node_heap.into_sorted_vec();

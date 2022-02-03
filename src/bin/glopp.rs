@@ -269,6 +269,7 @@ fn main() {
 
         println!("Number of fragments {}", all_frags.len());
         if snp_to_genome_pos_map.contains_key(contig) || bam == false {
+            let contig_out_dir = format!("{}/{}", part_out_dir, contig);
             let mut snp_to_genome_pos: &Vec<usize> = &Vec::new();
 
             if bam == true {
@@ -332,14 +333,15 @@ fn main() {
                     &snp_to_genome_pos,
                     max_number_solns,
                     block_length,
-                    part_out_dir.to_string(),
+                    contig_out_dir.to_string(),
                 );
-                let flow_up_vec = graph_processing::solve_lp_graph(&hap_graph, part_out_dir.to_string());
+                let flow_up_vec = graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
                 graph_processing::get_disjoint_paths_rewrite(
                     &mut hap_graph,
                     flow_up_vec,
                     epsilon,
-                    part_out_dir.to_string(),
+                    contig_out_dir.to_string(),
+                    &snp_to_genome_pos,
                 );
 
             } 
@@ -380,12 +382,13 @@ fn main() {
                 file_reader::write_output_partition_to_file(
                     &final_part,
                     vec![],
-                    part_out_dir.to_string(),
+                    contig_out_dir.to_string(),
                     contig,
+                    &snp_to_genome_pos
                 );
 
                 file_reader::write_blocks_to_file(
-                    part_out_dir.to_string(),
+                    contig_out_dir.to_string(),
                     &vec![final_block_unpolish],
                     &vec![length_gn],
                     &snp_to_genome_pos,

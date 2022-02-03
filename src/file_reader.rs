@@ -653,17 +653,18 @@ pub fn write_output_partition_to_file(
     snp_range_parts_vec: Vec<(usize, usize)>,
     out_bam_part_dir: String,
     contig: &String,
-)
-{
+    snp_pos_to_genome_pos: &Vec<usize>,
+) {
     fs::create_dir_all(&out_bam_part_dir).unwrap();
-    fs::create_dir_all(&format!("{}/local_parts",out_bam_part_dir)).unwrap();
-    fs::create_dir_all(&format!("{}/short_reads",out_bam_part_dir)).unwrap();
-    fs::create_dir_all(&format!("{}/long_reads",out_bam_part_dir)).unwrap();
+    fs::create_dir_all(&format!("{}/local_parts", out_bam_part_dir)).unwrap();
+    fs::create_dir_all(&format!("{}/short_reads", out_bam_part_dir)).unwrap();
+    fs::create_dir_all(&format!("{}/long_reads", out_bam_part_dir)).unwrap();
+    fs::create_dir_all(&format!("{}/haplotypes", out_bam_part_dir)).unwrap();
 
     let contig_path = &format!("{}/{}_part.txt", out_bam_part_dir, contig);
-//        out_bam_part_dir
-//        .as_ref()
-//        .join(format!("{}_part.txt", contig));
+    //        out_bam_part_dir
+    //        .as_ref()
+    //        .join(format!("{}_part.txt", contig));
     let file = File::create(contig_path).expect("Can't create file");
     let mut file = LineWriter::new(file);
 
@@ -674,9 +675,20 @@ pub fn write_output_partition_to_file(
 
         //Non-empty means that we're writing the final partition after path collection
         if !snp_range_parts_vec.is_empty() {
-            let part_fastq_reads = format!("{}/long_reads/{}_part.fastq",out_bam_part_dir, i);
-            let part_fastq_reads_paired1 = format!("{}/short_reads/{}_part_paired1.fastq",out_bam_part_dir, i);
-            let part_fastq_reads_paired2 = format!("{}/short_reads/{}_part_paired2.fastq",out_bam_part_dir, i);
+            let append;
+            if i == 0{
+                append = true;
+            }
+            else{
+                append = false;
+            }
+            write_fragset_haplotypes(set, &format!("{}",i), &out_bam_part_dir, &snp_pos_to_genome_pos, append);
+
+            let part_fastq_reads = format!("{}/long_reads/{}_part.fastq", out_bam_part_dir, i);
+            let part_fastq_reads_paired1 =
+                format!("{}/short_reads/{}_part_paired1.fastq", out_bam_part_dir, i);
+            let part_fastq_reads_paired2 =
+                format!("{}/short_reads/{}_part_paired2.fastq", out_bam_part_dir, i);
 
             let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
             let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
@@ -699,10 +711,10 @@ pub fn write_output_partition_to_file(
                     }
                 }
                 if !found_primary {
-//                    println!(
-//                        "{} primary not found. Paired: {}",
-//                        &frag.id, &frag.is_paired
-//                    );
+                    //                    println!(
+                    //                        "{} primary not found. Paired: {}",
+                    //                        &frag.id, &frag.is_paired
+                    //                    );
                     continue;
                 }
                 //Circularity weirdness. Throw away these reads, unfortunately, for now.
@@ -723,7 +735,7 @@ pub fn write_output_partition_to_file(
                         break;
                     }
                     tmp += 1;
-                    if tmp - left_snp_pos > 10000000{
+                    if tmp - left_snp_pos > 10000000 {
                         dbg!(
                             &frag.first_position,
                             &frag.last_position,
@@ -865,7 +877,6 @@ fn write_paired_reads<W: Write>(
     right_seq_pos: usize,
     frag: &Frag,
 ) {
-    
     if left_read_pair == right_read_pair {
         let writer;
         let other_writer;
@@ -931,13 +942,16 @@ fn write_paired_reads<W: Write>(
                 )
                 .unwrap();
         } else {
-            let qual_cut_string = &frag.qual_string[right_read_pair as usize].as_slice()[..right_seq_pos];
+            let qual_cut_string =
+                &frag.qual_string[right_read_pair as usize].as_slice()[..right_seq_pos];
             let rev_quals: Vec<u8> = qual_cut_string.into_iter().rev().map(|x| *x).collect();
             fastq_writer_paired2
                 .write(
                     &format!("{}/2", frag.id),
                     None,
-                    &revcomp(&frag.seq_string[right_read_pair as usize].as_slice()[..right_seq_pos]),
+                    &revcomp(
+                        &frag.seq_string[right_read_pair as usize].as_slice()[..right_seq_pos],
+                    ),
                     //TODO Do we need to flip this as well?
                     rev_quals.as_slice(),
                 )
@@ -991,234 +1005,58 @@ pub fn alignment_passed_check(
     return (true, is_supp);
 }
 
-//pub fn get_frags_from_bamvcf_rewrite<P>(
-//    vcf_file: P,
-//    bam_file: P,
-//    filter_supplementary: bool,
-//    use_supplementary: bool,
-//) -> FxHashMap<String, Vec<Frag>>
-//where
-//    P: AsRef<Path>,
-//{
-//    //Get which SNPS correspond to which positions on the genome.
-//    let mut vcf = match bcf::Reader::from_path(vcf_file) {
-//        Ok(vcf) => vcf,
-//        Err(_) => panic!("rust_htslib had an error reading the VCF file. Exiting."),
-//    };
-//    let mut snp_counter = 1;
-//    let mut vcf_set_of_pos = FxHashMap::default();
-//    let mut vcf_pos_allele_map = FxHashMap::default();
-//    let mut vcf_pos_to_snp_counter_map = FxHashMap::default();
-//    let mut vcf_snp_counter_to_pos_vec = FxHashMap::default();
-//    let mut all_set_of_pos = FxHashSet::default();
-//    let vcf_header = vcf.header().clone();
-//
-//    let mut last_ref_chrom: &[u8] = &[];
-//    for rec in vcf.records() {
-//        let unr = rec.unwrap();
-//        let alleles = unr.alleles();
-//        let mut al_vec = Vec::new();
-//        let mut is_snp = true;
-//
-//        let record_rid = unr.rid().unwrap();
-//        let ref_chrom_vcf = vcf_header.rid2name(record_rid).unwrap();
-//        //dbg!(String::from_utf8_lossy(ref_chrom_vcf));
-//        if last_ref_chrom != ref_chrom_vcf {
-//            snp_counter = 1;
-//            last_ref_chrom = ref_chrom_vcf;
-//        }
-//        let set_of_pos = vcf_set_of_pos
-//            .entry(ref_chrom_vcf)
-//            .or_insert(FxHashSet::default());
-//        let pos_allele_map = vcf_pos_allele_map
-//            .entry(ref_chrom_vcf)
-//            .or_insert(FxHashMap::default());
-//        let pos_to_snp_counter_map = vcf_pos_to_snp_counter_map
-//            .entry(ref_chrom_vcf)
-//            .or_insert(FxHashMap::default());
-//        let snp_counter_to_pos_vec = vcf_snp_counter_to_pos_vec
-//            .entry(ref_chrom_vcf)
-//            .or_insert(vec![]);
-//
-//        for allele in alleles.iter() {
-//            if allele.len() > 1 {
-//                is_snp = false;
-//                break;
-//            }
-//            al_vec.push(allele[0]);
-//        }
-//
-//        //Only allow snps for now
-//        if !is_snp {
-//            continue;
-//        }
-//
-//        set_of_pos.insert(unr.pos());
-//        all_set_of_pos.insert(unr.pos());
-//        pos_to_snp_counter_map.insert(unr.pos(), snp_counter);
-//        snp_counter_to_pos_vec.push(unr.pos());
-//        snp_counter += 1;
-//        pos_allele_map.insert(unr.pos(), al_vec);
-//    }
-//
-//    let mut bam = match bam::Reader::from_path(bam_file) {
-//        Ok(bam) => bam,
-//        Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting"),
-//    };
-//
-//    //Check the headers to see how many references there are.
-//    let header = Header::from_template(bam.header());
-//    let bam_header_view = HeaderViewBam::from_header(&header);
-//
-//    //This may be important : We assume that distinct reads have different names. Paired end reads
-//    //work okay though, if they're mapped properly and only have one name per pair in the BAM file.
-//    let mut ref_id_to_frag = FxHashMap::default();
-//    let mut counter_id = 0;
-//    let mut prev_pos = 0;
-//    let mut prev_ref = vec![];
-//    let mut current_left_snp_index = 0;
-//
-//    //Do stuff
-//    for rec_wrap in bam.records() {
-//        let aln_record = rec_wrap.unwrap();
-//        let tid = aln_record.tid();
-//        let ref_chrom = bam_header_view.tid2name(tid as u32);
-//
-//        let map_pos = aln_record.pos();
-//        if map_pos < prev_pos && ref_chrom == prev_ref {
-//            panic!("BAM file not sorted. Please sort the BAM file by coordinate.");
-//        }
-//        if ref_chrom != prev_ref {
-//            prev_ref = ref_chrom.to_vec();
-//        }
-//
-//        prev_pos = map_pos;
-//
-//        //dbg!(String::from_utf8_lossy(ref_chrom));
-//        let get_ref_chrom = vcf_snp_counter_to_pos_vec.get(ref_chrom);
-//        let snp_counter_to_pos_vec = match get_ref_chrom {
-//            Some(snp_counter_to_pos_vec) => snp_counter_to_pos_vec,
-//            None => continue,
-//        };
-//        let pos_to_snp_counter_map = &vcf_pos_to_snp_counter_map[&ref_chrom];
-//        let pos_allele_map = &vcf_pos_allele_map[&ref_chrom];
-//
-//        if pos_to_snp_counter_map.contains_key(&map_pos) {
-//            current_left_snp_index = pos_to_snp_counter_map[&map_pos];
-//        }
-//
-//        let flags = aln_record.flags();
-//        let mapq = aln_record.mapq();
-//        let (passed_check, is_supp) =
-//            alignment_passed_check(flags, mapq, use_supplementary, filter_supplementary);
-//        if !passed_check {
-//            continue;
-//        }
-//        let id_to_frag = ref_id_to_frag
-//            .entry(ref_chrom)
-//            .or_insert(FxHashMap::default());
-//        let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
-//        if id_to_frag.contains_key(&id_string) {
-//            let frag = id_to_frag.get_mut(&id_string).unwrap();
-//            update_rewrite_frag(
-//                &mut frag,
-//                &aln_record,
-//                current_left_snp_index,
-//                snp_counter_to_pos_vec,
-//                pos_to_snp_counter_map,
-//                pos_allele_map,
-//                is_supp,
-//            )
-//        } else {
-//            let new_frag = build_rewrite_frag(
-//                counter_id,
-//                &aln_record,
-//                current_left_snp_index,
-//                id_string,
-//                snp_counter_to_pos_vec,
-//                pos_to_snp_counter_map,
-//                pos_allele_map,
-//                is_supp,
-//            );
-//            id_to_frag.insert(id_string, new_frag);
-//            counter_id += 1;
-//        }
-//        //TODO TEMP
-//        id_to_frag.insert(
-//            id_string.clone(),
-//            build_frag(id_string.clone(), 0, None, vec![], vec![]),
-//        );
-//    }
-//
-//    let mut ref_vec_frags = FxHashMap::default();
-//    let mut keys = FxHashSet::default();
-//    for ref_chrom in ref_id_to_frag.keys() {
-//        ref_vec_frags.insert(String::from_utf8(ref_chrom.to_vec()).unwrap(), Vec::new());
-//        keys.insert(ref_chrom.clone());
-//    }
-//    for ref_chrom in keys {
-//        let vec_frags = ref_vec_frags
-//            .get_mut(&String::from_utf8(ref_chrom.to_vec()).unwrap())
-//            .unwrap();
-//        let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
-//        let id_to_frag = mem::replace(id_to_frag, FxHashMap::default());
-//        for (_id, mut frag) in id_to_frag.into_iter() {
-//            //IMPORTANT: I'm turning this off for metagenomics because some fragments may only
-//            //index one read. However, this is still useful because we don't know ploidy info.
-//            let mut prev_pos = frag.first_position;
-//            for pos in frag.first_position + 1..frag.last_position {
-//                if !frag.positions.contains(&pos) && (pos - prev_pos < 100) {
-//                    //random number. TODO TESTING GAPS IN FRAGMENTS
-//                    //                                        frag.seq_dict.insert(pos, 9);
-//                    //                                        frag.qual_dict.insert(pos, 7);
-//                    //                                        frag.positions.insert(pos);
-//                }
-//                prev_pos = pos;
-//            }
-//            if frag.positions.len() > 0 {
-//                vec_frags.push(frag);
-//            }
-//        }
-//    }
-//
-//    ref_vec_frags
-//}
+fn write_fragset_haplotypes(
+    frags: &FxHashSet<&Frag>,
+    name: &str,
+    dir: &str,
+    snp_pos_to_genome_pos: &Vec<usize>,
+    append:bool
+    ) 
+{
+    let filename = format!("{}/haplotypes/{}_hap.txt", dir, name);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(append)
+        .open(filename)
+        .unwrap();
 
-//fn build_rewrite_frag(
-//    counter_id: usize,
-//    record: &Record,
-//    current_left_snp_index: usize,
-//    id_string: String,
-//    snp_counter_to_pos_vec: &Vec<i64>,
-//    pos_to_snp_counter_map: &FxHashMap<i64, usize>,
-//    pos_allele_map: &FxHashMap<i64, Vec<u8>>,
-//    is_supp: bool,
-//) -> Frag {
-//    //Get range of SNPs indexed by alignment.
-//    let map_pos = record.pos();
-//    let map_seq
-//    let leftmost_possible_snp;
-//    let mut possible_snp_positions = vec![];
-//    if current_left_snp_index == 0{
-//        leftmost_possible_snp = 0;
-//    }
-//    else{
-//        leftmost_possible_snp = current_left_snp_index - 1;
-//    }
-//    for i in leftmost_possible_snp..snp_counter_to_pos_vec.len(){
-//
-//    }
-//}
-//
-//fn update_rewrite_frag(
-//    frag: &mut Frag,
-//    record: &Record,
-//    current_left_snp_index: usize,
-//    snp_counter_to_pos_vec: &Vec<i64>,
-//    pos_to_snp_counter_map: &FxHashMap<i64, usize>,
-//    pos_allele_map: &FxHashMap<i64, Vec<u8>>,
-//    is_supp: bool,
-//) {
-//}
+    let hap_map = utils_frags::set_to_seq_dict(&frags);
+    let emptydict = FxHashMap::default();
+    let title_string = format!(">{}\n", name);
+    write!(file, "{}", title_string).unwrap();
+    let mut positions: Vec<&usize> = hap_map.keys().collect();
+    positions.sort();
+    for pos in *positions[0]..*positions[positions.len() - 1] {
+        if snp_pos_to_genome_pos.len() == 0 {
+            write!(file, "{}:NA\t", pos).unwrap();
+        } else {
+            write!(file, "{}:{}\t", pos, snp_pos_to_genome_pos[pos - 1]).unwrap();
+        }
+        let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
+        //If a block has no coverage at a position, we write -1.
+        if *allele_map == emptydict {
+            file.write_all(b"-1\t").unwrap();
+        } else {
+            let best_allele = allele_map.iter().max_by_key(|entry| entry.1).unwrap().0;
+            write!(file, "{}\t", best_allele).unwrap();
+        }
 
-//let new_frag = build_new_frag(counter_id, &aln_record,current_left_snp_index, id_string, &snp_counter_to_pos_vec, &pos_to_snp_counter_map, &pos_allele_map);
+        if *allele_map == emptydict {
+            write!(file, "NA\t").unwrap();
+        } else {
+            let mut first = true;
+            for (site, count) in allele_map {
+                if !first {
+                    write!(file, "|").unwrap();
+                }
+                if first {
+                    first = false;
+                }
+                write!(file, "{}:{}", site, count).unwrap();
+            }
+            write!(file, "\t").unwrap();
+        }
+        write!(file, "\n").unwrap();
+    }
+}

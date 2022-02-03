@@ -1,7 +1,7 @@
 use crate::types_structs::Frag;
-use itertools::Itertools; // 0.8.2
 use crate::types_structs::HapBlock;
 use fxhash::{FxHashMap, FxHashSet};
+use itertools::Itertools; // 0.8.2
 use statrs::distribution::ChiSquared;
 use statrs::distribution::ContinuousCDF;
 
@@ -235,18 +235,23 @@ pub fn check_overlap(r1: &Frag, r2: &Frag) -> bool {
     }
 }
 
+pub fn set_to_seq_dict(frag_set: &FxHashSet<&Frag>) -> FxHashMap<usize, FxHashMap<usize,usize>> {
+    let mut hap_map = FxHashMap::default();
+    for frag in frag_set.iter() {
+        for pos in frag.positions.iter() {
+            let var_at_pos = frag.seq_dict.get(pos).unwrap();
+            let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
+            let site_counter = sites.entry(*var_at_pos).or_insert(0);
+            *site_counter += 1;
+        }
+    }
+    return hap_map;
+}
+
 pub fn hap_block_from_partition(part: &Vec<FxHashSet<&Frag>>) -> HapBlock {
     let mut block_vec = Vec::new();
-    for reads in part.iter() {
-        let mut hap_map = FxHashMap::default();
-        for frag in reads.iter() {
-            for pos in frag.positions.iter() {
-                let var_at_pos = frag.seq_dict.get(pos).unwrap();
-                let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
-                let site_counter = sites.entry(*var_at_pos).or_insert(0);
-                *site_counter += 1;
-            }
-        }
+    for set in part.iter() {
+        let hap_map = set_to_seq_dict(set);
         block_vec.push(hap_map);
     }
     HapBlock { blocks: block_vec }
@@ -504,27 +509,23 @@ pub fn get_range_with_lengths(
     return return_vec;
 }
 
-pub fn add_read_to_block(
-    block: &mut HapBlock,
-    frag: &Frag,
-    part: usize
-){
+pub fn add_read_to_block(block: &mut HapBlock, frag: &Frag, part: usize) {
     for pos in frag.positions.iter() {
         let var_at_pos = frag.seq_dict.get(pos).unwrap();
-        let sites = block.blocks[part].entry(*pos).or_insert(FxHashMap::default());
+        let sites = block.blocks[part]
+            .entry(*pos)
+            .or_insert(FxHashMap::default());
         let site_counter = sites.entry(*var_at_pos).or_insert(0);
         *site_counter += 1;
     }
 }
 
-pub fn remove_read_from_block(
-    block: &mut HapBlock,
-    frag: &Frag,
-    part: usize
-){
+pub fn remove_read_from_block(block: &mut HapBlock, frag: &Frag, part: usize) {
     for pos in frag.positions.iter() {
         let var_at_pos = frag.seq_dict.get(pos).unwrap();
-        let sites = block.blocks[part].entry(*pos).or_insert(FxHashMap::default());
+        let sites = block.blocks[part]
+            .entry(*pos)
+            .or_insert(FxHashMap::default());
         let site_counter = sites.entry(*var_at_pos).or_insert(0);
         *site_counter -= 1;
     }

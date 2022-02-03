@@ -676,6 +676,7 @@ pub fn generate_hap_graph<'a>(
                 vec![],
                 local_part_dir.clone(),
                 &format!("{}-{}-{}", column_counter - 1, random_vec[j].0, best_ploidy),
+                &snp_to_genome_pos
             );
         }
     }
@@ -773,6 +774,7 @@ pub fn get_disjoint_paths_rewrite(
     flow_update_vec: FlowUpVec,
     epsilon: f64,
     glopp_out_dir: String,
+    snp_to_genome_pos: &Vec<usize>
 ) {
     let flow_cutoff = 3.0;
     let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
@@ -1036,7 +1038,8 @@ pub fn get_disjoint_paths_rewrite(
         &all_joined_path_parts,
         path_parts_snp_endspoints,
         glopp_out_dir,
-        &format!("all-{}",iter_count),
+        &format!("all"),
+        &snp_to_genome_pos
     );
 
     let mut path_debug_file =
