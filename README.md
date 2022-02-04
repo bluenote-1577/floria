@@ -55,7 +55,7 @@ results
 └───contig1_in_bam
 │   │   all_part.txt
 │   │   pet_graph.dot
-|   |   (other debug files/folders)
+|   |   (other debug files)
 │   │
 │   └───haplotypes
 │   |   │   0_hap.txt
@@ -70,7 +70,7 @@ results
 │   |   │   0_part_paired1.fastq
 │   |   |   0_part_paired2.fastq
 |   |
-
+|   └───(debug_folders)
 └───contig2_in_bam
     │   ...
     │   ...
