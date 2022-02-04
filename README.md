@@ -119,6 +119,25 @@ The reads in each haplotig can be found in either the `long_reads` or `short_rea
 
 Extra debug files in `local_parts` and `debug_paths` show the local partitions and the path corresponding to the haplotigs and local partitions. To visualize the flow-graph constructed, a graphviz `pet_graph.dot` file is included. This can be visualized by running `dot -Tps results/contig/pet_graph.dot -o outfile.ps` and looking at the resulting `outfile.ps`. 
 
+## Assembling output reads in `results/contig/*_reads/`
+
+If you want to assemble the haplotigs (in the same way strainberry does) then the utility scripts `strains_phase_scripts/assemble_from_glopp_out.py` or `assemble_shortreads_from_glopp_out.py` for long and short reads respectively allow you to do so. Ensure that 
+
+1. wtdbg2 (for long-reads)
+2. minimap2
+3. abyss (for short-reads)
+
+and associated binaries are present in path or edit the files to include paths to the binaries. Run 
+
+```strains_phase_scripts/assemble_from_glopp_out.py results_dir results_dir reference.fa```
+
+where `results_dir` is the output of glopp (i.e. the `-o` output) for long-reads and the other script for short reads. 
+
+All haplotigs will be assembled in `results_dir/intermediate` and all assembled haplotigs will be mapped onto `reference.fa` in the `results_dir/all_assemblies.bam` bam file. 
+
+**NOTE**: this only works for single contig phasings, i.e. your bam file is only aligned to a single reference. I will test this later for multi-contig phasings.
+
+
 ## Extra scripts
 
 ### VCF requires contig headers
@@ -135,14 +154,3 @@ This will output a set of bams labelled `prefix1.bam`, `prefix2.bam` and so fort
 
 Suppose you already have a partitioning of reads. That is, you have bam files `bam_file1, bam_file2, bam_file3` and you want to use this partioning for the phasing. Use the `consensus` binary to get a phasing from the .bam files by `consensus -v (vcf_file) -b (bam_file1) (bam_file2) (bam_file3) -o (consensus_file.txt)`. This is useful if you have synthetic data. 
 
-### Assembling output reads in `results/contig/*_reads/`
-
-If you want to assemble the haplotigs (in the same way strainberry does) then the utility scripts `strains_phase_scripts/assemble_from_glopp_out.py` or `assemble_shortreads_from_glopp_out.py` for long and short reads respectively allow you to do so. Ensure that 
-
-1. wtdbg2 (for long-reads)
-2. minimap2
-3. abyss (for short-reads)
-
-and associated binaries are present in path or edit the files to include paths to the binaries. Run 
-
-``strains_phase_scripts/assemble_from_glopp_out.py results_dir results_dir reference.fa`` where `results_dir` is the output of glopp (i.e. the `-o` output). All haplotigs will be assembled in `results_dir/intermediate` and all assembled haplotigs will be mapped onto `reference.fa` in the `results_dir/all_assemblies.bam` bam file. NOTE: this only works for single contig phasings, i.e. your bam file is only aligned to a single reference. I will test this later for multi-contig phasings.
