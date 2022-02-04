@@ -9,7 +9,7 @@ Given
 1. a list of variants in .vcf format
 2. a set of reads mapped to a reference in .bam format
 
-**glopp** outputs a set of phased haplotypes.
+**glopp** performs strain/haplotype phasing.
 
 ### Requirements 
 
@@ -75,13 +75,13 @@ results
     │   ...
     │   ...
 ```
-glopp outputs a set of haplotigs which we define to be sets of similar reads that belong to the same strain. The set of all haplotigs is found in the `results/contig1/all_part.txt` file. 
+glopp outputs a set of **haplotigs**. We define a haplotig to be a set of reads that belong to the same strain. The collection of all haplotigs is found in the `results/contig1/all_part.txt` file. 
 
 The following information is output for each haplotig:
 
 1. a **haplotype** which is the sequence of SNPs on each haplotig in the `haplotypes` folder. 
 2. trimmed long-reads (if using long-reads) corresponding to each haplotig are found in the `long_reads` folder. 
-3. trimmed short-reads (if using short-reads) corresponding to each haplotig are found in the `long_reads` folder. 
+3. trimmed short-reads (if using short-reads) corresponding to each haplotig are found in the `short_reads` folder. 
 
 ### Haplotigs ``results/contig/all_part.txt`` 
 
@@ -109,7 +109,7 @@ For each haplotig, glopp outputs a haplotype file `#_hap.txt` in the following f
 
 1. Col. 1 indicates the # and position of the SNP. 
 2. Col. 2 states which allele is the consensus allele.
-3. Col. 3 describes how many reads support each allele.  
+3. Col. 3 describes how many reads support each allele (i.e. how many reads in the haplotig have the allele at the SNP position). 
 
 ### Read output ``results/contig/*_reads/``
 
@@ -117,7 +117,7 @@ The reads in each haplotig can be found in either the `long_reads` or `short_rea
 
 ### Debugging
 
-Extra debug files in `local_parts` and `debug_paths` show the local partitions and the path corresponding to the haplotigs and local partitions. To visualize the flow-graph constructed, a graphviz `pet_graph.dot` file is included. This can be visualized by running `dot -Tps results/contig/pet_graph.dot -o outfile.ps` and looking at the resulting `outfile.ps`. 
+Extra debug files in `local_parts` and `debug_paths` show the local partitions and the path corresponding to the haplotigs and local partitions. To visualize the flow-graph constructed, a graphviz `pet_graph.dot` file is included. If graphviz is installed, this can be visualized by running `dot -Tps results/contig/pet_graph.dot -o outfile.ps` and looking at the resulting `outfile.ps`. 
 
 ## Assembling output reads in `results/contig/*_reads/`
 
