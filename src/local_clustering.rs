@@ -751,6 +751,8 @@ pub fn get_partition_stats(
     partition: &Vec<FxHashSet<&Frag>>,
     hap_block: &HapBlock,
 ) -> (Vec<(usize, usize)>, Vec<usize>) {
+    let debug_chunks = false;
+    let mut chunk_read_errors = vec![];
     let mut binom_vec = Vec::new();
     let mut freq_vec = Vec::new();
     let ploidy = partition.len();
@@ -762,9 +764,18 @@ pub fn get_partition_stats(
             let (same, diff) = utils_frags::distance_read_haplo(frag, haplo);
             errors += diff;
             bases += same;
+
+            //Collecting info about statistics here... TODO remove
+            if debug_chunks{
+                utils_frags::chunk_vec_update(frag, haplo, &mut chunk_read_errors);
+            }
+
         }
         binom_vec.push((bases, errors));
         freq_vec.push(partition[i].len());
+    }
+    if debug_chunks{
+        dbg!(chunk_read_errors);
     }
 
     (binom_vec, freq_vec)
@@ -917,7 +928,10 @@ fn opt_iterate<'a>(
 //    if best_moves.len() / 10 < number_of_moves / 5 {
 //        number_of_moves = best_moves.len() / 5;
 //    }
-    let number_of_moves = best_moves.len() / 10;
+    let mut number_of_moves = best_moves.len() / 10;
+    if number_of_moves == 0 && best_moves.len() > 0{
+        number_of_moves = best_moves.len()/3 + 1;
+    }
     //    dbg!(number_of_moves);
 
     for (mv_num, mv) in best_moves.iter().enumerate() {

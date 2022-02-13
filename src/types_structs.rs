@@ -113,16 +113,6 @@ impl<'a> HapNode<'a> {
             }
         }
 
-        let mut hap_map = FxHashMap::default();
-        for frag in frag_set.iter() {
-            for pos in frag.positions.iter() {
-                let var_at_pos = frag.seq_dict.get(pos).unwrap();
-                let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
-                let site_counter = sites.entry(*var_at_pos).or_insert(0);
-                *site_counter += 1;
-            }
-        }
-
         allele_cov_list.sort_by(|a,b| a.partial_cmp(&b).unwrap());
         let cov = allele_cov_list.last().unwrap_or(&0.);
         let toret = HapNode {
@@ -217,7 +207,7 @@ pub fn build_frag(id: String, counter_id: usize, is_paired: bool) -> Frag {
 
     toret
 }
-
+#[inline]
 pub fn update_frag(frag: &mut Frag, geno: usize, snp_pos: usize, qual: u8, pair_number: u8, is_supp: bool,  record: &Record, qpos : usize) {
     frag.seq_dict.insert(snp_pos, geno);
     frag.qual_dict.insert(snp_pos, qual);

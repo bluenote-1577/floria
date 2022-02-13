@@ -283,6 +283,13 @@ where
     let mut counter_id = 0;
 
     //Scan the pileup table for every position on the genome which contains a SNP to get the aligned reads corresponding to the SNP. TODO : There should be a way to index into the bam.pileup() object so we don't have to iterate through positions which we already know are not SNPs.
+    let errors_mask = 1796;
+    let first_in_pair_mask = 64;
+    let second_in_pair_mask = 128;
+    let secondary_mask = 256;
+    let supplementary_mask = 2048;
+    let mapq_supp_cutoff = 59;
+    let mapq_normal_cutoff = 15;
     for p in bam.pileup() {
         let pileup = p.unwrap();
         let pos_genome = pileup.pos();
@@ -294,36 +301,10 @@ where
         for alignment in pileup.alignments() {
             if !alignment.is_del() && !alignment.is_refskip() {
                 let aln_record = alignment.record();
-                let tid = aln_record.tid();
-                let ref_chrom = bam_header_view.tid2name(tid as u32);
-                //dbg!(String::from_utf8_lossy(ref_chrom));
-                let get_ref_chrom = vcf_pos_to_snp_counter_map.get(ref_chrom);
-
-                let pos_to_snp_counter_map = match get_ref_chrom {
-                    Some(pos_to_snp_counter_map) => pos_to_snp_counter_map,
-                    None => continue,
-                };
-
-                if pos_to_snp_counter_map.contains_key(&(pos_genome as i64)) == false {
-                    continue;
-                }
-                let snp_id = pos_to_snp_counter_map.get(&(pos_genome as i64)).unwrap();
                 let flags = aln_record.flags();
-                let errors_mask = 1796;
-                let first_in_pair_mask = 64;
-                let second_in_pair_mask = 128;
-                let secondary_mask = 256;
-                let supplementary_mask = 2048;
-                let mapq_supp_cutoff = 59;
-                let mapq_normal_cutoff = 15;
-                let id_to_frag = ref_id_to_frag
-                    .entry(ref_chrom)
-                    .or_insert(FxHashMap::default());
                 let mapq = aln_record.mapq();
                 let is_paired;
                 let mut pair_number = 0;
-
-                let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
 
                 if flags & first_in_pair_mask > 0 {
                     is_paired = true;
@@ -366,7 +347,27 @@ where
                 }
 
                 //                println!("{}-{}-{}",&alignment.record().seq().len(), flags , &id_string);
+                //
 
+                let tid = aln_record.tid();
+                let ref_chrom = bam_header_view.tid2name(tid as u32);
+                //dbg!(String::from_utf8_lossy(ref_chrom));
+                let get_ref_chrom = vcf_pos_to_snp_counter_map.get(ref_chrom);
+
+                let pos_to_snp_counter_map = match get_ref_chrom {
+                    Some(pos_to_snp_counter_map) => pos_to_snp_counter_map,
+                    None => continue,
+                };
+
+                if pos_to_snp_counter_map.contains_key(&(pos_genome as i64)) == false {
+                    continue;
+                }
+                let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
+                let id_to_frag = ref_id_to_frag
+                    .entry(ref_chrom)
+                    .or_insert(FxHashMap::default());
+
+                let snp_id = pos_to_snp_counter_map.get(&(pos_genome as i64)).unwrap();
                 let id_string2 = id_string.clone();
 
                 if !id_to_frag.contains_key(&id_string) {
@@ -448,6 +449,8 @@ where
             }
         }
     }
+
+    //Think this was for debugging?
     for vec in ref_vec_frags.values() {
         for frag in vec.iter() {
             let mut vec_snp_seq: Vec<(usize, usize)> = frag
@@ -675,13 +678,18 @@ pub fn write_output_partition_to_file(
         //Non-empty means that we're writing the final partition after path collection
         if !snp_range_parts_vec.is_empty() {
             let append;
-            if i == 0{
+            if i == 0 {
                 append = true;
-            }
-            else{
+            } else {
                 append = false;
             }
-            write_fragset_haplotypes(set, &format!("{}",i), &out_bam_part_dir, &snp_pos_to_genome_pos, append);
+            write_fragset_haplotypes(
+                set,
+                &format!("{}", i),
+                &out_bam_part_dir,
+                &snp_pos_to_genome_pos,
+                append,
+            );
 
             let part_fastq_reads = format!("{}/long_reads/{}_part.fastq", out_bam_part_dir, i);
             let part_fastq_reads_paired1 =
@@ -1009,9 +1017,8 @@ fn write_fragset_haplotypes(
     name: &str,
     dir: &str,
     snp_pos_to_genome_pos: &Vec<usize>,
-    append:bool
-    ) 
-{
+    append: bool,
+) {
     let filename = format!("{}/haplotypes/{}_hap.txt", dir, name);
     let mut file = OpenOptions::new()
         .write(true)
@@ -1025,6 +1032,9 @@ fn write_fragset_haplotypes(
     let title_string = format!(">{}\n", name);
     write!(file, "{}", title_string).unwrap();
     let mut positions: Vec<&usize> = hap_map.keys().collect();
+    if positions.len() == 0{
+        return
+    }
     positions.sort();
     for pos in *positions[0]..*positions[positions.len() - 1] {
         if snp_pos_to_genome_pos.len() == 0 {

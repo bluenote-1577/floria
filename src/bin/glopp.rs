@@ -285,7 +285,7 @@ fn main() {
 
             //We use the median # bases spanned by fragments as the length of blocks.
             let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
-            println!("Median read length is {}", avg_read_length);
+            println!("Median read length is {} SNPs", avg_read_length);
 
             let block_len_quant = 0.33;
 
@@ -305,8 +305,8 @@ fn main() {
 
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
-            println!("Length of genome is {}", length_gn);
-            println!("Length of each block is {}", block_length);
+            println!("Length of genome is {} SNPs", length_gn);
+            println!("Length of each block is {} bases", block_length);
             let mut epsilon = 0.04;
 
             if epsilon < 0.01 {
@@ -345,7 +345,7 @@ fn main() {
                 );
 
             } 
-            //We don't actually use this path anymore, but it can be useful for testing purposes. 
+            //We don't actually use this code path anymore, but it can be useful for testing purposes. 
             else {
                 println!("Ploidy is {}", ploidy);
                 //Phasing occurs here

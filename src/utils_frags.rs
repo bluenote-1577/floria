@@ -64,6 +64,51 @@ pub fn distance_read_haplo_epsilon_empty(
     (same, diff)
 }
 
+pub fn chunk_vec_update(
+    frag: &Frag,
+    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    chunk_vec: &mut Vec<usize>)
+{
+    let n = 10;
+    let mut sorted_pos :Vec<&usize> = frag.positions.iter().collect();
+    sorted_pos.sort();
+
+    let mut same = 0;
+    let mut diff = 0;
+
+    for pos in sorted_pos {
+        if same+diff == n{
+            chunk_vec.push(diff);
+            same = 0;
+            diff = 0;
+        }
+        if !hap.contains_key(pos) {
+            continue;
+        }
+
+        let frag_var = frag.seq_dict.get(pos).unwrap();
+        let consensus_var = hap
+            .get(pos)
+            .unwrap()
+            .iter()
+            .max_by_key(|entry| entry.1)
+            .unwrap()
+            .0;
+        if *frag_var == *consensus_var {
+            same += 1;
+        } else {
+            let frag_var_count = hap.get(pos).unwrap().get(frag_var);
+            if let Some(count) = frag_var_count {
+                if count == hap.get(pos).unwrap().get(consensus_var).unwrap() {
+                    same += 1;
+                    continue;
+                }
+            }
+            diff += 1;
+        }
+    }
+}
+
 pub fn distance_read_haplo(
     r1: &Frag,
     hap: &FxHashMap<usize, FxHashMap<usize, usize>>,

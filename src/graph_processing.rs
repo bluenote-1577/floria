@@ -5,6 +5,8 @@ use crate::types_structs::{Frag, HapNode, TraceBackNode};
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
 use highs::{RowProblem, Sense};
+use rayon::prelude::*;
+use std::sync::Mutex;
 //use osqp::{CscMatrix, Problem, Settings};
 use petgraph::algo;
 use petgraph::dot::Dot;
@@ -13,7 +15,7 @@ use std::fs::File;
 use std::io::Write;
 use std::mem;
 
-//Not using osqp anymore. 
+//Not using osqp anymore.
 
 //pub fn entry_list_to_csc<'a>(
 //    mut entry_list: Vec<(usize, usize, f64)>,
@@ -254,28 +256,28 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> F
     }
 
     //QP SOLVING
-//    let p = entry_list_to_csc(p_entry, t.len() * 2, t.len() * 2);
-//    let a = entry_list_to_csc(a_entry, t.len() * 2, num_constraints);
-//    let mut q = vec![0.; t.len() * 2];
-//    let lambda = 0.;
-//    for i in 0..x.len() {
-//        q[i] = lambda;
-//    }
-//
-//    // Disable verbose output
-//    let settings = Settings::default().verbose(false);
-//
-//    // Create an OSQP problem
-//    let mut prob = Problem::new(p, &q, a, &l, &u, &settings).expect("failed to setup problem");
-//
-//    // Solve problem
-//    let qp_solution = prob.solve();
+    //    let p = entry_list_to_csc(p_entry, t.len() * 2, t.len() * 2);
+    //    let a = entry_list_to_csc(a_entry, t.len() * 2, num_constraints);
+    //    let mut q = vec![0.; t.len() * 2];
+    //    let lambda = 0.;
+    //    for i in 0..x.len() {
+    //        q[i] = lambda;
+    //    }
+    //
+    //    // Disable verbose output
+    //    let settings = Settings::default().verbose(false);
+    //
+    //    // Create an OSQP problem
+    //    let mut prob = Problem::new(p, &q, a, &l, &u, &settings).expect("failed to setup problem");
+    //
+    //    // Solve problem
+    //    let qp_solution = prob.solve();
     //    println!("{:?}", qp_solution.x().expect("failed to solve problem"));
 
     let solved = pb.optimise(Sense::Minimise).solve();
     let solution = solved.get_solution();
 
-    let mut file = File::create(format!("{}/graph.csv",glopp_out_dir)).expect("Can't create file");
+    let mut file = File::create(format!("{}/graph.csv", glopp_out_dir)).expect("Can't create file");
     for i in 0..edge_to_nodes.len() {
         if solution.columns()[i] < flow_cutoff {
             continue;
@@ -294,24 +296,24 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> F
     }
     drop(file);
 
-//    let mut file = File::create(format!("{}/qp_graph.csv", glopp_out_dir)).expect("Can't create file");
-//    for i in 0..edge_to_nodes.len() {
-//        if qp_solution.x().unwrap()[i] < flow_cutoff {
-//            continue;
-//        }
-//        writeln!(
-//            file,
-//            "{},{}-{},{}-{},{}",
-//            &qp_solution.x().unwrap()[i],
-//            hap_graph_vec[edge_to_nodes[i].0].column,
-//            edge_to_nodes[i].0,
-//            hap_graph_vec[edge_to_nodes[i].1].column,
-//            edge_to_nodes[i].1,
-//            ae[i]
-//        )
-//        .unwrap();
-//    }
-//    drop(file);
+    //    let mut file = File::create(format!("{}/qp_graph.csv", glopp_out_dir)).expect("Can't create file");
+    //    for i in 0..edge_to_nodes.len() {
+    //        if qp_solution.x().unwrap()[i] < flow_cutoff {
+    //            continue;
+    //        }
+    //        writeln!(
+    //            file,
+    //            "{},{}-{},{}-{},{}",
+    //            &qp_solution.x().unwrap()[i],
+    //            hap_graph_vec[edge_to_nodes[i].0].column,
+    //            edge_to_nodes[i].0,
+    //            hap_graph_vec[edge_to_nodes[i].1].column,
+    //            edge_to_nodes[i].1,
+    //            ae[i]
+    //        )
+    //        .unwrap();
+    //    }
+    //    drop(file);
 
     let mut flow_update_vec = vec![];
     for i in 0..edge_to_nodes.len() {
@@ -326,177 +328,184 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> F
     return flow_update_vec;
 }
 
-pub fn _get_best_paths(hap_graph: &mut Vec<Vec<HapNode>>, flow_update_vec: FlowUpVec) {
-    println!("Getting best paths");
-    let sum_weight_max = true;
-    let min_flow_max = false;
-    let flow_cutoff = 3.0;
-    for (n1_inf, n2_inf, flow) in flow_update_vec {
-        if flow < flow_cutoff {
-            continue;
-        }
-        hap_graph[n1_inf.0][n1_inf.1]
-            .out_flows
-            .push((n2_inf.1, flow));
+fn get_local_hap_blocks<'a>(
+    _num_blocks: usize,
+    _num_iters: usize,
+    all_frags: &'a Vec<Frag>,
+    epsilon: f64,
+    snp_to_genome_pos: &'a Vec<usize>,
+    max_number_solns: usize,
+    _block_length: usize,
+    glopp_out_dir: &str,
+    j: usize,
+    random_vec: &Vec<(usize, usize)>,
+) -> Vec<Vec<HapNode<'a>>> {
+    let ploidy_start = 1;
+    let ploidy_end = 6;
+    let error_rate = epsilon;
+    let num_ploidies = ploidy_end - ploidy_start;
+    let mut mec_vector = vec![0.; num_ploidies];
+    let mut parts_vector = vec![];
+    let mut expected_errors_ref = vec![];
+    let mut endpoints_vector = vec![];
+    // NOTE THE 1 INDEXING!
+    let reads = local_clustering::find_reads_in_interval(
+        random_vec[j].0 + 1,
+        random_vec[j].1 + 1,
+        all_frags,
+        usize::MAX,
+    );
+    let mut best_ploidy = ploidy_start;
+    if reads.is_empty() {
+        return vec![];
     }
-    let max_num_paths = 8;
-    //TODO
-    let run_min_flow_cutoff = 2;
+    for ploidy in ploidy_start..ploidy_end {
+        best_ploidy = ploidy;
+        let mut num_alleles = 0.0;
+        let mut vec_reads_own = vec![];
+        for read in reads.iter() {
+            vec_reads_own.push(*read);
+        }
+        vec_reads_own.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+        let (break_pos, part) = global_clustering::beam_search_phasing(
+            vec![FxHashSet::default(); ploidy],
+            &vec_reads_own,
+            epsilon,
+            0.05,
+            f64::MIN,
+//            0.0001_f64.ln(),
+            max_number_solns,
+            true,
+            false,
+        );
 
-    let mut cfile = File::create("color_info.csv").expect("Can't create file");
+        //            let optimized_part = part;
+        let (_new_score, optimized_part, block) =
+            local_clustering::optimize_clustering(part, epsilon, 10);
 
-    let mut path_counter = 0;
-    let mut already_seen_edges = FxHashMap::default();
-    loop {
-        let mut min_flow = f64::MAX;
-        let mut run_min_flow = f64::MAX;
-        let mut node_path_colrow = vec![];
-        {
-            let mut node_path = vec![];
-            let mut trace_back_vec = vec![];
+        let split_part =
+            utils_frags::split_part_using_breaks(&break_pos, &optimized_part, &all_frags);
+        let endpoints;
+        if j != 0 {
+            endpoints = (random_vec[j - 1].1 + 1, random_vec[j].1 + 1);
+        } else {
+            endpoints = (random_vec[j].0 + 1, random_vec[j].1 + 1);
+        }
+        let (split_part_merge, split_part_endpoints) =
+            merge_split_parts(split_part, break_pos, endpoints);
+        //            let block = utils_frags::hap_block_from_partition(&optimized_part);
+        //            let (binom_vec, _freq_vec) = local_clustering::get_partition_stats(&part, &block);
+        let binom_vec = local_clustering::get_mec_stats_epsilon(&optimized_part, &block, epsilon);
+        for (good, bad) in binom_vec {
+            mec_vector[ploidy - ploidy_start] += bad;
+            num_alleles += good;
+            num_alleles += bad;
+        }
 
-            for i in 0..hap_graph.len() {
-                trace_back_vec.push(vec![(f64::MIN, usize::MAX); hap_graph[i].len()]);
+        let mut ind_parts = vec![];
+        for part in split_part_merge {
+            let mut ind_part = vec![];
+            for set in part {
+                let index_set: FxHashSet<usize> = set.iter().map(|x| x.counter_id).collect();
+                ind_part.push(index_set);
             }
+            ind_parts.push(ind_part);
+        }
+        parts_vector.push(ind_parts);
+        endpoints_vector.push(split_part_endpoints);
 
-            if min_flow_max {
-                for tup in trace_back_vec[0].iter_mut() {
-                    tup.0 = f64::MAX;
-                }
+        expected_errors_ref.push(num_alleles as f64 * error_rate);
+
+        if ploidy > ploidy_start {
+            //                let mec_threshold = 1.0 / (1.0 - error_rate) / (1.0 + 1.0 / (ploidy + 1) as f64);
+            //            log::trace!(
+            //                "MEC vector {:?}, error_thresh {:?}",
+            //                &mec_vector,
+            //                expected_errors_ref
+            //            );
+            let mec_threshold =
+                1.0 / (1.0 - error_rate) / (1.0 + 1.0 / ((ploidy as f64).powf(0.75) + 1.32) as f64);
+            //            log::trace!(
+            //                "Expected MEC ratio {}, observed MEC ratio {}",
+            //                mec_threshold,
+            //                mec_vector[ploidy - ploidy_start] as f64
+            //                    / mec_vector[ploidy - ploidy_start - 1] as f64
+            //            );
+            if (mec_vector[ploidy - ploidy_start] as f64
+                / mec_vector[ploidy - ploidy_start - 1] as f64)
+                < mec_threshold
+            {
             } else {
-                for tup in trace_back_vec[0].iter_mut() {
-                    tup.0 = 0.;
-                }
-            }
-
-            for i in 0..hap_graph.len() - 1 {
-                for (j, node) in hap_graph[i].iter().enumerate() {
-                    for (next_row_id, flow) in node.out_flows.iter() {
-                        //Negative flows means the edge has been removed.
-                        let mut mod_flow = *flow;
-                        if *flow < flow_cutoff {
-                            continue;
-                        }
-                        if already_seen_edges
-                            .contains_key(&(node.id, hap_graph[i + 1][*next_row_id].id))
-                        {
-                            let _mult = already_seen_edges
-                                .get(&(node.id, hap_graph[i + 1][*next_row_id].id))
-                                .unwrap();
-                            //                           mod_flow = *flow/(1.5_f64.powf(*mult));
-                            mod_flow = *flow;
-                        }
-                        if sum_weight_max {
-                            if trace_back_vec[i][node.row].0 + mod_flow
-                                > trace_back_vec[i + 1][*next_row_id].0
-                            {
-                                trace_back_vec[i + 1][*next_row_id].0 =
-                                    trace_back_vec[i][node.row].0 + mod_flow;
-                                trace_back_vec[i + 1][*next_row_id].1 = j;
-                            }
-                        } else {
-                            if f64::min(mod_flow, trace_back_vec[i][node.row].0)
-                                > trace_back_vec[i + 1][*next_row_id].0
-                            {
-                                trace_back_vec[i + 1][*next_row_id].0 =
-                                    f64::min(mod_flow, trace_back_vec[i][node.row].0);
-                                trace_back_vec[i + 1][*next_row_id].1 = j;
-                            }
-                        }
-                    }
-                }
-            }
-
-            let mut best_i = usize::MAX;
-            let mut best_score = f64::MIN;
-            let last_col = trace_back_vec.last().unwrap();
-            for i in 0..last_col.len() {
-                if last_col[i].0 > best_score {
-                    best_i = i;
-                    best_score = last_col[i].0;
-                }
-            }
-
-            if best_score == f64::MIN {
+                log::trace!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
+                best_ploidy -= 1;
                 break;
             }
-
-            let mut run_length = 0;
-            for i in (0..hap_graph.len()).rev() {
-                let best_node = &hap_graph[i][best_i];
-                if best_node.out_flows.len() == 1 {
-                    run_length += 1;
-                    if run_length > run_min_flow_cutoff {
-                        if best_node.out_flows[0].1 < run_min_flow {
-                            run_min_flow = best_node.out_flows[0].1;
-                        }
-                    }
-                } else {
-                    run_length = 0;
-                }
-                let score = trace_back_vec[i][best_i].0;
-                node_path.push(best_node);
-                node_path_colrow.push((best_node.column, best_node.row));
-                best_i = trace_back_vec[i][best_i].1;
-
-                //TODO do min_flow properly, new avg flow termination conditoin
-                if i != 0 {
-                    if sum_weight_max {
-                        let flow = score - trace_back_vec[i - 1][best_i].0;
-                        if flow < min_flow {
-                            min_flow = flow;
-                        }
-                    } else {
-                        min_flow = best_score;
-                    }
-                }
+            if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
+                log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
+                break;
             }
-
-            node_path.reverse();
-            node_path_colrow.reverse();
-            for (l, node) in node_path.iter().enumerate() {
-                if l == node_path.len() - 1 {
-                    write!(cfile, "{}-{}\n", node.column, node.id).unwrap();
-                } else {
-                    write!(cfile, "{}-{},", node.column, node.id).unwrap();
-                }
+        } else {
+            if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
+                log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
+                break;
             }
-            println!(
-                "Highest weighted flow path is {}, with min flow {}, run min flow {}, avg coverage is {}",
-                best_score, min_flow, run_min_flow, best_score/(node_path.len()-1) as f64
-            );
-        }
-        //Update edges
-        for i in 0..node_path_colrow.len() - 1 {
-            let (col1, row1) = node_path_colrow[i];
-            let (col2, row2) = node_path_colrow[i + 1];
-            let id1 = hap_graph[col1][row1].id;
-            let id2 = hap_graph[col2][row2].id;
-            let edge_mult_count = already_seen_edges.entry((id1, id2)).or_insert(0.);
-            *edge_mult_count += 1.;
-        }
-        for i in 0..node_path_colrow.len() - 1 {
-            let (col, row) = node_path_colrow[i];
-            let hap_node_mut = &mut hap_graph[col][row];
-            for out_flow_edge in hap_node_mut.out_flows.iter_mut() {
-                if out_flow_edge.0 == node_path_colrow[i + 1].1 {
-                    if run_min_flow > 5000000.0 {
-                        out_flow_edge.1 -= min_flow * 1.0;
-                    } else {
-                        out_flow_edge.1 -= run_min_flow * 1.0;
-                    }
-                    if out_flow_edge.1 < flow_cutoff {
-                        out_flow_edge.1 = f64::MIN;
-                    }
-                }
-            }
-        }
-
-        path_counter += 1;
-        if path_counter > max_num_paths {
-            break;
         }
     }
+    log::trace!(
+        "MEC vector {:?}, error_thresh {:?}, SNPs interval  {} {}",
+        &mec_vector,
+        expected_errors_ref,
+        random_vec[j].0 + 1,
+        random_vec[j].1 + 1,
+    );
+
+    let best_parts = mem::take(&mut parts_vector[best_ploidy - ploidy_start]);
+    let best_endpoints = mem::take(&mut endpoints_vector[best_ploidy - ploidy_start]);
+    let local_part_dir = format!("{}/local_parts/", glopp_out_dir);
+    let mut hap_node_blocks = vec![];
+
+    for (l, best_part) in best_parts.iter().enumerate() {
+        let mut hap_node_block = vec![];
+        let mut frag_best_part = vec![];
+
+        for ind_part in best_part.iter() {
+            let frag_set: FxHashSet<&Frag> = ind_part.iter().map(|x| &all_frags[*x]).collect();
+            frag_best_part.push(frag_set.clone());
+            let mut hap_node = HapNode::new(frag_set, best_endpoints[l]);
+            hap_node.row = hap_node_block.len();
+            hap_node_block.push(hap_node);
+        }
+        hap_node_blocks.push(hap_node_block);
+
+        file_reader::write_output_partition_to_file(
+            &frag_best_part,
+            vec![],
+            local_part_dir.clone(),
+            &format!("{}-{}-{}", j, random_vec[j].0, best_ploidy),
+            &snp_to_genome_pos,
+        );
+    }
+
+    return hap_node_blocks;
+}
+
+fn process_chunks(mut chunks: Vec<(usize, Vec<Vec<HapNode>>)>) -> Vec<Vec<HapNode>> {
+    chunks.sort_by(|x, y| x.0.cmp(&y.0));
+    let mut return_blocks = vec![];
+    for (_i, chunk) in chunks {
+        for block in chunk {
+            return_blocks.push(block);
+        }
+    }
+    let mut id_counter = 0;
+    for (i, block) in return_blocks.iter_mut().enumerate() {
+        for node in block.iter_mut() {
+            node.column = i;
+            node.id = id_counter;
+            id_counter += 1;
+        }
+    }
+    return return_blocks;
 }
 
 pub fn generate_hap_graph<'a>(
@@ -532,157 +541,40 @@ pub fn generate_hap_graph<'a>(
     let random_vec = iter_vec[0..iter_vec.len()].to_vec();
     log::trace!("SNP Endpoints {:?}", &random_vec);
 
-    let ploidy_start = 1;
-    let ploidy_end = 6;
-    let error_rate = epsilon;
-    let num_ploidies = ploidy_end - ploidy_start;
-    let mut hap_node_blocks = vec![];
-    let mut hap_node_counter = 0;
-    let mut column_counter = 0;
-    for j in 0..random_vec.len() {
-        if j % 10 == 0{
-            println!("Iteration {}/{}, SNP coords {} ", j,random_vec.len(), random_vec[j].1);
-        }
-        let mut mec_vector = vec![0.; num_ploidies];
-        let mut parts_vector = vec![];
-        let mut expected_errors_ref = vec![];
-        let mut endpoints_vector = vec![];
-        // NOTE THE 1 INDEXING!
-        let reads = local_clustering::find_reads_in_interval(
-            random_vec[j].0 + 1,
-            random_vec[j].1 + 1,
-            all_frags,
-            usize::MAX,
-        );
-        let mut best_ploidy = ploidy_start;
-        if reads.is_empty(){
-            continue;
-        }
-        for ploidy in ploidy_start..ploidy_end {
-            best_ploidy = ploidy;
-            let mut num_alleles = 0.0;
-            let mut vec_reads_own = vec![];
-            for read in reads.iter() {
-                vec_reads_own.push(*read);
+    let block_chunks: Mutex<Vec<_>> = Mutex::new(vec![]);
+    (0..random_vec.len())
+        .collect::<Vec<usize>>()
+        .into_par_iter()
+        .for_each(|j| {
+            //    for j in 0..random_vec.len() {
+            if j % 1 == 0 {
+                println!(
+                    "Iteration {}/{}, SNP coords {} ",
+                    j,
+                    random_vec.len(),
+                    random_vec[j].1
+                );
             }
-            vec_reads_own.sort_by(|a, b| a.first_position.cmp(&b.first_position));
-            let (break_pos, part) = global_clustering::beam_search_phasing(
-                vec![FxHashSet::default(); ploidy],
-                &vec_reads_own,
+
+            let block_chunk = get_local_hap_blocks(
+                num_blocks,
+                num_iters,
+                all_frags,
                 epsilon,
-                0.05,
-                0.0001_f64.ln(),
+                snp_to_genome_pos,
                 max_number_solns,
-                true,
-                false,
+                block_length,
+                &glopp_out_dir,
+                j,
+                &random_vec,
             );
 
-            //            let optimized_part = part;
-            let (_new_score, optimized_part, block) =
-                local_clustering::optimize_clustering(part, epsilon, 10);
+            let mut locked = block_chunks.lock().unwrap();
+            locked.push((j, block_chunk));
+        });
 
-            let split_part =
-                utils_frags::split_part_using_breaks(&break_pos, &optimized_part, &all_frags);
-            let endpoints;
-            if j != 0 {
-                endpoints = (random_vec[j - 1].1 + 1, random_vec[j].1 + 1);
-            } else {
-                endpoints = (random_vec[j].0 + 1, random_vec[j].1 + 1);
-            }
-            let (split_part_merge, split_part_endpoints) =
-                merge_split_parts(split_part, break_pos, endpoints);
-            //            let block = utils_frags::hap_block_from_partition(&optimized_part);
-            //            let (binom_vec, _freq_vec) = local_clustering::get_partition_stats(&part, &block);
-            let binom_vec =
-                local_clustering::get_mec_stats_epsilon(&optimized_part, &block, epsilon);
-            for (good, bad) in binom_vec {
-                mec_vector[ploidy - ploidy_start] += bad;
-                num_alleles += good;
-                num_alleles += bad;
-            }
-
-            let mut ind_parts = vec![];
-            for part in split_part_merge {
-                let mut ind_part = vec![];
-                for set in part {
-                    let index_set: FxHashSet<usize> = set.iter().map(|x| x.counter_id).collect();
-                    ind_part.push(index_set);
-                }
-                ind_parts.push(ind_part);
-            }
-            parts_vector.push(ind_parts);
-            endpoints_vector.push(split_part_endpoints);
-
-            expected_errors_ref.push(num_alleles as f64 * error_rate);
-
-            if ploidy > ploidy_start {
-                //                let mec_threshold = 1.0 / (1.0 - error_rate) / (1.0 + 1.0 / (ploidy + 1) as f64);
-                log::trace!(
-                    "MEC vector {:?}, error_thresh {:?}",
-                    &mec_vector,
-                    expected_errors_ref
-                );
-                let mec_threshold = 1.0
-                    / (1.0 - error_rate)
-                    / (1.0 + 1.0 / ((ploidy as f64).powf(0.75) + 1.32) as f64);
-                log::trace!(
-                    "Expected MEC ratio {}, observed MEC ratio {}",
-                    mec_threshold,
-                    mec_vector[ploidy - ploidy_start] as f64
-                        / mec_vector[ploidy - ploidy_start - 1] as f64
-                );
-                if (mec_vector[ploidy - ploidy_start] as f64
-                    / mec_vector[ploidy - ploidy_start - 1] as f64)
-                    < mec_threshold
-                {
-                } else {
-                    log::trace!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
-                    best_ploidy -= 1;
-                    break;
-                }
-                if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
-                    log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
-                    break;
-                }
-            } else {
-                if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
-                    log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
-                    break;
-                }
-            }
-        }
-
-        let best_parts = mem::take(&mut parts_vector[best_ploidy - ploidy_start]);
-        let best_endpoints = mem::take(&mut endpoints_vector[best_ploidy - ploidy_start]);
-        let local_part_dir = format!("{}/local_parts/",glopp_out_dir);
-
-        for (l, best_part) in best_parts.iter().enumerate() {
-            let mut hap_node_block = vec![];
-            let mut frag_best_part = vec![];
-
-            for ind_part in best_part.iter() {
-                let frag_set: FxHashSet<&Frag> = ind_part.iter().map(|x| &all_frags[*x]).collect();
-                frag_best_part.push(frag_set.clone());
-                let mut hap_node = HapNode::new(frag_set, best_endpoints[l]);
-                hap_node.column = column_counter;
-                hap_node.row = hap_node_block.len();
-                hap_node.id = hap_node_counter;
-                hap_node_counter += 1;
-                hap_node_block.push(hap_node);
-            }
-            column_counter += 1;
-            hap_node_blocks.push(hap_node_block);
-
-            file_reader::write_output_partition_to_file(
-                &frag_best_part,
-                vec![],
-                local_part_dir.clone(),
-                &format!("{}-{}-{}", column_counter - 1, random_vec[j].0, best_ploidy),
-                &snp_to_genome_pos
-            );
-        }
-    }
-
+    let block_chunks = block_chunks.into_inner().unwrap();
+    let mut hap_node_blocks = process_chunks(block_chunks);
     println!("Phasing done");
     update_hap_graph(&mut hap_node_blocks);
     hap_node_blocks
@@ -713,8 +605,8 @@ fn merge_split_parts(
         //TODO Merging stuff
         if *breaks_with_min_sorted[k] <= left_endpoint_merged {
             tomerge.push(k);
-//            snp_breakpoints.push((left_endpoint_merged, *breaks_with_min_sorted[k]));
-//            left_endpoint_merged = *breaks_with_min_sorted[k];
+            //            snp_breakpoints.push((left_endpoint_merged, *breaks_with_min_sorted[k]));
+            //            left_endpoint_merged = *breaks_with_min_sorted[k];
             continue;
         }
         if cov_rat > 0.75 || cov_rat < 0.25 {
@@ -752,8 +644,8 @@ fn merge_split_parts(
         }
     }
     if split_part_merge.len() > 1 {
-//        dbg!(&break_pos, split_part_merge.len());
-//        dbg!(&snp_breakpoints);
+        //        dbg!(&break_pos, split_part_merge.len());
+        //        dbg!(&snp_breakpoints);
         for part in split_part_merge.iter() {
             log::trace!("---------------PART---------------");
             for (s, hap) in part.iter().enumerate() {
@@ -776,7 +668,7 @@ pub fn get_disjoint_paths_rewrite(
     flow_update_vec: FlowUpVec,
     epsilon: f64,
     glopp_out_dir: String,
-    snp_to_genome_pos: &Vec<usize>
+    snp_to_genome_pos: &Vec<usize>,
 ) {
     let flow_cutoff = 3.0;
     let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
@@ -845,7 +737,8 @@ pub fn get_disjoint_paths_rewrite(
         };
     }
 
-    let mut pet_graph_file = File::create(format!("{}/pet_graph.dot", glopp_out_dir)).expect("Can't create file");
+    let mut pet_graph_file =
+        File::create(format!("{}/pet_graph.dot", glopp_out_dir)).expect("Can't create file");
     write!(pet_graph_file, "{:?}", Dot::new(&hap_petgraph)).unwrap();
     let mut iter_count = 0;
     let mut all_joined_path_parts = vec![];
@@ -1041,7 +934,7 @@ pub fn get_disjoint_paths_rewrite(
         path_parts_snp_endspoints,
         glopp_out_dir,
         &format!("all"),
-        &snp_to_genome_pos
+        &snp_to_genome_pos,
     );
 
     let mut path_debug_file =
