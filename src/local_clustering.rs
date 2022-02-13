@@ -929,9 +929,9 @@ fn opt_iterate<'a>(
 //        number_of_moves = best_moves.len() / 5;
 //    }
     let mut number_of_moves = best_moves.len() / 10;
-    if number_of_moves == 0 && best_moves.len() > 0{
-        number_of_moves = best_moves.len()/3 + 1;
-    }
+//    if number_of_moves == 0 && best_moves.len() > 0{
+//        number_of_moves = best_moves.len()/3 + 1;
+//    }
     //    dbg!(number_of_moves);
 
     for (mv_num, mv) in best_moves.iter().enumerate() {

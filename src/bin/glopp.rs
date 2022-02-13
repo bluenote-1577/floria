@@ -7,8 +7,10 @@ use flopp::local_clustering;
 use flopp::types_structs::Frag;
 use flopp::utils_frags;
 use fxhash::{FxHashMap};
+use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
+
 fn main() {
     let matches = App::new("glopp")
                           .version("0.1.0")
@@ -134,6 +136,9 @@ fn main() {
     let part_out_dir = matches
         .value_of("partition output")
         .unwrap_or("glopp_out_dir").to_string();
+    if Path::new(&part_out_dir).exists(){
+        panic!("Output directory exists; output directory must not be an existing directory");
+    }
 
     //If the user is getting frag files from BAM and VCF.
     let bam;
