@@ -11,3 +11,5 @@ pub mod global_clustering;
 pub mod vcf_polishing;
 
 pub mod graph_processing;
+
+pub mod alignment; 

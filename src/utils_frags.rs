@@ -1,9 +1,12 @@
 use crate::types_structs::Frag;
+use std::time::Instant;
 use crate::types_structs::HapBlock;
 use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools; // 0.8.2
 use statrs::distribution::ChiSquared;
 use statrs::distribution::ContinuousCDF;
+use rayon::prelude::*;
+use std::sync::Mutex;
 
 // Get the number # of different bases between the
 // two fragments
@@ -574,4 +577,102 @@ pub fn remove_read_from_block(block: &mut HapBlock, frag: &Frag, part: usize) {
         let site_counter = sites.entry(*var_at_pos).or_insert(0);
         *site_counter -= 1;
     }
+}
+
+pub fn hybrid_correction(frags: &[Frag]) -> FxHashSet<Frag>{
+
+    let start_t = Instant::now();
+    let mut pos_to_frags = FxHashMap::default();
+    let mut long_frags = vec![];
+    let mut short_frags =vec![];
+
+    for frag in frags{
+        if frag.is_paired{
+            for pos in frag.positions.iter(){
+                let vec_pos = pos_to_frags.entry(pos).or_insert(FxHashSet::default());
+                vec_pos.insert(frag);
+                short_frags.push(frag);
+            }
+        }
+        else{
+            long_frags.push(frag);
+        }
+    }
+
+    dbg!(long_frags.len(), short_frags.len());
+
+    let final_frags : Mutex<FxHashSet<_>> = Mutex::new(FxHashSet::default());
+    long_frags.into_par_iter().for_each(|long_frag| {
+        let mut covered_positions = FxHashSet::default();
+        let mut covering_frags = FxHashSet::default();
+        let mut positions = long_frag.positions.iter().collect::<Vec<&usize>>();
+        positions.sort();
+        for (i,_position) in positions.iter().enumerate(){
+            if covered_positions.contains(positions[i]){
+                continue
+            }
+            let mut covering_i_frags = FxHashSet::default();
+            let mut j = i;
+            loop{
+                //Test
+                if j != i{
+                    break;
+                }
+                if j >= positions.len(){
+                    break;
+                }
+                if !pos_to_frags.contains_key(&positions[j]){
+                    break;
+                }
+                let covering_i = &pos_to_frags[&positions[j]];
+                if covering_i.is_disjoint(&covering_i_frags) && j != i{
+                    break;
+                }
+                if j == i{
+                    covering_i_frags = covering_i_frags.union(&covering_i).copied().collect();
+                }
+                else{
+                    covering_i_frags = covering_i_frags.intersection(&covering_i).copied().collect();
+                }
+                j+=1;
+            }
+            if covering_i_frags.is_empty(){
+                continue;
+            }
+            let best_frag = covering_i_frags.into_iter().max_by_key(|x| {let d = distance(x, long_frag); (d.0 * 10) / (d.1 + 1)}).unwrap();
+            for pos in best_frag.positions.iter(){
+                covered_positions.insert(*pos);
+            }
+            covering_frags.insert(best_frag);
+        }
+        let cand_seq_dict = set_to_seq_dict(&covering_frags);
+        let mut locked = final_frags.lock().unwrap();
+        locked.insert(correct_long_read(&cand_seq_dict, long_frag));
+//        dbg!(cand_seq_dict, &long_frag.seq_dict);
+    });
+
+    println!("Time taken error_correct {:?}", Instant::now() - start_t);
+    return final_frags.into_inner().unwrap();
+}
+
+fn correct_long_read (short_frags_dict: &FxHashMap<usize,FxHashMap<usize,usize>>, long_frag : &Frag) -> Frag{
+    let mut new_frag = long_frag.clone();
+    for pos in new_frag.positions.iter(){
+        if !short_frags_dict.contains_key(pos){
+            continue
+        }
+        let val = new_frag.seq_dict.get_mut(pos).unwrap();
+        if short_frags_dict[&pos].len() > 1{
+            continue
+        }
+        else{
+        *val = *short_frags_dict[&pos]
+            .iter()
+            .max_by_key(|entry| entry.1)
+            .unwrap()
+            .0;
+        }
+
+    }
+    return new_frag;
 }

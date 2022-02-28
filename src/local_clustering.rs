@@ -674,23 +674,21 @@ pub fn optimize_clustering<'a>(
 
     //Iterate until an iteration yields a lower UPEM score -- return partition corresponding
     //to the best UPEM score.
-    for _i in 0..max_iters {
+    for i in 0..max_iters {
         let new_part = opt_iterate(&best_part, &prev_hap_block, epsilon);
         let new_block = utils_frags::hap_block_from_partition(&new_part);
         let new_binom_vec = get_mec_stats_epsilon(&new_part, &new_block,epsilon);
         let new_score = new_binom_vec.iter().map(|x| x.1).sum::<f64>() * -1.;
-//        if new_score > prev_score{
-//            dbg!(_i, &new_binom_vec, new_score, prev_score);
-//            if new_score.is_nan() {
-//                dbg!(_i, &new_binom_vec, new_score);
-//            }
-//        }
+        if new_score > prev_score{
+            log::trace!("Iter {} successful, new {} prev {}", i, new_score, prev_score);
+        }
 
         if new_score > prev_score {
             prev_score = new_score;
             best_part = new_part;
             prev_hap_block = new_block;
         } else {
+            log::trace!("Iter {} unsuccessful, new {} prev {}", i, new_score, prev_score);
             return (prev_score, best_part, prev_hap_block);
         }
     }
@@ -929,10 +927,10 @@ fn opt_iterate<'a>(
 //        number_of_moves = best_moves.len() / 5;
 //    }
     let mut number_of_moves = best_moves.len() / 10;
-//    if number_of_moves == 0 && best_moves.len() > 0{
-//        number_of_moves = best_moves.len()/3 + 1;
-//    }
-    //    dbg!(number_of_moves);
+    if number_of_moves == 0 && best_moves.len() > 0{
+        number_of_moves = best_moves.len()/3 + 1;
+    }
+    log::trace!("Number of moves {}", number_of_moves);
 
     for (mv_num, mv) in best_moves.iter().enumerate() {
         let (i, read, j) = mv.1;

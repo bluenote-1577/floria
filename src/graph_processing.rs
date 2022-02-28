@@ -381,7 +381,7 @@ fn get_local_hap_blocks<'a>(
 
         //            let optimized_part = part;
         let (_new_score, optimized_part, block) =
-            local_clustering::optimize_clustering(part, epsilon, 10);
+            local_clustering::optimize_clustering(part, epsilon, 20);
 
         let split_part =
             utils_frags::split_part_using_breaks(&break_pos, &optimized_part, &all_frags);
@@ -905,6 +905,8 @@ pub fn get_disjoint_paths_rewrite(
     }
 
     println!("Number of haplotigs/disjoint paths: {}", best_paths.len());
+
+    //Put read into best haplotig. 
     let mut all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
     for (frag, part_ids) in read_to_parts_map {
         let mut diff_part_vec = vec![];
