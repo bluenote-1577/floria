@@ -6,7 +6,7 @@ use flopp::graph_processing;
 use flopp::local_clustering;
 use flopp::types_structs::Frag;
 use flopp::utils_frags;
-use fxhash::{FxHashMap};
+use fxhash::FxHashMap;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -79,10 +79,11 @@ fn main() {
                               .short("u")
                               .help("")
                               .hidden(true))
-                            .arg(Arg::with_name("use_ref_bias")
+                          .arg(Arg::with_name("reference_fasta")
                               .short("R")
-                              .hidden(true)
-                              .help("Use reference bias adjustment (in progress)."))
+                              .takes_value(true)
+                              .value_name("FILE")
+                              .help("Improve calls by realignment (in progress)"))
                           .arg(Arg::with_name("verbose")
                               .short("r")
                               .help("Verbose output."))
@@ -92,6 +93,9 @@ fn main() {
                           .arg(Arg::with_name("use_supplementary")
                               .short("X")
                               .help("Use supplementary alignments (default: don't use; have not tested fully yet)."))
+                            .arg(Arg::with_name("hybrid")
+                              .short("H")
+                              .help("Short-read long-read hybrid method (IN DEVELOPMENT)"))
                           .get_matches();
 
     //Parse command line args.
@@ -110,12 +114,14 @@ fn main() {
     if ploidy == large_numb {
         estimate_ploidy = true;
     }
+    let hybrid = matches.is_present("hybrid");
 
     let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
     let block_length = block_length.parse::<usize>().unwrap();
     //    let use_mec = matches.is_present("use_mec");
     let use_mec = true;
-    let use_ref_bias = matches.is_present("use_ref_bias");
+    let reference_fasta = matches.value_of("reference_fasta").unwrap_or("");
+    let use_ref_bias = false;
     let filter_supplementary = !matches.is_present("dont_filter_supplementary");
     let use_supplementary = matches.is_present("use_supplementary");
 
@@ -135,8 +141,9 @@ fn main() {
     //If the user is splitting the bam file according to the output partition.
     let part_out_dir = matches
         .value_of("partition output")
-        .unwrap_or("glopp_out_dir").to_string();
-    if Path::new(&part_out_dir).exists(){
+        .unwrap_or("glopp_out_dir")
+        .to_string();
+    if Path::new(&part_out_dir).exists() {
         panic!("Output directory exists; output directory must not be an existing directory");
     }
 
@@ -239,11 +246,12 @@ fn main() {
     let start_t = Instant::now();
     let mut all_frags_map;
     if bam {
-        all_frags_map = file_reader::get_frags_from_bamvcf(
+        all_frags_map = file_reader::get_frags_from_bamvcf_rewrite(
             vcf_file,
             bam_file,
             filter_supplementary,
             use_supplementary,
+            reference_fasta,
         );
     } else {
         all_frags_map = file_reader::get_frags_container(frag_file);
@@ -266,19 +274,20 @@ fn main() {
 
     let first_iter = true;
 
-    for (contig, all_frags) in all_frags_map.iter_mut() {
+    for (contig, mut all_frags) in all_frags_map.into_iter() {
         if all_frags.len() == 0 {
             println!("Contig {} has no fragments", contig);
             continue;
         }
 
         println!("Number of fragments {}", all_frags.len());
-        if snp_to_genome_pos_map.contains_key(contig) || bam == false {
+        if snp_to_genome_pos_map.contains_key(&contig) || bam == false {
+
             let contig_out_dir = format!("{}/{}", part_out_dir, contig);
             let mut snp_to_genome_pos: &Vec<usize> = &Vec::new();
 
             if bam == true {
-                snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
+                snp_to_genome_pos = snp_to_genome_pos_map.get(&contig).unwrap();
             }
 
             //We need frags sorted by first position to make indexing easier. We want the
@@ -318,6 +327,19 @@ fn main() {
                 epsilon = 0.010;
             }
 
+            //Do hybrid error correction
+            let mut final_frags;
+            if hybrid{
+                final_frags = utils_frags::hybrid_correction(&all_frags).into_iter().collect::<Vec<Frag>>();
+                final_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+                for (i,frag) in final_frags.iter_mut().enumerate(){
+                    frag.counter_id = i;
+                }
+            }
+            else{
+                final_frags = all_frags;
+            }
+
             match matches.value_of("epsilon") {
                 None => {}
                 Some(value) => {
@@ -327,20 +349,23 @@ fn main() {
 
             println!("Epsilon is {}", epsilon);
 
+            
+
             if estimate_ploidy {
                 let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
                 let num_locs = num_locs_string.parse::<usize>().unwrap();
                 let mut hap_graph = graph_processing::generate_hap_graph(
                     length_gn,
                     num_locs,
-                    &all_frags,
+                    &final_frags,
                     epsilon,
                     &snp_to_genome_pos,
                     max_number_solns,
                     block_length,
                     contig_out_dir.to_string(),
                 );
-                let flow_up_vec = graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
+                let flow_up_vec =
+                    graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
                 graph_processing::get_disjoint_paths_rewrite(
                     &mut hap_graph,
                     flow_up_vec,
@@ -348,9 +373,8 @@ fn main() {
                     contig_out_dir.to_string(),
                     &snp_to_genome_pos,
                 );
-
-            } 
-            //We don't actually use this code path anymore, but it can be useful for testing purposes. 
+            }
+            //We don't actually use this code path anymore, but it can be useful for testing purposes.
             else {
                 println!("Ploidy is {}", ploidy);
                 //Phasing occurs here
@@ -361,10 +385,10 @@ fn main() {
                 let first_pos = 1;
                 let last_pos = 1;
                 initial_part = global_clustering::get_initial_clique(
-                    all_frags, ploidy, epsilon, first_pos, last_pos,
+                    &final_frags, ploidy, epsilon, first_pos, last_pos,
                 );
                 let binom_factor = 1.;
-                let all_frags_refs: Vec<&Frag> = all_frags.iter().collect();
+                let all_frags_refs: Vec<&Frag> = final_frags.iter().collect();
                 let (break_positions, final_part) = global_clustering::beam_search_phasing(
                     initial_part,
                     &all_frags_refs,
@@ -388,8 +412,8 @@ fn main() {
                     &final_part,
                     vec![],
                     contig_out_dir.to_string(),
-                    contig,
-                    &snp_to_genome_pos
+                    &contig,
+                    &snp_to_genome_pos,
                 );
 
                 file_reader::write_blocks_to_file(
@@ -399,7 +423,7 @@ fn main() {
                     &snp_to_genome_pos,
                     &final_part,
                     first_iter,
-                    contig,
+                    &contig,
                     &break_positions,
                 );
             }

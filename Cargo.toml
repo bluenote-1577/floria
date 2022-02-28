@@ -17,12 +17,15 @@ rand_pcg="*"
 rand_core="*"
 rust-htslib="*"
 clap = "2"
+debruijn = "*"
 simple_logger="*"
 log="*"
 itertools = "*"
 highs = "*"
+block-aligner = { version = "^0.2.0", features = ["simd_avx2"] }
 petgraph = "*"
 bio = "*"
+bio-types ="*"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"

@@ -3,6 +3,11 @@ use rust_htslib::bam::Record;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::cmp::Ordering;
+use debruijn::dna_string::DnaString;
+
+type GnPosition = usize;
+type SnpPosition = usize;
+type Genotype = usize;
 
 #[derive(Debug, Clone)]
 pub struct TraceBackNode{
@@ -12,19 +17,19 @@ pub struct TraceBackNode{
     pub is_source: bool
 }
 //Positions are inclusive
-#[derive(Eq, Debug, Clone)]
+#[derive(Eq, Debug, Clone, Default)]
 pub struct Frag {
     pub id: String,
     pub counter_id: usize,
-    pub seq_dict: FxHashMap<usize, usize>,
-    pub qual_dict: FxHashMap<usize, u8>,
-    pub positions: FxHashSet<usize>,
-    pub first_position: usize,
-    pub last_position: usize,
-    pub seq_string: Vec<Vec<u8>>,
+    pub seq_dict: FxHashMap<SnpPosition, Genotype>,
+    pub qual_dict: FxHashMap<SnpPosition, u8>,
+    pub positions: FxHashSet<SnpPosition>,
+    pub first_position: SnpPosition,
+    pub last_position: SnpPosition,
+    pub seq_string: Vec<DnaString>,
     pub qual_string: Vec<Vec<u8>>,
     pub is_paired :bool, 
-    pub snp_pos_to_seq_pos: FxHashMap<usize,(u8, usize)>,
+    pub snp_pos_to_seq_pos: FxHashMap<SnpPosition,(u8, GnPosition)>,
 }
 
 impl Hash for Frag {
@@ -100,10 +105,12 @@ impl<'a> HapNode<'a> {
         let mut hap_map = FxHashMap::default();
         for frag in frag_set.iter() {
             for pos in frag.positions.iter() {
-                let var_at_pos = frag.seq_dict.get(pos).unwrap();
-                let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
-                let site_counter = sites.entry(*var_at_pos).or_insert(0);
-                *site_counter += 1;
+                if *pos as usize <= snp_endpoints.1 && *pos as usize >= snp_endpoints.0{
+                    let var_at_pos = frag.seq_dict.get(pos).unwrap();
+                    let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
+                    let site_counter = sites.entry(*var_at_pos).or_insert(0);
+                    *site_counter += 1;
+                }
             }
         }
         let mut allele_cov_list = vec![];
@@ -114,7 +121,14 @@ impl<'a> HapNode<'a> {
         }
 
         allele_cov_list.sort_by(|a,b| a.partial_cmp(&b).unwrap());
-        let cov = allele_cov_list.last().unwrap_or(&0.);
+        let cov;
+        if allele_cov_list.is_empty(){
+            cov = 0.;
+        }
+        else{
+            cov = allele_cov_list[allele_cov_list.len()*2/3];
+        }
+//        let cov = allele_cov_list.last().unwrap_or(&0.);
         let toret = HapNode {
             frag_set: frag_set,
             out_edges: vec![],
@@ -122,7 +136,7 @@ impl<'a> HapNode<'a> {
             column: usize::MAX,
             row: usize::MAX,
             id: usize::MAX,
-            cov: *cov,
+            cov: cov,
             out_flows: vec![],
             hap_map: hap_map,
             snp_endpoints: snp_endpoints
@@ -199,7 +213,7 @@ pub fn build_frag(id: String, counter_id: usize, is_paired: bool) -> Frag {
         positions: FxHashSet::default(),
         first_position: usize::MAX,
         last_position: usize::MIN,
-        seq_string: vec![vec![];2],
+        seq_string: vec![DnaString::new();2],
         qual_string: vec![vec![];2],
         is_paired: is_paired,
         snp_pos_to_seq_pos: FxHashMap::default(),
@@ -219,7 +233,7 @@ pub fn update_frag(frag: &mut Frag, geno: usize, snp_pos: usize, qual: u8, pair_
     }
     frag.snp_pos_to_seq_pos.insert(snp_pos, (pair_number, seq_pos as usize));
     if !is_supp && frag.seq_string[pair_number as usize].len() == 0{
-        frag.seq_string[pair_number as usize] = record.seq().as_bytes();
+        frag.seq_string[pair_number as usize] = DnaString::from_acgt_bytes(&record.seq().as_bytes());
         if qual <= 255 - 33{
         frag.qual_string[pair_number as usize] = record.qual().iter().map(|x| x + 33).collect();
         }
