@@ -547,14 +547,14 @@ pub fn generate_hap_graph<'a>(
         .into_par_iter()
         .for_each(|j| {
             //    for j in 0..random_vec.len() {
-            if j % 1 == 0 {
-                println!(
-                    "Iteration {}/{}, SNP coords {} ",
-                    j,
-                    random_vec.len(),
-                    random_vec[j].1
-                );
-            }
+//            if j % 1 == 0 {
+//                println!(
+//                    "Iteration {}/{}, SNP coords {} ",
+//                    j,
+//                    random_vec.len(),
+//                    random_vec[j].1
+//                );
+//            }
 
             let block_chunk = get_local_hap_blocks(
                 num_blocks,
