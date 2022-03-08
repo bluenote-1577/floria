@@ -65,7 +65,7 @@ The standard mode of usage is to specify an indexed bam file using the option **
 1. **-R ref.fa** is highly recommended to mitigate reference bias, especially for erroneous long-reads.
 2. **-H short_reads_aln.bam** is highly recommended if you have short-reads available. This uses short-read polishing to improve long-read SNP calls. 
 3. If using short-reads to phase (not to polish), make sure **-e** and **-l** which denotes the error rate and initial block size are set appropriately. -e 0.005 -l 500 works decently in practice for 2x150 bp reads. 
-4. **-e** controls how sensitive your blocks are during phasing. Blocks with error rate less than **-e** with not be phased further, so haplotypes that differ less than **-e** may be combined. Use a higher value for more contiguous but less sensitive phasings, and a lower value if you want a more sensitive but broken phasings. 
+4. **-e** controls how sensitive your blocks are during phasing. Blocks with error rate less than **-e** with not be phased further, so haplotypes that differ less than **-e** may be combined. Use a higher value for more contiguous but less sensitive phasings, and a lower value if you want a more sensitive but broken phasings. If using hybrid correction, maybe try setting this lower to 0.02 (default is 0.04). 
 
 ## Output
 
