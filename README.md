@@ -58,7 +58,7 @@ The standard mode of usage is to specify an indexed bam file using the option **
 
 **VCF File:** glopp currently only uses SNP information and does not take into account indels. VCF file must have valid contig headers -- see the Misc section if your VCF does not have valid contig headers.
 
-**BAM File:** the bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
+**BAM File:** a **sorted and indexed** bam file. The bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
 
 ### Parameters for best performance
 
