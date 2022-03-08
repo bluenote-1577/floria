@@ -835,8 +835,8 @@ pub fn write_output_partition_to_file(
                 } else {
                     if left_seq_pos > right_seq_pos {
                         println!(
-                            "{} left seq pos > right seq pos at {:?}",
-                            &frag.id, snp_range_parts_vec[i]
+                            "{} left seq pos > right seq pos at {:?}. Left:{}, Right:{}",
+                            &frag.id, snp_range_parts_vec[i], left_seq_pos, right_seq_pos
                         );
                         continue;
                     }
@@ -1062,13 +1062,12 @@ fn write_fragset_haplotypes(
 
     let hap_map = utils_frags::set_to_seq_dict(&frags);
     let emptydict = FxHashMap::default();
-    let title_string = format!(">{}\n", name);
+    let title_string = format!(">{},{}.{}\n", name,left_snp_pos,right_snp_pos);
     write!(file, "{}", title_string).unwrap();
     let positions: Vec<&usize> = hap_map.keys().collect();
     if positions.len() == 0 {
         return;
     }
-    let mut snp_counter_list = vec![];
     for pos in left_snp_pos..right_snp_pos + 1 {
         let mut snp_support = 0;
         if snp_pos_to_genome_pos.len() == 0 {
@@ -1102,20 +1101,6 @@ fn write_fragset_haplotypes(
             write!(file, "\t").unwrap();
         }
         write!(file, "\n").unwrap();
-        snp_counter_list.push(snp_support);
-    }
-    snp_counter_list.sort();
-    if snp_counter_list.is_empty() {
-        write!(file, "0").unwrap();
-    } else {
-        write!(
-            file,
-            "{},{},{}",
-            snp_counter_list[snp_counter_list.len() / 2],
-            left_snp_pos,
-            right_snp_pos
-        )
-        .unwrap();
     }
 }
 
@@ -1130,8 +1115,8 @@ pub fn get_vcf_profile<'a>(vcf_file: &str, ref_chroms: &'a Vec<String>) -> VcfPr
     let mut vcf_pos_to_snp_counter_map = FxHashMap::default();
     let mut vcf_snp_pos_to_gn_pos_map = FxHashMap::default();
     let mut chrom_to_index_map = FxHashMap::default();
-    for (i,chrom) in ref_chroms.iter().enumerate(){
-        chrom_to_index_map.insert(chrom,i);
+    for (i, chrom) in ref_chroms.iter().enumerate() {
+        chrom_to_index_map.insert(chrom, i);
     }
 
     let vcf_header = vcf.header().clone();
@@ -1238,46 +1223,46 @@ where
     }
 
     let ref_id_to_frag_map: Mutex<FxHashMap<_, _>> = Mutex::new(FxHashMap::default());
-    let rec_vecs = vec![record_vec_long,record_vec_short];
-    for record_vec in rec_vecs{
-    record_vec
-        .into_par_iter()
-        .enumerate()
-        .for_each(|(count, record)| {
-            //No alignment
-            if record.tid() < 0 {
-            } else {
-                let ref_ctg = record.contig();
-                let passed_check = alignment_passed_check(
-                    record.flags(),
-                    record.mapq(),
-                    use_supplementary,
-                    filter_supplementary,
-                );
-                if passed_check.0 {
-                    let rec_name: Vec<u8> = record.qname().iter().cloned().collect();
-                    let snp_positions_contig = &vcf_pos_to_snp_counter_map[ref_ctg];
-                    let pos_allele_map = &vcf_pos_allele_map[ref_ctg];
-                    let snp_to_gn_map = &vcf_snp_pos_to_gn_pos_map[ref_ctg];
-                    let mut frag =
-                        frag_from_record(&record, snp_positions_contig, pos_allele_map, count);
+    let rec_vecs = vec![record_vec_long, record_vec_short];
+    for record_vec in rec_vecs {
+        record_vec
+            .into_par_iter()
+            .enumerate()
+            .for_each(|(count, record)| {
+                //No alignment
+                if record.tid() < 0 {
+                } else {
+                    let ref_ctg = record.contig();
+                    let passed_check = alignment_passed_check(
+                        record.flags(),
+                        record.mapq(),
+                        use_supplementary,
+                        filter_supplementary,
+                    );
+                    if passed_check.0 {
+                        let rec_name: Vec<u8> = record.qname().iter().cloned().collect();
+                        let snp_positions_contig = &vcf_pos_to_snp_counter_map[ref_ctg];
+                        let pos_allele_map = &vcf_pos_allele_map[ref_ctg];
+                        let snp_to_gn_map = &vcf_snp_pos_to_gn_pos_map[ref_ctg];
+                        let mut frag =
+                            frag_from_record(&record, snp_positions_contig, pos_allele_map, count);
 
-                    if !chrom_seqs.is_empty() {
-                        alignment::realign(
-                            &chrom_seqs[&ref_ctg.to_owned()],
-                            &mut frag,
-                            &snp_to_gn_map,
-                            &pos_allele_map,
-                        );
-                    }
-                    if frag.positions.len() > 0 {
-                        let mut locked = ref_id_to_frag_map.lock().unwrap();
-                        let bucket = locked.entry(rec_name).or_insert(vec![]);
-                        bucket.push((record.flags(), frag));
+                        if !chrom_seqs.is_empty() {
+                            alignment::realign(
+                                &chrom_seqs[&ref_ctg.to_owned()],
+                                &mut frag,
+                                &snp_to_gn_map,
+                                &pos_allele_map,
+                            );
+                        }
+                        if frag.positions.len() > 0 {
+                            let mut locked = ref_id_to_frag_map.lock().unwrap();
+                            let bucket = locked.entry(rec_name).or_insert(vec![]);
+                            bucket.push((record.flags(), frag));
+                        }
                     }
                 }
-            }
-        });
+            });
     }
 
     let ref_vec_frags = combine_frags(ref_id_to_frag_map.into_inner().unwrap());
@@ -1297,9 +1282,7 @@ pub fn get_fasta_seqs(fasta_file: &str) -> FxHashMap<String, Vec<u8>> {
     return chrom_seqs;
 }
 
-fn combine_frags(
-    id_to_frag_map: FxHashMap<Vec<u8>, Vec<(u16, Frag)>>,
-) -> Vec<Frag> {
+fn combine_frags(id_to_frag_map: FxHashMap<Vec<u8>, Vec<(u16, Frag)>>) -> Vec<Frag> {
     let first_in_pair_mask = 64;
     let second_in_pair_mask = 128;
     let mut ref_frags = vec![];
@@ -1313,9 +1296,13 @@ fn combine_frags(
             if first.0 & first_in_pair_mask == first_in_pair_mask {
                 first_frag = first.1;
                 sec_frag = second.1
-            } else {
+            } else if first.0 & second_in_pair_mask == second_in_pair_mask{
                 first_frag = second.1;
                 sec_frag = first.1
+            }
+            else{
+                println!("Read {} is not paired and has more than one primary alignment; something went wrong.", first.1.id);
+                continue
             }
             first_frag.seq_dict.extend(sec_frag.seq_dict);
             first_frag.qual_dict.extend(sec_frag.qual_dict);
