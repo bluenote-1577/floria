@@ -54,7 +54,7 @@ to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 3
 
 ### Standard usage
 
-The standard mode of usage is to specify a bam file using the option **-b** and a vcf file using the option **-c**. The output is written to folder with value of option **-o**. 
+The standard mode of usage is to specify an indexed bam file using the option **-b** and a vcf file using the option **-c**. The output is written to folder with value of option **-o**. 
 
 **VCF File:** glopp currently only uses SNP information and does not take into account indels. VCF file must have valid contig headers -- see the Misc section if your VCF does not have valid contig headers.
 
