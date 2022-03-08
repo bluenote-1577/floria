@@ -100,8 +100,9 @@ fn main() {
                               .help("Short-read long-read hybrid method (IN DEVELOPMENT)"))
                           .arg(Arg::with_name("list_to_phase")
                               .short("G")
+                              .multiple(true)
                               .takes_value(true)
-                              .help("A file with a list of genomes to phase. Each line the in file should be the name of exactly one contig."))
+                              .help("A list of contigs to phase: -G contig1 contig2 contig3 ..."))
                           .get_matches();
 
     //Parse command line args.
@@ -122,7 +123,13 @@ fn main() {
     }
     let hybrid = matches.is_present("hybrid");
     let short_bam_file= matches.value_of("hybrid").unwrap_or("");
-    let list_of_genomes = matches.value_of("list_to_phase").unwrap_or("");
+    let list_to_phase : Vec<&str>;
+    if let Some(values) = matches.values_of("list_to_phase"){
+        list_to_phase = values.collect();
+    }
+    else{
+        list_to_phase = vec![];
+    }
 
     let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
     let block_length = block_length.parse::<usize>().unwrap();
@@ -273,9 +280,11 @@ fn main() {
     println!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
     let first_iter = true;
-
     for contig in contigs_to_phase.iter(){
-        if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str()) || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 500{
+        if !list_to_phase.contains(&&contig[..]) && !list_to_phase.is_empty(){
+            continue;
+        }
+        else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str()) || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 500{
             println!("Contig {} not present or has < 500 variants. Continuing", contig);
             continue;
         }
