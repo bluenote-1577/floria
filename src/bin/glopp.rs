@@ -5,6 +5,7 @@ use flopp::global_clustering;
 use flopp::graph_processing;
 use flopp::local_clustering;
 use flopp::types_structs::Frag;
+use flopp::types_structs::VcfProfile;
 use flopp::utils_frags;
 use fxhash::FxHashMap;
 use std::path::Path;
@@ -93,9 +94,14 @@ fn main() {
                           .arg(Arg::with_name("use_supplementary")
                               .short("X")
                               .help("Use supplementary alignments (default: don't use; have not tested fully yet)."))
-                            .arg(Arg::with_name("hybrid")
+                          .arg(Arg::with_name("hybrid")
                               .short("H")
+                              .takes_value(true)
                               .help("Short-read long-read hybrid method (IN DEVELOPMENT)"))
+                          .arg(Arg::with_name("list_to_phase")
+                              .short("G")
+                              .takes_value(true)
+                              .help("A file with a list of genomes to phase. Each line the in file should be the name of exactly one contig."))
                           .get_matches();
 
     //Parse command line args.
@@ -115,6 +121,8 @@ fn main() {
         estimate_ploidy = true;
     }
     let hybrid = matches.is_present("hybrid");
+    let short_bam_file= matches.value_of("hybrid").unwrap_or("");
+    let list_of_genomes = matches.value_of("list_to_phase").unwrap_or("");
 
     let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
     let block_length = block_length.parse::<usize>().unwrap();
@@ -238,56 +246,64 @@ fn main() {
         .build_global()
         .unwrap();
 
-    //Polishing is a relic from flopp... I won't remove for now because it may be useful for
-    //testing.
-    let polish = vcf;
-
-    println!("Reading inputs (BAM/VCF/frags).");
+    println!("Preprocessing inputs");
     let start_t = Instant::now();
-    let mut all_frags_map;
+    let contigs_to_phase;
     if bam {
-        all_frags_map = file_reader::get_frags_from_bamvcf_rewrite(
-            vcf_file,
-            bam_file,
-            filter_supplementary,
-            use_supplementary,
-            reference_fasta,
-        );
+        contigs_to_phase = file_reader::get_contigs_to_phase(&bam_file)
     } else {
-        all_frags_map = file_reader::get_frags_container(frag_file);
+        contigs_to_phase = vec!["frag_contig".to_string()];
     }
-    println!("Time taken reading inputs {:?}", Instant::now() - start_t);
+    println!("Read BAM header successfully.");
 
     let mut snp_to_genome_pos_map: FxHashMap<String, Vec<usize>> = FxHashMap::default();
+    let mut chrom_seqs = FxHashMap::default();
+    let mut vcf_profile = VcfProfile::default();
     if vcf || vcf_nopolish {
-        let (snp_to_genome_pos_t, _genotype_dict_t, vcf_ploidy) =
+        let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
             file_reader::get_genotypes_from_vcf_hts(vcf_file);
         snp_to_genome_pos_map = snp_to_genome_pos_t;
-
-        //If the VCF file is misformatted or has weird genotyping call we can catch that here.
-        if vcf_ploidy != ploidy {
-            if polish {
-                panic!("VCF File ploidy doesn't match input ploidy");
-            }
-        }
+        vcf_profile = file_reader::get_vcf_profile(&vcf_file, &contigs_to_phase);
+        println!("Read VCF successfully.");
     }
+    if reference_fasta != ""{
+        chrom_seqs = file_reader::get_fasta_seqs(&reference_fasta);
+        println!("Read reference fasta successfully.");
+    }
+    println!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
     let first_iter = true;
 
-    for (contig, mut all_frags) in all_frags_map.into_iter() {
+    for contig in contigs_to_phase.iter(){
+        if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str()) || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 500{
+            println!("Contig {} not present or has < 500 variants. Continuing", contig);
+            continue;
+        }
+
+        let start_t = Instant::now();
+        println!("-----{}-----", contig);
+        println!("Reading inputs for contig {} (BAM/VCF/frags).", contig);
+        let mut all_frags;
+        if frag {
+            let mut all_frags_map = file_reader::get_frags_container(frag_file);
+            all_frags = all_frags_map.remove(contig).unwrap();
+        } else {
+            all_frags = file_reader::get_frags_from_bamvcf_rewrite(&vcf_profile, bam_file, short_bam_file, filter_supplementary, use_supplementary, &chrom_seqs, &contig);
+        }
         if all_frags.len() == 0 {
             println!("Contig {} has no fragments", contig);
             continue;
         }
 
-        println!("Number of fragments {}", all_frags.len());
-        if snp_to_genome_pos_map.contains_key(&contig) || bam == false {
+        println!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
+        println!("Number of fragments {}", all_frags.len());
+        if snp_to_genome_pos_map.contains_key(contig) || bam == false {
             let contig_out_dir = format!("{}/{}", part_out_dir, contig);
             let mut snp_to_genome_pos: &Vec<usize> = &Vec::new();
 
             if bam == true {
-                snp_to_genome_pos = snp_to_genome_pos_map.get(&contig).unwrap();
+                snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
             }
 
             //We need frags sorted by first position to make indexing easier. We want the
@@ -301,26 +317,13 @@ fn main() {
             let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
             println!("Median read length is {} SNPs", avg_read_length);
 
-            let block_len_quant = 0.33;
-
-            //Final partitions
-            //let _parts: Mutex<Vec<(Vec<FxHashSet<&Frag>>, usize)>> = Mutex::new(vec![]);
-
-            //The length of each local haplotype block. This is currently useless because all haplotype
-            //blocks have the same fixed length, but we may change this in the future.
-            //let _lengths: Mutex<Vec<usize>> = Mutex::new(vec![]);
-
-            //UPEM scores for each block.
-            //let _scores: Mutex<Vec<(f64, usize)>> = Mutex::new(vec![]);
-            let _median_length_block = utils_frags::get_avg_length(&all_frags, block_len_quant);
-
             //let cutoff_value = (1.0 / (ploidy + 1) as f64).ln();
             let cutoff_value = f64::MIN;
 
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
             println!("Length of genome is {} SNPs", length_gn);
-            println!("Length of each block is {} bases", block_length);
+//            println!("Length of each block is {} bases", block_length);
             let mut epsilon = 0.04;
 
             if epsilon < 0.01 {
@@ -329,14 +332,15 @@ fn main() {
 
             //Do hybrid error correction
             let mut final_frags;
-            if hybrid{
-                final_frags = utils_frags::hybrid_correction(&all_frags).into_iter().collect::<Vec<Frag>>();
+            if hybrid {
+                final_frags = utils_frags::hybrid_correction(&all_frags)
+                    .into_iter()
+                    .collect::<Vec<Frag>>();
                 final_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
-                for (i,frag) in final_frags.iter_mut().enumerate(){
+                for (i, frag) in final_frags.iter_mut().enumerate() {
                     frag.counter_id = i;
                 }
-            }
-            else{
+            } else {
                 final_frags = all_frags;
             }
 
@@ -347,9 +351,7 @@ fn main() {
                 }
             };
 
-            println!("Epsilon is {}", epsilon);
-
-            
+//            println!("Epsilon is {}", epsilon);
 
             if estimate_ploidy {
                 let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
@@ -385,7 +387,11 @@ fn main() {
                 let first_pos = 1;
                 let last_pos = 1;
                 initial_part = global_clustering::get_initial_clique(
-                    &final_frags, ploidy, epsilon, first_pos, last_pos,
+                    &final_frags,
+                    ploidy,
+                    epsilon,
+                    first_pos,
+                    last_pos,
                 );
                 let binom_factor = 1.;
                 let all_frags_refs: Vec<&Frag> = final_frags.iter().collect();

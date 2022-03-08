@@ -103,14 +103,14 @@ fn main() {
     let mut length_gn = 0;
     let mut contig_n = String::from("");
     for bam_file in bam_files {
-//                let all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file, true, true);
-        let all_frags_map = file_reader::get_frags_from_bamvcf_rewrite(
-            vcf_file,
-            bam_file,
-            true,
-            false,
-            reference_fasta,
-        );
+                let all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file, true, true);
+//        let all_frags_map = file_reader::get_frags_from_bamvcf_rewrite(
+//            vcf_file,
+//            bam_file,
+//            true,
+//            false,
+//            reference_fasta,
+//        );
 
         for (contig, bam_fragments) in all_frags_map.iter() {
             let length_gn_bam = utils_frags::get_length_gn(&bam_fragments);

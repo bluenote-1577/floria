@@ -3,7 +3,7 @@ import subprocess
 import sys
 
 if len(sys.argv) < 2:
-    print("USAGE: read_part.txt bamfile.bam prefix_name")
+    print("USAGE: read_part.txt bamfile.bam prefix_name contig_name")
     exit()
 
 read_part_file = sys.argv[1]
@@ -34,7 +34,12 @@ for i in range(ploidy):
 file_names.append(pref_nam+"-not_mapped.bam")
 obam_files.append(pysam.AlignmentFile(pref_nam+"-not_mapped.bam", "wb", template=bam))
 
-for b in bam.fetch(until_eof=True):
+if len(sys.argv) < 4:
+    fetch = bam.fetch(until_eof=True)
+else:
+    contig_name = sys.argv[4]
+    fetch = bam.fetch(contig_name)
+for b in fetch:
     not_frag = True;
     for i in range(ploidy):
         qnames = read_part[i]

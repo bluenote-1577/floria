@@ -9,6 +9,13 @@ type GnPosition = usize;
 type SnpPosition = usize;
 type Genotype = usize;
 
+#[derive(Debug, Clone, Default)]
+pub struct VcfProfile<'a>{
+    pub vcf_pos_allele_map : FxHashMap<&'a str, FxHashMap<i64, Vec<u8>>>,
+    pub vcf_pos_to_snp_counter_map : FxHashMap<&'a str, FxHashMap<i64, i64>>,
+    pub vcf_snp_pos_to_gn_pos_map : FxHashMap<&'a str, FxHashMap< i64, i64>>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TraceBackNode{
     pub score: f64,
