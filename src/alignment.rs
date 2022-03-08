@@ -48,27 +48,9 @@ pub fn realign(
                     best_geno = i;
                 }
 
-                //This was incorrect
-//                let cigar = a.trace().cigar(res.query_idx, res.reference_idx);
-//                let vec = cigar.to_vec();
-//                let mut sum = 0;
-//
-//                for oplen in vec {
-//                    if oplen.len + sum >= flank {
-//                        if oplen.op == Operation::M {
-//                            if score > best_score {
-//                                best_score = score;
-//                                best_geno = i;
-//                            }
-//                        }
-//                        break;
-//                    } else {
-//                        sum += oplen.len;
-//                    }
-//                }
             }
             if *orig_geno != best_geno {
-                //            println!("Called geno {}, best geno realign {}", orig_geno, best_geno);
+//                println!("Called geno {}, best geno realign {} at {}", orig_geno, best_geno, snp_pos);
             }
             *orig_geno = best_geno;
         }

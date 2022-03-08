@@ -32,7 +32,12 @@ fn main() {
                 .help("Input bam files.")
                 .takes_value(true),
         )
-        .arg(Arg::with_name("hybrid").short("H").help("Input bam files."))
+        .arg(
+            Arg::with_name("hybrid")
+                .short("H")
+                .takes_value(true)
+                .help("Short-read long-read hybrid method (IN DEVELOPMENT)"),
+        )
         .arg(
             Arg::with_name("output")
                 .short("o")
@@ -79,6 +84,7 @@ fn main() {
     };
 
     let hybrid = matches.is_present("hybrid");
+    let short_bam_file= matches.value_of("hybrid").unwrap_or("");
 
     if !vcf {
         panic!("No VCF file input found");
@@ -102,24 +108,36 @@ fn main() {
     let mut final_part_reference = vec![];
     let mut length_gn = 0;
     let mut contig_n = String::from("");
+    let chrom_seqs;
+    if reference_fasta != "" {
+        chrom_seqs = file_reader::get_fasta_seqs(&reference_fasta);
+        println!("Read reference fasta successfully.");
+    } else {
+        chrom_seqs = FxHashMap::default();
+    }
     for bam_file in bam_files {
-                let all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file, true, true);
-//        let all_frags_map = file_reader::get_frags_from_bamvcf_rewrite(
-//            vcf_file,
-//            bam_file,
-//            true,
-//            false,
-//            reference_fasta,
-//        );
+        let contigs_to_phase = file_reader::get_contigs_to_phase(&bam_file);
+        let vcf_profile = file_reader::get_vcf_profile(&vcf_file, &contigs_to_phase);
+        //                let all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file, true, true);
 
-        for (contig, bam_fragments) in all_frags_map.iter() {
+        for contig in contigs_to_phase.iter() {
+            let bam_fragments = file_reader::get_frags_from_bamvcf_rewrite(
+                &vcf_profile,
+                bam_file,
+                short_bam_file,
+                true,
+                false,
+                &chrom_seqs,
+                &contig,
+            );
+
             let length_gn_bam = utils_frags::get_length_gn(&bam_fragments);
             if length_gn_bam > length_gn {
                 length_gn = length_gn_bam;
             }
             contig_n = contig.clone();
             if !hybrid {
-                let as_map: FxHashSet<Frag> = bam_fragments.into_iter().cloned().collect();
+                let as_map: FxHashSet<Frag> = bam_fragments.into_iter().collect();
                 dbg!(as_map.len());
                 final_part_owned.push(as_map);
             } else {
