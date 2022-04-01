@@ -34,7 +34,7 @@ pub struct Frag {
     pub first_position: SnpPosition,
     pub last_position: SnpPosition,
     pub seq_string: Vec<DnaString>,
-    pub qual_string: Vec<Vec<u8>>,
+    pub qual_string: Vec<Vec<u8>>, //Needs to be PHRED scaled i.e. +33 from value
     pub is_paired :bool, 
     pub snp_pos_to_seq_pos: FxHashMap<SnpPosition,(u8, GnPosition)>,
 }

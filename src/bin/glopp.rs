@@ -8,8 +8,11 @@ use flopp::types_structs::Frag;
 use flopp::types_structs::VcfProfile;
 use flopp::utils_frags;
 use fxhash::FxHashMap;
+use std::env;
+use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
-use std::sync::Mutex;
 use std::time::Instant;
 
 fn main() {
@@ -59,7 +62,7 @@ fn main() {
                               .short("e")
                               .takes_value(true)
                               .value_name("FLOAT")
-                              .help("Estimated allele call error rate. (default: 0.04. If using short reads, make sure to adjust this)"))
+                              .help("Estimated allele call error rate. (default: 0.04 without -H, 0.02 with -H. If using short reads, make sure to adjust this)"))
                           .arg(Arg::with_name("max_number_solns")
                               .short("n")
                               .takes_value(true)
@@ -96,13 +99,15 @@ fn main() {
                               .help("Use all supplementary alignments from the BAM file without filtering (filtering by default if using supp alignments)."))
                           .arg(Arg::with_name("use_supplementary")
                               .short("X")
-                              .hidden(true)
-                              .help("Use supplementary alignments (default: don't use; have not tested fully yet)."))
+                              .help("Use supplementary alignments (default: don't use)."))
                           .arg(Arg::with_name("hybrid")
                               .short("H")
                               .takes_value(true)
                               .value_name("BAM FILE")
                               .help("Use short aligned short reads to polish long-read SNPs. "))
+                          .arg(Arg::with_name("reassign_short")
+                              .long("reassign-short")
+                              .help("Reassign short reads when using the -H option to the best haplotigs. (Default: no reassignment)"))
                           .arg(Arg::with_name("list_to_phase")
                               .short("G")
                               .multiple(true)
@@ -128,12 +133,12 @@ fn main() {
         estimate_ploidy = true;
     }
     let hybrid = matches.is_present("hybrid");
-    let short_bam_file= matches.value_of("hybrid").unwrap_or("");
-    let list_to_phase : Vec<&str>;
-    if let Some(values) = matches.values_of("list_to_phase"){
+    let reassign_short = matches.is_present("reassign_short");
+    let short_bam_file = matches.value_of("hybrid").unwrap_or("");
+    let list_to_phase: Vec<&str>;
+    if let Some(values) = matches.values_of("list_to_phase") {
         list_to_phase = values.collect();
-    }
-    else{
+    } else {
         list_to_phase = vec![];
     }
 
@@ -166,6 +171,13 @@ fn main() {
         .to_string();
     if Path::new(&part_out_dir).exists() {
         panic!("Output directory exists; output directory must not be an existing directory");
+    }
+
+    std::fs::create_dir_all(&part_out_dir).unwrap();
+    let mut cmd_file =
+        File::create(format!("{}/cmd.log", part_out_dir)).expect("Can't create file");
+    for arg in env::args() {
+        write!(cmd_file, "{} ", arg).unwrap();
     }
 
     //If the user is getting frag files from BAM and VCF.
@@ -279,19 +291,23 @@ fn main() {
         vcf_profile = file_reader::get_vcf_profile(&vcf_file, &contigs_to_phase);
         println!("Read VCF successfully.");
     }
-    if reference_fasta != ""{
+    if reference_fasta != "" {
         chrom_seqs = file_reader::get_fasta_seqs(&reference_fasta);
         println!("Read reference fasta successfully.");
     }
     println!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
     let first_iter = true;
-    for contig in contigs_to_phase.iter(){
-        if !list_to_phase.contains(&&contig[..]) && !list_to_phase.is_empty(){
+    for contig in contigs_to_phase.iter() {
+        if !list_to_phase.contains(&&contig[..]) && !list_to_phase.is_empty() {
             continue;
-        }
-        else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str()) || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 500{
-            println!("Contig {} not present or has < 500 variants. Continuing", contig);
+        } else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
+            || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 500
+        {
+            println!(
+                "Contig {} not present or has < 500 variants. Continuing",
+                contig
+            );
             continue;
         }
 
@@ -303,7 +319,15 @@ fn main() {
             let mut all_frags_map = file_reader::get_frags_container(frag_file);
             all_frags = all_frags_map.remove(contig).unwrap();
         } else {
-            all_frags = file_reader::get_frags_from_bamvcf_rewrite(&vcf_profile, bam_file, short_bam_file, filter_supplementary, use_supplementary, &chrom_seqs, &contig);
+            all_frags = file_reader::get_frags_from_bamvcf_rewrite(
+                &vcf_profile,
+                bam_file,
+                short_bam_file,
+                filter_supplementary,
+                use_supplementary,
+                &chrom_seqs,
+                &contig,
+            );
         }
         if all_frags.len() == 0 {
             println!("Contig {} has no fragments", contig);
@@ -328,7 +352,7 @@ fn main() {
                 frag.counter_id = i;
             }
 
-            //We use the median # bases spanned by fragments as the length of blocks.
+            //Output median length of reads in SNPs.
             let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
             println!("Median read length is {} SNPs", avg_read_length);
 
@@ -338,19 +362,15 @@ fn main() {
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
             println!("Length of genome is {} SNPs", length_gn);
-//            println!("Length of each block is {} bases", block_length);
             let mut epsilon = 0.04;
-
-            if epsilon < 0.01 {
-                epsilon = 0.010;
-            }
 
             //Do hybrid error correction
             let mut final_frags;
+            let mut short_frags = vec![];
             if hybrid {
-                final_frags = utils_frags::hybrid_correction(&all_frags)
-                    .into_iter()
-                    .collect::<Vec<Frag>>();
+                let ff_sf = utils_frags::hybrid_correction(all_frags);
+                final_frags = ff_sf.0;
+                short_frags = ff_sf.1;
                 final_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
                 for (i, frag) in final_frags.iter_mut().enumerate() {
                     frag.counter_id = i;
@@ -366,7 +386,7 @@ fn main() {
                 }
             };
 
-//            println!("Epsilon is {}", epsilon);
+            //            println!("Epsilon is {}", epsilon);
 
             if estimate_ploidy {
                 let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
@@ -389,6 +409,8 @@ fn main() {
                     epsilon,
                     contig_out_dir.to_string(),
                     &snp_to_genome_pos,
+                    &short_frags,
+                    reassign_short,
                 );
             }
             //We don't actually use this code path anymore, but it can be useful for testing purposes.
@@ -431,7 +453,7 @@ fn main() {
 
                 file_reader::write_output_partition_to_file(
                     &final_part,
-                    vec![],
+                    &vec![],
                     contig_out_dir.to_string(),
                     &contig,
                     &snp_to_genome_pos,
