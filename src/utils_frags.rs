@@ -579,27 +579,24 @@ pub fn remove_read_from_block(block: &mut HapBlock, frag: &Frag, part: usize) {
     }
 }
 
-pub fn hybrid_correction(frags: &[Frag]) -> FxHashSet<Frag> {
+pub fn hybrid_correction(frags: Vec<Frag>) -> (Vec<Frag>, Vec<Frag>) {
     let start_t = Instant::now();
     let mut pos_to_frags = FxHashMap::default();
     let mut long_frags = vec![];
-    let mut short_frags = vec![];
 
-    for frag in frags {
+    for frag in frags.iter(){
         if frag.is_paired {
-            for pos in frag.positions.iter() {
+            for pos in frag.positions.iter(){
                 let vec_pos = pos_to_frags.entry(pos).or_insert(FxHashSet::default());
                 vec_pos.insert(frag);
-                short_frags.push(frag);
             }
         } else {
             long_frags.push(frag);
         }
     }
 
-    dbg!(long_frags.len(), short_frags.len());
 
-    let final_frags: Mutex<FxHashSet<_>> = Mutex::new(FxHashSet::default());
+    let final_frags: Mutex<Vec<_>> = Mutex::new(vec![]);
     long_frags.into_par_iter().for_each(|long_frag| {
         let mut covered_positions = FxHashSet::default();
         let mut covering_frags = FxHashSet::default();
@@ -642,7 +639,7 @@ pub fn hybrid_correction(frags: &[Frag]) -> FxHashSet<Frag> {
             let best_frag = covering_i_frags
                 .into_iter()
                 .max_by_key(|x| {
-                    let d = distance(x, long_frag);
+                    let d = distance(x, &long_frag);
                     (d.0 * 10) / (d.1 + 1)
                 })
                 .unwrap();
@@ -653,12 +650,18 @@ pub fn hybrid_correction(frags: &[Frag]) -> FxHashSet<Frag> {
         }
         let cand_seq_dict = set_to_seq_dict(&covering_frags);
         let mut locked = final_frags.lock().unwrap();
-        locked.insert(correct_long_read(&cand_seq_dict, long_frag));
+        locked.push(correct_long_read(&cand_seq_dict, &long_frag));
         //        dbg!(cand_seq_dict, &long_frag.seq_dict);
     });
 
     println!("Time taken error_correct {:?}", Instant::now() - start_t);
-    return final_frags.into_inner().unwrap();
+    let mut short_frags = vec![];
+    for frag in frags.into_iter(){
+        if frag.is_paired {
+            short_frags.push(frag);
+        }
+    }
+    return (final_frags.into_inner().unwrap(), short_frags);
 }
 
 fn correct_long_read(

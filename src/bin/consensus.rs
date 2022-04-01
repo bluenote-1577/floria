@@ -47,6 +47,13 @@ fn main() {
         )
         .get_matches();
 
+    let num_t = 10;
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_t)
+        .build_global()
+        .unwrap();
+
+
     //If the user is getting frag files from BAM and VCF.
     let bam;
     let bam_files: Vec<&str>;
@@ -141,8 +148,8 @@ fn main() {
                 dbg!(as_map.len());
                 final_part_owned.push(as_map);
             } else {
-                let hybrid_correct_frags = utils_frags::hybrid_correction(&bam_fragments);
-                final_part_owned.push(hybrid_correct_frags);
+                let hybrid_correct_frags = utils_frags::hybrid_correction(bam_fragments).0;
+                final_part_owned.push(hybrid_correct_frags.into_iter().collect());
             }
         }
     }
@@ -195,7 +202,7 @@ fn main() {
 
     file_reader::write_output_partition_to_file(
         &final_part_reference,
-        vec![],
+        &vec![],
         part_out_dir.clone(),
         &String::from("cons"),
         &snp_to_genome_pos,

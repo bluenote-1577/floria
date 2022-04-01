@@ -297,7 +297,7 @@ where
     let second_in_pair_mask = 128;
     let secondary_mask = 256;
     let supplementary_mask = 2048;
-    let mapq_supp_cutoff = 59;
+    let mapq_supp_cutoff = 60;
     let mapq_normal_cutoff = 15;
     for p in bam.pileup() {
         let pileup = p.unwrap();
@@ -343,7 +343,9 @@ where
                 let is_supp;
                 if flags & supplementary_mask > 0 {
                     is_supp = true;
-                    if !use_supplementary {
+                    //Don't use supplementary paired reads. More complexity, not super worth it
+                    //for now at least.
+                    if !use_supplementary || is_paired {
                         continue;
                     }
                     if filter_supplementary {
@@ -661,7 +663,7 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
 
 pub fn write_output_partition_to_file(
     part: &Vec<FxHashSet<&Frag>>,
-    snp_range_parts_vec: Vec<(usize, usize)>,
+    snp_range_parts_vec: &Vec<(usize, usize)>,
     out_bam_part_dir: String,
     contig: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
@@ -697,14 +699,16 @@ pub fn write_output_partition_to_file(
         }
 
         for frag in vec_part.iter() {
-            write!(
-                file,
-                "{}\t{}\t{}\n",
-                frag.id.clone(),
-                frag.first_position,
-                frag.last_position
-            )
-            .unwrap();
+            if !frag.is_paired {
+                write!(
+                    file,
+                    "{}\t{}\t{}\n",
+                    frag.id.clone(),
+                    frag.first_position,
+                    frag.last_position
+                )
+                .unwrap();
+            }
         }
 
         //Non-empty means that we're writing the final partition after path collection
@@ -786,7 +790,7 @@ pub fn write_output_partition_to_file(
                             right_snp_pos,
                             &frag.snp_pos_to_seq_pos,
                         );
-                        panic!();
+                        panic!("left snp position of partition for the read was not found.");
                     }
                 }
                 if left_seq_pos > extension {
@@ -834,8 +838,9 @@ pub fn write_output_partition_to_file(
                     );
                 } else {
                     if left_seq_pos > right_seq_pos {
-                        println!(
-                            "{} left seq pos > right seq pos at {:?}. Left:{}, Right:{}",
+                        log::trace!(
+                            "{} left seq pos > right seq pos at {:?}. Left:{}, Right:{}.
+                            This usually happens when a read id is not unique. May happen with suppl. alignments too.",
                             &frag.id, snp_range_parts_vec[i], left_seq_pos, right_seq_pos
                         );
                         continue;
@@ -870,7 +875,7 @@ fn write_paired_reads_no_trim<W: Write>(
                 None,
                 //Write N instead
                 &vec![78],
-                &vec![20],
+                &vec![33],
             )
             .unwrap();
     } else {
@@ -890,7 +895,7 @@ fn write_paired_reads_no_trim<W: Write>(
                 None,
                 //Write N instead
                 &vec![78],
-                &vec![20],
+                &vec![33],
             )
             .unwrap();
     } else {
@@ -945,7 +950,7 @@ fn _write_paired_reads<W: Write>(
                 None,
                 //Write N instead
                 &vec![78],
-                &vec![20],
+                &vec![33],
             )
             .unwrap();
     } else {
@@ -956,7 +961,7 @@ fn _write_paired_reads<W: Write>(
                     None,
                     //Write N instead
                     &vec![78],
-                    &vec![20],
+                    &vec![33],
                 )
                 .unwrap();
         } else {
@@ -976,7 +981,7 @@ fn _write_paired_reads<W: Write>(
                     None,
                     //Write N instead
                     &vec![78],
-                    &vec![20],
+                    &vec![33],
                 )
                 .unwrap();
         } else {
@@ -1007,16 +1012,22 @@ pub fn alignment_passed_check(
     let errors_mask = 1796;
     let secondary_mask = 256;
     let supplementary_mask = 2048;
-    let mapq_supp_cutoff = 59;
+    let mapq_supp_cutoff = 60;
     let mapq_normal_cutoff = 15;
+    let first_in_pair_mask = 64;
+    let second_in_pair_mask = 128;
 
     let is_supp;
+    let is_paired = flags & first_in_pair_mask > 0 || flags & second_in_pair_mask > 0;
     if flags & supplementary_mask > 0 {
         is_supp = true;
-        if !use_supplementary {
+        //Don't use supplementary alignments for short reads.
+        //Increases complexity; maybe fix this in the future.
+        if is_paired && is_supp {
             return (false, true);
-        }
-        if filter_supplementary {
+        } else if !use_supplementary {
+            return (false, true);
+        } else if filter_supplementary {
             if mapq < mapq_supp_cutoff {
                 return (false, true);
             }
@@ -1062,7 +1073,7 @@ fn write_fragset_haplotypes(
 
     let hap_map = utils_frags::set_to_seq_dict(&frags);
     let emptydict = FxHashMap::default();
-    let title_string = format!(">{},{}.{}\n", name,left_snp_pos,right_snp_pos);
+    let title_string = format!(">{},{}.{}\n", name, left_snp_pos, right_snp_pos);
     write!(file, "{}", title_string).unwrap();
     let positions: Vec<&usize> = hap_map.keys().collect();
     if positions.len() == 0 {
@@ -1223,7 +1234,7 @@ where
     }
 
     let ref_id_to_frag_map: Mutex<FxHashMap<_, _>> = Mutex::new(FxHashMap::default());
-    let rec_vecs = vec![record_vec_long, record_vec_short];
+    let rec_vecs = vec![record_vec_short, record_vec_long];
     for record_vec in rec_vecs {
         record_vec
             .into_par_iter()
@@ -1239,23 +1250,29 @@ where
                         use_supplementary,
                         filter_supplementary,
                     );
+                    
                     if passed_check.0 {
                         let rec_name: Vec<u8> = record.qname().iter().cloned().collect();
                         let snp_positions_contig = &vcf_pos_to_snp_counter_map[ref_ctg];
                         let pos_allele_map = &vcf_pos_allele_map[ref_ctg];
                         let snp_to_gn_map = &vcf_snp_pos_to_gn_pos_map[ref_ctg];
+//                        if str::from_utf8(&record.qname()) == Ok("pa1_4940"){
+//                            dbg!(record.flags(),record.mapq(), passed_check, str::from_utf8(&rec_name));
+//                        }
                         let mut frag =
                             frag_from_record(&record, snp_positions_contig, pos_allele_map, count);
 
-                        if !chrom_seqs.is_empty() {
-                            alignment::realign(
-                                &chrom_seqs[&ref_ctg.to_owned()],
-                                &mut frag,
-                                &snp_to_gn_map,
-                                &pos_allele_map,
-                            );
-                        }
                         if frag.positions.len() > 0 {
+                            //Race condition in realign for some reason. TODO
+                            //figure out why.
+                            if !chrom_seqs.is_empty() {
+                                alignment::realign(
+                                    &chrom_seqs[&ref_ctg.to_owned()],
+                                    &mut frag,
+                                    &snp_to_gn_map,
+                                    &pos_allele_map,
+                                );
+                            }
                             let mut locked = ref_id_to_frag_map.lock().unwrap();
                             let bucket = locked.entry(rec_name).or_insert(vec![]);
                             bucket.push((record.flags(), frag));
@@ -1265,7 +1282,11 @@ where
             });
     }
 
-    let ref_vec_frags = combine_frags(ref_id_to_frag_map.into_inner().unwrap());
+    let ref_vec_frags = combine_frags(
+        ref_id_to_frag_map.into_inner().unwrap(),
+        &vcf_profile,
+        contig,
+    );
 
     ref_vec_frags
 }
@@ -1282,61 +1303,144 @@ pub fn get_fasta_seqs(fasta_file: &str) -> FxHashMap<String, Vec<u8>> {
     return chrom_seqs;
 }
 
-fn combine_frags(id_to_frag_map: FxHashMap<Vec<u8>, Vec<(u16, Frag)>>) -> Vec<Frag> {
+fn combine_frags(
+    id_to_frag_map: FxHashMap<Vec<u8>, Vec<(u16, Frag)>>,
+    vcf_profile: &VcfProfile,
+    contig: &str,
+) -> Vec<Frag> {
     let first_in_pair_mask = 64;
     let second_in_pair_mask = 128;
+    let supplementary_mask = 2048;
+
     let mut ref_frags = vec![];
     for (_id, mut frags) in id_to_frag_map {
+//        dbg!(&str::from_utf8(&_id), frags.len(), frags.iter().map(|x| x.0).collect::<Vec<u16>>());
         //paired
-        if frags.len() > 1 {
+        if frags.len() == 2 && frags[0].1.is_paired && frags[1].1.is_paired {
             let first = std::mem::take(&mut frags[0]);
             let second = std::mem::take(&mut frags[1]);
+
             let mut first_frag;
             let mut sec_frag;
+
             if first.0 & first_in_pair_mask == first_in_pair_mask {
                 first_frag = first.1;
                 sec_frag = second.1
-            } else if first.0 & second_in_pair_mask == second_in_pair_mask{
+            } else if first.0 & second_in_pair_mask == second_in_pair_mask {
                 first_frag = second.1;
                 sec_frag = first.1
-            }
-            else{
+            } else {
                 println!("Read {} is not paired and has more than one primary alignment; something went wrong.", first.1.id);
-                continue
+                continue;
             }
+
             first_frag.seq_dict.extend(sec_frag.seq_dict);
             first_frag.qual_dict.extend(sec_frag.qual_dict);
             first_frag.positions.extend(sec_frag.positions);
+
             first_frag.first_position =
                 usize::min(first_frag.first_position, sec_frag.first_position);
             first_frag.last_position = usize::max(first_frag.last_position, sec_frag.last_position);
+
             let mut temp = DnaString::new();
             std::mem::swap(&mut sec_frag.seq_string[0], &mut temp);
-            first_frag.seq_string.push(temp);
-            first_frag
-                .qual_string
-                .push(std::mem::take(&mut sec_frag.qual_string[0]));
+            first_frag.seq_string[1] = temp;
+            first_frag.qual_string[1] = std::mem::take(&mut sec_frag.qual_string[0]);
+
             for (_snp_pos, (read_pair, _pos)) in sec_frag.snp_pos_to_seq_pos.iter_mut() {
                 *read_pair = 1;
             }
+
             first_frag
                 .snp_pos_to_seq_pos
                 .extend(sec_frag.snp_pos_to_seq_pos);
             ref_frags.push(first_frag);
-        } else if frags.len() == 1 {
+        } else if frags.len() == 1 && frags[0].0 & supplementary_mask == 0{
             ref_frags.push(std::mem::take(&mut frags[0].1));
         } else {
-            dbg!(frags.len());
-            for frag in frags {
-                dbg!(frag.0, frag.1.id);
+            //Arbitrary cutoff for reference suppl. alignment distance
+            let supp_aln_dist_cutoff = 40000;
+            //2 or more fragments and no paired indicates a long supplementary alignment.
+            for frag in frags.iter() {
+//                dbg!(
+//                    &frag.1.id,
+//                    &frag.1.first_position,
+//                    &frag.1.last_position,
+//                    &frag.1.snp_pos_to_seq_pos[&frag.1.first_position],
+//                    &frag.1.snp_pos_to_seq_pos[&frag.1.last_position]
+//                );
+                assert!(frag.1.is_paired == false);
             }
-            panic!("something went wrong here");
+
+            let mut supp_intervals = vec![];
+
+            for frag in frags.iter() {
+                supp_intervals.push((frag.1.first_position as i64, frag.1.last_position as i64));
+            }
+            supp_intervals.sort();
+
+            let snp_to_gn = &vcf_profile.vcf_snp_pos_to_gn_pos_map[contig];
+            let mut take_primary_only = false;
+            for i in 0..supp_intervals.len() - 1 {
+                if snp_to_gn[&supp_intervals[i + 1].0] - snp_to_gn[&supp_intervals[i].1]
+                    > supp_aln_dist_cutoff
+                {
+                    take_primary_only = true;
+                    break;
+                }
+            }
+
+            let mut primary_alignment_index = None;
+            for (i, frag) in frags.iter().enumerate() {
+                if frag.0 & supplementary_mask != supplementary_mask {
+                    if !primary_alignment_index.is_none() {
+                        panic!("More than one primary alignment for read {}. Only one primary alignment allowed
+                            per read unless paired.", frag.1.id);
+                    }
+                    primary_alignment_index = Some(i);
+                }
+            }
+            //Only suppl. alignments. Primary probably
+            //got filtered out, but suppl didn't. Don't do anything.
+            if primary_alignment_index.is_none() {
+//                for frag in frags.iter() {
+//                    dbg!(frag.0, &frag.1.id);
+//                }
+                continue;
+            }
+            if take_primary_only {
+                ref_frags.push(std::mem::take(
+                    &mut frags[primary_alignment_index.unwrap()].1,
+                ));
+            } else {
+                let mut primary_frag =
+                    std::mem::take(&mut frags[primary_alignment_index.unwrap()].1);
+                for i in 0..frags.len() {
+                    if i == primary_alignment_index.unwrap() {
+                        continue;
+                    }
+                    let frag = std::mem::take(&mut frags[i].1);
+                    primary_frag.seq_dict.extend(frag.seq_dict);
+                    primary_frag.qual_dict.extend(frag.qual_dict);
+                    primary_frag.positions.extend(frag.positions);
+
+                    primary_frag.first_position =
+                        usize::min(primary_frag.first_position, frag.first_position);
+                    primary_frag.last_position =
+                        usize::max(primary_frag.last_position, frag.last_position);
+
+                    primary_frag
+                        .snp_pos_to_seq_pos
+                        .extend(frag.snp_pos_to_seq_pos);
+                }
+                
+                ref_frags.push(primary_frag);
+            }
         }
     }
     return ref_frags;
 }
 
-//Don't worry about short-reads for now. TODO
 fn frag_from_record(
     record: &bam::Record,
     snp_positions: &FxHashMap<i64, i64>,
@@ -1345,6 +1449,8 @@ fn frag_from_record(
 ) -> Frag {
     let first_in_pair_mask = 64;
     let second_in_pair_mask = 128;
+    let supplementary_mask = 2048;
+    let mut leading_hardclips = 0;
     let paired =
         (record.flags() & first_in_pair_mask > 0) || (record.flags() & second_in_pair_mask > 0);
     let aligned_pairs = record.aligned_pairs_full();
@@ -1354,6 +1460,10 @@ fn frag_from_record(
         counter_id,
         paired,
     );
+    if record.flags() & supplementary_mask > 0{
+        leading_hardclips = record.cigar().leading_hardclips();
+    }
+
 
     for pair in aligned_pairs {
         if pair[1].is_none() {
@@ -1389,7 +1499,7 @@ fn frag_from_record(
                             frag.last_position = snp_pos
                         }
                         //Long read assumption.
-                        frag.snp_pos_to_seq_pos.insert(snp_pos, (0, seq_pos));
+                        frag.snp_pos_to_seq_pos.insert(snp_pos, (0, seq_pos + leading_hardclips as usize));
                         break;
                     }
                 }
@@ -1398,7 +1508,7 @@ fn frag_from_record(
     }
 
     frag.seq_string[0] = DnaString::from_acgt_bytes(&record.seq().as_bytes());
-    frag.qual_string[0] = record.qual().to_vec();
+    frag.qual_string[0] = record.qual().iter().map(|x| x + 33).collect();
     return frag;
 }
 
