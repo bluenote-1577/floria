@@ -207,6 +207,7 @@ fn main() {
         part_out_dir.clone(),
         &String::from("cons"),
         &snp_to_genome_pos,
+        false
     );
 
     file_reader::write_blocks_to_file(
