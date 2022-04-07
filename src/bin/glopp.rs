@@ -111,7 +111,9 @@ fn main() {
                           .arg(Arg::with_name("do_binning")
                               .long("bin-by-cov")
                               .help("Increase contiguity by binning haplogroups using coverage (testing in progress)."))
-
+                          .arg(Arg::with_name("extend_read_clipping")
+                              .long("extend-trimming")
+                              .help("Trim less carefully against the reference (testing in progress)."))
                           .arg(Arg::with_name("use_gaps")
                               .long("use-gaps")
                               .help("Use gap information between SNPs while phasing (testing in progress)."))
@@ -142,6 +144,7 @@ fn main() {
     let hybrid = matches.is_present("hybrid");
     let reassign_short = matches.is_present("reassign_short");
     let do_binning = matches.is_present("do_binning");
+    let extend_read_clipping = matches.is_present("extend-trimming");
     let short_bam_file = matches.value_of("hybrid").unwrap_or("");
     let list_to_phase: Vec<&str>;
     if let Some(values) = matches.values_of("list_to_phase") {
@@ -425,6 +428,7 @@ fn main() {
                     contig,
                     block_length,
                     do_binning,
+                    extend_read_clipping
                 );
             }
             //We don't actually use this code path anymore, but it can be useful for testing purposes.
@@ -471,6 +475,7 @@ fn main() {
                     contig_out_dir.to_string(),
                     &contig,
                     &snp_to_genome_pos,
+                    extend_read_clipping
                 );
 
                 file_reader::write_blocks_to_file(

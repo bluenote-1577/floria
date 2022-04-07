@@ -487,6 +487,7 @@ fn get_local_hap_blocks<'a>(
             local_part_dir.clone(),
             &format!("{}-{}-{}-{}", j, l, random_vec[j].0, best_ploidy),
             &snp_to_genome_pos,
+            false
         );
     }
 
@@ -683,7 +684,8 @@ pub fn get_disjoint_paths_rewrite(
     vcf_profile: &VcfProfile,
     contig: &str,
     block_len: usize,
-    do_binning: bool
+    do_binning: bool,
+    extend_read_clipping: bool
 ) {
     let flow_cutoff = 3.0;
     let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
@@ -967,6 +969,7 @@ pub fn get_disjoint_paths_rewrite(
         glopp_out_dir,
         &format!("all"),
         &snp_to_genome_pos,
+        extend_read_clipping
     );
 
     let mut path_debug_file =

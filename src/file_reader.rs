@@ -667,8 +667,8 @@ pub fn write_output_partition_to_file(
     out_bam_part_dir: String,
     contig: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
+    extend_read_clipping: bool
 ) {
-    let extend_read_clipping = false;
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
     if !snp_range_parts_vec.is_empty() {
