@@ -938,7 +938,7 @@ pub fn get_disjoint_paths_rewrite(
 
     //Put read into best haplotig.
     if do_binning{
-        let (path_parts_snp_endspoints, mut all_joined_path_parts) = bin_haplogroups(
+        let (binned_path_parts_snp_endspoints, binned_all_joined_path_parts) = bin_haplogroups(
             &all_joined_path_parts,
             &path_parts_snp_endspoints,
             &cov_of_haplogroups,
@@ -946,6 +946,8 @@ pub fn get_disjoint_paths_rewrite(
             contig,
             block_len,
         );
+        all_joined_path_parts = binned_all_joined_path_parts;
+        path_parts_snp_endspoints = binned_path_parts_snp_endspoints;
     }
 
     process_reads_for_final_parts(
