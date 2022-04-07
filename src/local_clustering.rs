@@ -1,4 +1,4 @@
-use crate::types_structs::{Frag, HapBlock};
+use crate::types_structs::{Frag, HapBlock, GAP_CHAR};
 use rand::prelude::*;
 use rand_core::SeedableRng;
 //use rand::rng::Rng;
@@ -666,7 +666,7 @@ pub fn optimize_clustering<'a>(
         }
     }
 
-    let binom_vec = get_mec_stats_epsilon(&partition, &prev_hap_block, epsilon);
+    let binom_vec = get_mec_stats_epsilon(&partition, &prev_hap_block, epsilon, true);
     let mut prev_score = binom_vec.iter().map(|x| x.1).sum();
     prev_score *= -1.;
 
@@ -677,7 +677,7 @@ pub fn optimize_clustering<'a>(
     for i in 0..max_iters {
         let new_part = opt_iterate(&best_part, &prev_hap_block, epsilon);
         let new_block = utils_frags::hap_block_from_partition(&new_part);
-        let new_binom_vec = get_mec_stats_epsilon(&new_part, &new_block,epsilon);
+        let new_binom_vec = get_mec_stats_epsilon(&new_part, &new_block,epsilon, true);
         let new_score = new_binom_vec.iter().map(|x| x.1).sum::<f64>() * -1.;
         if new_score > prev_score{
             log::trace!("Iter {} successful, new {} prev {}", i, new_score, prev_score);
@@ -783,21 +783,38 @@ pub fn get_partition_stats(
 pub fn get_mec_stats_epsilon(
     _partition: &Vec<FxHashSet<&Frag>>,
     hap_block: &HapBlock,
-    epsilon : f64
+    epsilon : f64,
+    use_gaps : bool
 ) -> Vec<(f64, f64)> {
     let mut binom_vec = vec![];
     for hap in hap_block.blocks.iter(){
         let mut errors = 0.;
         let mut bases = 0.;
         for seq_dict in hap.values(){
-            let mut allele_counts : Vec<&usize>= seq_dict.values().collect();
-            allele_counts.sort();
+            let mut allele_counts : Vec<(&usize, &usize)>= seq_dict.iter().collect();
+            if !use_gaps{
+                let mut index_to_remove = None;
+                for (i,(allele, _count)) in allele_counts.iter_mut().enumerate(){
+                    if **allele == GAP_CHAR{
+                        index_to_remove = Some(i);
+                    }
+                }
+
+                if !index_to_remove.is_none(){
+                    allele_counts.remove(index_to_remove.unwrap());
+                }
+            }
+            if allele_counts.is_empty(){
+                continue
+            }
+
+            allele_counts.sort_by(|x,y| x.1.cmp(&y.1));
+            let allele_counts : Vec<&usize> = allele_counts.iter().map(|x| x.1).collect();
             let cons_bases = **allele_counts.last().unwrap();
             bases += cons_bases as f64;
             for i in 0..allele_counts.len()-1{
                 errors += *allele_counts[i] as f64;
             }
-            //TODO Test if this is worthwhile. 
             if cons_bases == 1{
                 errors += epsilon;
             }

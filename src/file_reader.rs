@@ -1,5 +1,5 @@
 use crate::alignment;
-use crate::types_structs::{build_frag, update_frag, Frag, HapBlock, VcfProfile};
+use crate::types_structs::{build_frag, update_frag, Frag, HapBlock, VcfProfile, GAP_CHAR};
 use crate::utils_frags;
 use bio::alphabets::dna::revcomp;
 use bio::io::fasta;
@@ -668,6 +668,7 @@ pub fn write_output_partition_to_file(
     contig: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
 ) {
+    let extend_read_clipping = false;
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
     if !snp_range_parts_vec.is_empty() {
@@ -683,6 +684,8 @@ pub fn write_output_partition_to_file(
     //        .join(format!("{}_part.txt", contig));
     let file = File::create(contig_path).expect("Can't create file");
     let mut file = LineWriter::new(file);
+    let mut total_cov_all = 0.;
+    let mut total_err_all = 0.;
 
     for (i, set) in part.iter().enumerate() {
         //Populate all_part.txt file
@@ -693,9 +696,16 @@ pub fn write_output_partition_to_file(
         } else {
             let left_snp_pos = snp_range_parts_vec[i].0;
             let right_snp_pos = snp_range_parts_vec[i].1;
-            let (cov, err) =
+            let (cov, err, total_err, total_cov) =
                 utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
-            write!(file, "#{},{},{}\n", i, cov, err).unwrap();
+            write!(
+                file,
+                "#{},{},{},{},{}\n",
+                i, cov, err, left_snp_pos, right_snp_pos
+            )
+            .unwrap();
+            total_cov_all += total_cov;
+            total_err_all += total_err;
         }
 
         for frag in vec_part.iter() {
@@ -774,23 +784,28 @@ pub fn write_output_partition_to_file(
                 let mut left_seq_pos;
                 let mut tmp = left_snp_pos;
                 let left_read_pair;
-                loop {
-                    if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
-                        let info = frag.snp_pos_to_seq_pos[&tmp];
-                        left_seq_pos = info.1;
-                        left_read_pair = info.0;
-                        break;
-                    }
-                    tmp += 1;
-                    if tmp - left_snp_pos > 10000000 {
-                        dbg!(
-                            &frag.first_position,
-                            &frag.last_position,
-                            left_snp_pos,
-                            right_snp_pos,
-                            &frag.snp_pos_to_seq_pos,
-                        );
-                        panic!("left snp position of partition for the read was not found.");
+                if frag.first_position > left_snp_pos && extend_read_clipping {
+                    left_seq_pos = 0;
+                    left_read_pair = 0;
+                } else {
+                    loop {
+                        if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
+                            let info = frag.snp_pos_to_seq_pos[&tmp];
+                            left_seq_pos = info.1;
+                            left_read_pair = info.0;
+                            break;
+                        }
+                        tmp += 1;
+                        if tmp - left_snp_pos > 10000000 {
+                            dbg!(
+                                &frag.first_position,
+                                &frag.last_position,
+                                left_snp_pos,
+                                right_snp_pos,
+                                &frag.snp_pos_to_seq_pos,
+                            );
+                            panic!("left snp position of partition for the read was not found.");
+                        }
                     }
                 }
                 if left_seq_pos > extension {
@@ -802,17 +817,26 @@ pub fn write_output_partition_to_file(
                 let mut right_seq_pos;
                 let mut tmp = right_snp_pos;
                 let right_read_pair;
-                loop {
-                    if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
-                        let info = frag.snp_pos_to_seq_pos[&tmp];
-                        right_seq_pos = info.1;
-                        right_read_pair = info.0;
-                        break;
+                if frag.last_position < right_snp_pos && extend_read_clipping {
+                    if frag.is_paired {
+                        right_read_pair = 1;
+                    } else {
+                        right_read_pair = 0;
                     }
-                    if tmp == 0 {
-                        dbg!(&frag.positions, left_snp_pos, right_snp_pos);
+                    right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
+                } else {
+                    loop {
+                        if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
+                            let info = frag.snp_pos_to_seq_pos[&tmp];
+                            right_seq_pos = info.1;
+                            right_read_pair = info.0;
+                            break;
+                        }
+                        if tmp == 0 {
+                            dbg!(&frag.positions, left_snp_pos, right_snp_pos);
+                        }
+                        tmp -= 1;
                     }
-                    tmp -= 1;
                 }
 
                 if frag.seq_string[right_read_pair as usize].len() == 0 {
@@ -856,6 +880,13 @@ pub fn write_output_partition_to_file(
                 }
             }
         }
+    }
+
+    if !snp_range_parts_vec.is_empty() {
+        println!(
+            "Final SNP error rate for all haplogroups is {}",
+            total_err_all / total_cov_all
+        );
     }
 }
 
@@ -1073,7 +1104,7 @@ fn write_fragset_haplotypes(
 
     let hap_map = utils_frags::set_to_seq_dict(&frags);
     let emptydict = FxHashMap::default();
-    let title_string = format!(">{},{}.{}\n", name, left_snp_pos, right_snp_pos);
+    let title_string = format!(">{},{},{}\n", name, left_snp_pos, right_snp_pos);
     write!(file, "{}", title_string).unwrap();
     let positions: Vec<&usize> = hap_map.keys().collect();
     if positions.len() == 0 {
@@ -1194,6 +1225,7 @@ pub fn get_frags_from_bamvcf_rewrite(
     use_supplementary: bool,
     chrom_seqs: &FxHashMap<String, Vec<u8>>,
     contig: &str,
+    use_gaps: bool
 ) -> Vec<Frag>
 where
 {
@@ -1250,15 +1282,15 @@ where
                         use_supplementary,
                         filter_supplementary,
                     );
-                    
+
                     if passed_check.0 {
                         let rec_name: Vec<u8> = record.qname().iter().cloned().collect();
                         let snp_positions_contig = &vcf_pos_to_snp_counter_map[ref_ctg];
                         let pos_allele_map = &vcf_pos_allele_map[ref_ctg];
                         let snp_to_gn_map = &vcf_snp_pos_to_gn_pos_map[ref_ctg];
-//                        if str::from_utf8(&record.qname()) == Ok("pa1_4940"){
-//                            dbg!(record.flags(),record.mapq(), passed_check, str::from_utf8(&rec_name));
-//                        }
+                        //                        if str::from_utf8(&record.qname()) == Ok("pa1_4940"){
+                        //                            dbg!(record.flags(),record.mapq(), passed_check, str::from_utf8(&rec_name));
+                        //                        }
                         let mut frag =
                             frag_from_record(&record, snp_positions_contig, pos_allele_map, count);
 
@@ -1273,6 +1305,18 @@ where
                                     &pos_allele_map,
                                 );
                             }
+
+                            //TODO TEST OUT GAPS
+                            if use_gaps{
+                                for pos in frag.first_position..frag.last_position {
+                                    if !frag.positions.contains(&pos){
+                                        frag.seq_dict.insert(pos, GAP_CHAR);
+                                        frag.qual_dict.insert(pos, 7);
+                                        frag.positions.insert(pos);
+                                    }
+                                }
+                            }
+
                             let mut locked = ref_id_to_frag_map.lock().unwrap();
                             let bucket = locked.entry(rec_name).or_insert(vec![]);
                             bucket.push((record.flags(), frag));
@@ -1314,7 +1358,7 @@ fn combine_frags(
 
     let mut ref_frags = vec![];
     for (_id, mut frags) in id_to_frag_map {
-//        dbg!(&str::from_utf8(&_id), frags.len(), frags.iter().map(|x| x.0).collect::<Vec<u16>>());
+        //        dbg!(&str::from_utf8(&_id), frags.len(), frags.iter().map(|x| x.0).collect::<Vec<u16>>());
         //paired
         if frags.len() == 2 && frags[0].1.is_paired && frags[1].1.is_paired {
             let first = std::mem::take(&mut frags[0]);
@@ -1355,20 +1399,20 @@ fn combine_frags(
                 .snp_pos_to_seq_pos
                 .extend(sec_frag.snp_pos_to_seq_pos);
             ref_frags.push(first_frag);
-        } else if frags.len() == 1 && frags[0].0 & supplementary_mask == 0{
+        } else if frags.len() == 1 && frags[0].0 & supplementary_mask == 0 {
             ref_frags.push(std::mem::take(&mut frags[0].1));
         } else {
             //Arbitrary cutoff for reference suppl. alignment distance
             let supp_aln_dist_cutoff = 40000;
             //2 or more fragments and no paired indicates a long supplementary alignment.
             for frag in frags.iter() {
-//                dbg!(
-//                    &frag.1.id,
-//                    &frag.1.first_position,
-//                    &frag.1.last_position,
-//                    &frag.1.snp_pos_to_seq_pos[&frag.1.first_position],
-//                    &frag.1.snp_pos_to_seq_pos[&frag.1.last_position]
-//                );
+                //                dbg!(
+                //                    &frag.1.id,
+                //                    &frag.1.first_position,
+                //                    &frag.1.last_position,
+                //                    &frag.1.snp_pos_to_seq_pos[&frag.1.first_position],
+                //                    &frag.1.snp_pos_to_seq_pos[&frag.1.last_position]
+                //                );
                 assert!(frag.1.is_paired == false);
             }
 
@@ -1403,9 +1447,9 @@ fn combine_frags(
             //Only suppl. alignments. Primary probably
             //got filtered out, but suppl didn't. Don't do anything.
             if primary_alignment_index.is_none() {
-//                for frag in frags.iter() {
-//                    dbg!(frag.0, &frag.1.id);
-//                }
+                //                for frag in frags.iter() {
+                //                    dbg!(frag.0, &frag.1.id);
+                //                }
                 continue;
             }
             if take_primary_only {
@@ -1433,7 +1477,7 @@ fn combine_frags(
                         .snp_pos_to_seq_pos
                         .extend(frag.snp_pos_to_seq_pos);
                 }
-                
+
                 ref_frags.push(primary_frag);
             }
         }
@@ -1460,10 +1504,9 @@ fn frag_from_record(
         counter_id,
         paired,
     );
-    if record.flags() & supplementary_mask > 0{
+    if record.flags() & supplementary_mask > 0 {
         leading_hardclips = record.cigar().leading_hardclips();
     }
-
 
     for pair in aligned_pairs {
         if pair[1].is_none() {
@@ -1499,7 +1542,8 @@ fn frag_from_record(
                             frag.last_position = snp_pos
                         }
                         //Long read assumption.
-                        frag.snp_pos_to_seq_pos.insert(snp_pos, (0, seq_pos + leading_hardclips as usize));
+                        frag.snp_pos_to_seq_pos
+                            .insert(snp_pos, (0, seq_pos + leading_hardclips as usize));
                         break;
                     }
                 }

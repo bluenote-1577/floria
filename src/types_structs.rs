@@ -1,27 +1,28 @@
+use debruijn::dna_string::DnaString;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_htslib::bam::Record;
+use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use std::cmp::Ordering;
-use debruijn::dna_string::DnaString;
 
+pub static GAP_CHAR: usize = 9;
 type GnPosition = usize;
 type SnpPosition = usize;
 type Genotype = usize;
 
 #[derive(Debug, Clone, Default)]
-pub struct VcfProfile<'a>{
-    pub vcf_pos_allele_map : FxHashMap<&'a str, FxHashMap<i64, Vec<u8>>>,
-    pub vcf_pos_to_snp_counter_map : FxHashMap<&'a str, FxHashMap<i64, i64>>,
-    pub vcf_snp_pos_to_gn_pos_map : FxHashMap<&'a str, FxHashMap< i64, i64>>,
+pub struct VcfProfile<'a> {
+    pub vcf_pos_allele_map: FxHashMap<&'a str, FxHashMap<i64, Vec<u8>>>,
+    pub vcf_pos_to_snp_counter_map: FxHashMap<&'a str, FxHashMap<i64, i64>>,
+    pub vcf_snp_pos_to_gn_pos_map: FxHashMap<&'a str, FxHashMap<i64, i64>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct TraceBackNode{
+pub struct TraceBackNode {
     pub score: f64,
     pub prev_ind: Option<usize>,
     pub is_sink: bool,
-    pub is_source: bool
+    pub is_source: bool,
 }
 //Positions are inclusive
 #[derive(Eq, Debug, Clone, Default)]
@@ -35,8 +36,8 @@ pub struct Frag {
     pub last_position: SnpPosition,
     pub seq_string: Vec<DnaString>,
     pub qual_string: Vec<Vec<u8>>, //Needs to be PHRED scaled i.e. +33 from value
-    pub is_paired :bool, 
-    pub snp_pos_to_seq_pos: FxHashMap<SnpPosition,(u8, GnPosition)>,
+    pub is_paired: bool,
+    pub snp_pos_to_seq_pos: FxHashMap<SnpPosition, (u8, GnPosition)>,
 }
 
 impl Hash for Frag {
@@ -65,19 +66,19 @@ pub struct SearchNode<'a> {
     pub broken_blocks: FxHashSet<usize>,
 }
 
-impl Ord for SearchNode<'_>{
+impl Ord for SearchNode<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.score.partial_cmp(&other.score).unwrap()
     }
 }
 
-impl PartialOrd for SearchNode<'_>{
+impl PartialOrd for SearchNode<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Eq for SearchNode<'_>{}
+impl Eq for SearchNode<'_> {}
 
 impl Drop for SearchNode<'_> {
     fn drop(&mut self) {
@@ -95,24 +96,23 @@ impl Drop for SearchNode<'_> {
 
 pub struct HapNode<'a> {
     pub frag_set: FxHashSet<&'a Frag>,
-    pub out_edges: Vec<(usize,f64)>,
-    pub in_edges: Vec<(usize,f64)>,
+    pub out_edges: Vec<(usize, f64)>,
+    pub in_edges: Vec<(usize, f64)>,
     pub column: usize,
     pub row: usize,
     cov: f64,
     pub id: usize,
-    pub out_flows: Vec<(usize,f64)>,
-    pub hap_map : FxHashMap<usize, FxHashMap<usize, usize>>,
-    pub snp_endpoints : (usize,usize)
+    pub out_flows: Vec<(usize, f64)>,
+    pub hap_map: FxHashMap<usize, FxHashMap<usize, usize>>,
+    pub snp_endpoints: (usize, usize),
 }
 
 impl<'a> HapNode<'a> {
-    pub fn new(frag_set: FxHashSet<&'a Frag>, snp_endpoints: (usize,usize)) -> HapNode<'a> {
-        
+    pub fn new(frag_set: FxHashSet<&'a Frag>, snp_endpoints: (usize, usize)) -> HapNode<'a> {
         let mut hap_map = FxHashMap::default();
         for frag in frag_set.iter() {
             for pos in frag.positions.iter() {
-                if *pos as usize <= snp_endpoints.1 && *pos as usize >= snp_endpoints.0{
+                if *pos as usize <= snp_endpoints.1 && *pos as usize >= snp_endpoints.0 {
                     let var_at_pos = frag.seq_dict.get(pos).unwrap();
                     let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
                     let site_counter = sites.entry(*var_at_pos).or_insert(0);
@@ -121,21 +121,20 @@ impl<'a> HapNode<'a> {
             }
         }
         let mut allele_cov_list = vec![];
-        for values1 in hap_map.values(){
-            for allele_count in values1.values(){
+        for values1 in hap_map.values() {
+            for allele_count in values1.values() {
                 allele_cov_list.push(*allele_count as f64);
             }
         }
 
-        allele_cov_list.sort_by(|a,b| a.partial_cmp(&b).unwrap());
+        allele_cov_list.sort_by(|a, b| a.partial_cmp(&b).unwrap());
         let cov;
-        if allele_cov_list.is_empty(){
+        if allele_cov_list.is_empty() {
             cov = 0.;
+        } else {
+            cov = allele_cov_list[allele_cov_list.len() * 2 / 3];
         }
-        else{
-            cov = allele_cov_list[allele_cov_list.len()*2/3];
-        }
-//        let cov = allele_cov_list.last().unwrap_or(&0.);
+        //        let cov = allele_cov_list.last().unwrap_or(&0.);
         let toret = HapNode {
             frag_set: frag_set,
             out_edges: vec![],
@@ -146,13 +145,12 @@ impl<'a> HapNode<'a> {
             cov: cov,
             out_flows: vec![],
             hap_map: hap_map,
-            snp_endpoints: snp_endpoints
+            snp_endpoints: snp_endpoints,
         };
         return toret;
-
     }
 
-    pub fn cov(&self) -> f64{
+    pub fn cov(&self) -> f64 {
         return self.cov;
     }
 }
@@ -194,18 +192,18 @@ pub fn build_child_node<'a>(
     toret
 }
 
-#[derive(Debug, PartialEq,Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct HapBlock {
     pub blocks: Vec<FxHashMap<usize, FxHashMap<usize, usize>>>,
 }
 
-impl Ord for HapBlock{
+impl Ord for HapBlock {
     fn cmp(&self, other: &Self) -> Ordering {
         self.blocks.len().partial_cmp(&other.blocks.len()).unwrap()
     }
 }
 
-impl PartialOrd for HapBlock{
+impl PartialOrd for HapBlock {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -220,8 +218,8 @@ pub fn build_frag(id: String, counter_id: usize, is_paired: bool) -> Frag {
         positions: FxHashSet::default(),
         first_position: usize::MAX,
         last_position: usize::MIN,
-        seq_string: vec![DnaString::new();2],
-        qual_string: vec![vec![];2],
+        seq_string: vec![DnaString::new(); 2],
+        qual_string: vec![vec![]; 2],
         is_paired: is_paired,
         snp_pos_to_seq_pos: FxHashMap::default(),
     };
@@ -229,22 +227,32 @@ pub fn build_frag(id: String, counter_id: usize, is_paired: bool) -> Frag {
     toret
 }
 #[inline]
-pub fn update_frag(frag: &mut Frag, geno: usize, snp_pos: usize, qual: u8, pair_number: u8, is_supp: bool,  record: &Record, qpos : usize) {
+pub fn update_frag(
+    frag: &mut Frag,
+    geno: usize,
+    snp_pos: usize,
+    qual: u8,
+    pair_number: u8,
+    is_supp: bool,
+    record: &Record,
+    qpos: usize,
+) {
     frag.seq_dict.insert(snp_pos, geno);
     frag.qual_dict.insert(snp_pos, qual);
     frag.positions.insert(snp_pos);
     let mut seq_pos = qpos;
-    if is_supp{
+    if is_supp {
         let clipping_offset = record.cigar().leading_hardclips();
         seq_pos = qpos + clipping_offset as usize;
     }
-    frag.snp_pos_to_seq_pos.insert(snp_pos, (pair_number, seq_pos as usize));
-    if !is_supp && frag.seq_string[pair_number as usize].len() == 0{
-        frag.seq_string[pair_number as usize] = DnaString::from_acgt_bytes(&record.seq().as_bytes());
-        if qual <= 255 - 33{
-        frag.qual_string[pair_number as usize] = record.qual().iter().map(|x| x + 33).collect();
-        }
-        else{
+    frag.snp_pos_to_seq_pos
+        .insert(snp_pos, (pair_number, seq_pos as usize));
+    if !is_supp && frag.seq_string[pair_number as usize].len() == 0 {
+        frag.seq_string[pair_number as usize] =
+            DnaString::from_acgt_bytes(&record.seq().as_bytes());
+        if qual <= 255 - 33 {
+            frag.qual_string[pair_number as usize] = record.qual().iter().map(|x| x + 33).collect();
+        } else {
             frag.qual_string[pair_number as usize] = record.qual().iter().map(|x| 255).collect();
         }
     }
@@ -283,7 +291,7 @@ pub fn build_truncated_hap_block(
             if *pos < current_startpos && *pos + 50 > current_startpos {
                 num_before[i] += 1;
             }
-if *pos < current_startpos {
+            if *pos < current_startpos {
                 block_vec[i].remove(pos);
             }
         }

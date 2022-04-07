@@ -108,6 +108,13 @@ fn main() {
                           .arg(Arg::with_name("reassign_short")
                               .long("reassign-short")
                               .help("Reassign short reads when using the -H option to the best haplotigs. (Default: no reassignment)"))
+                          .arg(Arg::with_name("do_binning")
+                              .long("bin-by-cov")
+                              .help("Increase contiguity by binning haplogroups using coverage (testing in progress)."))
+
+                          .arg(Arg::with_name("use_gaps")
+                              .long("use-gaps")
+                              .help("Use gap information between SNPs while phasing (testing in progress)."))
                           .arg(Arg::with_name("list_to_phase")
                               .short("G")
                               .multiple(true)
@@ -134,6 +141,7 @@ fn main() {
     }
     let hybrid = matches.is_present("hybrid");
     let reassign_short = matches.is_present("reassign_short");
+    let do_binning = matches.is_present("do_binning");
     let short_bam_file = matches.value_of("hybrid").unwrap_or("");
     let list_to_phase: Vec<&str>;
     if let Some(values) = matches.values_of("list_to_phase") {
@@ -150,6 +158,7 @@ fn main() {
     let use_ref_bias = false;
     let filter_supplementary = !matches.is_present("dont_filter_supplementary");
     let use_supplementary = matches.is_present("use_supplementary");
+    let use_gaps = matches.is_present("use_gaps");
 
     // Set up our logger if the user passed the debug flag
     if matches.is_present("verbose") {
@@ -327,6 +336,7 @@ fn main() {
                 use_supplementary,
                 &chrom_seqs,
                 &contig,
+                use_gaps,
             );
         }
         if all_frags.len() == 0 {
@@ -411,6 +421,10 @@ fn main() {
                     &snp_to_genome_pos,
                     &short_frags,
                     reassign_short,
+                    &vcf_profile,
+                    contig,
+                    block_length,
+                    do_binning,
                 );
             }
             //We don't actually use this code path anymore, but it can be useful for testing purposes.
