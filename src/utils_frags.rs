@@ -1,5 +1,5 @@
 use crate::types_structs::Frag;
-use crate::types_structs::HapBlock;
+use crate::types_structs::{HapBlock, GAP_CHAR};
 use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools; // 0.8.2
 use rayon::prelude::*;
@@ -691,7 +691,8 @@ pub fn get_errors_cov_from_frags(
     frags: &FxHashSet<&Frag>,
     left_snp_pos: usize,
     right_snp_pos: usize,
-) -> (usize, f64) {
+) -> (f64, f64, f64, f64) {
+    let mean = true;
     let hap_map = set_to_seq_dict(frags);
     let mut snp_counter_list = vec![];
     let emptydict = FxHashMap::default();
@@ -702,7 +703,10 @@ pub fn get_errors_cov_from_frags(
         let mut max_count_pos = 0;
         let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
         if *allele_map != emptydict {
-            for (_site, count) in allele_map {
+            for (site, count) in allele_map {
+                if *site == GAP_CHAR{
+                    continue
+                }
                 if *count > snp_support{
                     max_count_pos = *count;
                 }
@@ -716,10 +720,17 @@ pub fn get_errors_cov_from_frags(
     snp_counter_list.sort();
     let cov;
     if snp_counter_list.is_empty() {
-        cov = 0;
+        cov = 0.;
     } else {
-        cov = snp_counter_list[snp_counter_list.len() * 2 / 3];
+        //Quantile
+        if !mean{
+        cov = snp_counter_list[snp_counter_list.len() * 2 / 3] as f64;
+        }
+        //Mean
+        else{
+        cov = snp_counter_list.iter().sum::<usize>() as f64 / snp_counter_list.len() as f64;
+        }
     }
 
-    return (cov, errors as f64/total_support as f64);
+    return (cov, errors as f64/total_support as f64, errors as f64, total_support as f64);
 }

@@ -136,6 +136,7 @@ fn main() {
                 false,
                 &chrom_seqs,
                 &contig,
+                false
             );
 
             let length_gn_bam = utils_frags::get_length_gn(&bam_fragments);
