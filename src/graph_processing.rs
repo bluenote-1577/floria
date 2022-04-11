@@ -522,6 +522,7 @@ pub fn generate_hap_graph<'a>(
     max_number_solns: usize,
     block_length: usize,
     glopp_out_dir: String,
+    minimal_density: f64
 ) -> Vec<Vec<HapNode<'a>>> {
     let using_bam;
     //Using frags instead of bam
@@ -540,14 +541,14 @@ pub fn generate_hap_graph<'a>(
     } else {
         //        iter_vec = (0..num_blocks).step_by(num_blocks / num_iters).collect();
         iter_vec =
-            utils_frags::get_range_with_lengths(snp_to_genome_pos, block_length, block_length / 3);
+            utils_frags::get_range_with_lengths(snp_to_genome_pos, block_length, block_length / 3, minimal_density);
     }
 
-    let random_vec = iter_vec[0..iter_vec.len()].to_vec();
-    log::trace!("SNP Endpoints {:?}", &random_vec);
+    let interval_vec = iter_vec[0..iter_vec.len()].to_vec();
+    log::trace!("SNP Endpoints {:?}", &interval_vec);
 
     let block_chunks: Mutex<Vec<_>> = Mutex::new(vec![]);
-    (0..random_vec.len())
+    (0..interval_vec.len())
         .collect::<Vec<usize>>()
         .into_par_iter()
         .for_each(|j| {
@@ -571,7 +572,7 @@ pub fn generate_hap_graph<'a>(
                 block_length,
                 &glopp_out_dir,
                 j,
-                &random_vec,
+                &interval_vec,
             );
 
             let mut locked = block_chunks.lock().unwrap();
