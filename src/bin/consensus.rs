@@ -12,21 +12,21 @@ fn main() {
         .about("Haplotype consensus module. ")
         .arg(
             Arg::with_name("vcf")
-                .short("c")
+                .short('c')
                 .value_name("VCFFILE")
                 .help("Input a VCF.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("reference_fasta")
-                .short("R")
+                .short('R')
                 .takes_value(true)
                 .value_name("FILE")
                 .help("Improve calls by realignment (in progress)"),
         )
         .arg(
             Arg::with_name("bam")
-                .short("b")
+                .short('b')
                 .multiple(true)
                 .value_name("BAMFILE1 BAMFILE2 ...")
                 .help("Input bam files.")
@@ -34,13 +34,13 @@ fn main() {
         )
         .arg(
             Arg::with_name("hybrid")
-                .short("H")
+                .short('H')
                 .takes_value(true)
                 .help("Short-read long-read hybrid method (IN DEVELOPMENT)"),
         )
         .arg(
             Arg::with_name("output")
-                .short("o")
+                .short('o')
                 .help("Name of output file (default : consensus_out.txt)")
                 .value_name("OUTPUT")
                 .takes_value(true),

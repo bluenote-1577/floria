@@ -527,6 +527,7 @@ pub fn get_range_with_lengths(
     snp_to_genome_pos: &Vec<usize>,
     block_length: usize,
     overlap_len: usize,
+    minimal_density : f64
 ) -> Vec<(usize, usize)> {
     let mut return_vec = vec![];
     let mut cum_pos = 0;
@@ -548,7 +549,13 @@ pub fn get_range_with_lengths(
         }
         if cum_pos > block_length {
             cum_pos = 0;
-            return_vec.push((left_endpoint, i - 1));
+            let snp_density = (i - left_endpoint) as f64 / block_length as f64 ;
+            if snp_density > minimal_density{
+                return_vec.push((left_endpoint, i - 1));
+            }
+            else{
+                log::trace!("Block endpoints {} - {} has density {} < min density {}", left_endpoint, i-1, snp_density, minimal_density);
+            }
             left_endpoint = new_left_end;
             hit_new_left = false;
         }
