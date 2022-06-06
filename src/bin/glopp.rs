@@ -16,7 +16,8 @@ use std::path::Path;
 use std::time::Instant;
 
 fn main() {
-    let basic_options = "INPUT/OUTPUT";
+    let input_options = "INPUT";
+    let output_options = "OUTPUT";
     let alg_options = "ALGORITHM";
     let mandatory_options = "REQUIRED";
     let matches = Command::new("glopp")
@@ -29,6 +30,14 @@ fn main() {
                                .help("Input a fragment file.")
                                .hide(true)
                                .takes_value(true))
+                          .arg(Arg::new("bam")
+                              .short('b')
+                              .value_name("BAM FILE")
+                              .required(true)
+                              .help("Indexed and sorted primary bam file.")
+                              .takes_value(true)
+                              .help_heading(mandatory_options)
+                              .display_order(1))
                           .arg(Arg::new("vcf no polish")
                               .short('c')
                               .value_name("VCF FILE")
@@ -36,13 +45,13 @@ fn main() {
                               .help("A VCF file; must have contig header information present. See README for generating a VCF file with such information.")
                               .takes_value(true)
                               .help_heading(mandatory_options))
-                          .arg(Arg::new("bam")
-                              .short('b')
-                              .value_name("BAM FILE")
-                              .required(true)
-                              .help("Indexed and sorted primary bam file.")
+                          .arg(Arg::new("reference_fasta")
+                              .short('R')
                               .takes_value(true)
-                              .help_heading(mandatory_options))
+                              .value_name("FASTA FILE")
+                              .help("RECOMMENDED: Improve calls by realigning onto a reference with alternate alleles.")
+                              .help_heading(input_options)
+                              .display_order(1))
                           .arg(Arg::new("vcf")
                                .short('v')
                                .help("Input a VCF: Mandatory if using BAM file; Enables genotype polishing if using frag file.")
@@ -60,20 +69,20 @@ fn main() {
                               .help("Number of threads to use. (default: 10).")
                               .value_name("INT")
                               .takes_value(true)
-                              .help_heading(basic_options)
                               )
                           .arg(Arg::new("partition output")
                               .short('o')
                               .help("Output folder. (default: glopp_out_dir)")
                               .value_name("STRING")
                               .takes_value(true)
-                              .help_heading(basic_options))
+                              .help_heading(output_options))
                           .arg(Arg::new("epsilon")
                               .short('e')
                               .takes_value(true)
                               .value_name("FLOAT")
                               .help("Estimated allele call error rate. (default: 0.04 without -H, 0.02 with -H. If using short reads, make sure to adjust this)")
-                              .help_heading(alg_options))
+                              .help_heading(alg_options)
+                              .display_order(1))
                           .arg(Arg::new("max_number_solns")
                               .short('n')
                               .takes_value(true)
@@ -92,17 +101,12 @@ fn main() {
                               .takes_value(true)
                               .value_name("INT")
                               .help("Length of blocks (in nucleotides) for flow graph construction when using bam file. (default: 15000)")
-                              .help_heading(alg_options))
+                              .help_heading(alg_options)
+                              .display_order(1))
                           .arg(Arg::new("dont_use_mec")
                               .short('u')
                               .help("")
                               .hide(true))
-                          .arg(Arg::new("reference_fasta")
-                              .short('R')
-                              .takes_value(true)
-                              .value_name("FASTA FILE")
-                              .help("Improve calls by realigning onto a reference with alternate alleles.")
-                              .help_heading(basic_options))
                           .arg(Arg::new("verbose")
                               .short('r')
                               .help("Verbose output."))
@@ -115,25 +119,27 @@ fn main() {
                           .arg(Arg::new("use_supplementary")
                               .short('X')
                               .help("Use supplementary alignments (default: don't use).")
-                              .help_heading(basic_options))
+                              .help_heading(input_options))
                           .arg(Arg::new("hybrid")
                               .short('H')
                               .takes_value(true)
                               .value_name("BAM FILE")
-                              .help("Use short aligned short reads to polish long-read SNPs.")
-                              .help_heading(basic_options))
+                              .help("RECOMMENDED: Use short aligned short reads to polish long-read SNPs.")
+                              .help_heading(input_options)
+                              .display_order(1))
                           .arg(Arg::new("reassign_short")
                               .long("reassign-short")
                               .help("Reassign short reads when using the -H option to the best haplotigs. (Default: no reassignment)")
-                              .help_heading(basic_options))
+                              .help_heading(output_options))
                           .arg(Arg::new("do_binning")
                               .long("bin-by-cov")
                               .help("Increase contiguity by binning haplogroups using coverage (testing in progress).")
-                              .help_heading(alg_options))
+                              .help_heading(alg_options)
+                              .display_order(2))
                           .arg(Arg::new("extend_read_clipping")
                               .long("extend-trimming")
                               .help("Trim less carefully against the reference for supplementary reads. May allow downstream assembly of sequences absent from reference with tradeoff for assembly quality. (testing in progress).")
-                              .help_heading(basic_options))
+                              .help_heading(output_options))
                           .arg(Arg::new("use_gaps")
                               .hide(true)
                               .long("use-gaps")
@@ -144,7 +150,7 @@ fn main() {
                               .value_name("LIST OF CONTIGS")
                               .takes_value(true)
                               .help("Phase only contigs in this argument. Usage: -G contig1 contig2 contig3 ...")
-                              .help_heading(basic_options))
+                              .help_heading(input_options))
                           .get_matches();
 
     //Parse command line args.
@@ -205,7 +211,9 @@ fn main() {
         .to_string();
     let snp_density = matches
         .value_of("snp_density")
-        .unwrap_or("0.001").parse::<f64>().unwrap();
+        .unwrap_or("0.001")
+        .parse::<f64>()
+        .unwrap();
 
     if Path::new(&part_out_dir).exists() {
         panic!("Output directory exists; output directory must not be an existing directory");
@@ -282,19 +290,6 @@ fn main() {
     if !bam && !frag {
         panic!("Must input a BAM file.")
     }
-
-    //Only haplotype variants in a certain range : TODO not implemented yet
-    let _range;
-    let _range_string = match matches.value_of("range") {
-        None => {
-            _range = false;
-            "_"
-        }
-        Some(_range_string) => {
-            _range = true;
-            _range_string
-        }
-    };
 
     if bam && frag {
         panic!("If using frag as input, BAM file should not be specified")
@@ -402,7 +397,7 @@ fn main() {
             let length_gn = utils_frags::get_length_gn(&all_frags);
             println!("Length of genome is {} SNPs", length_gn);
             let mut epsilon = 0.04;
-            if hybrid{
+            if hybrid {
                 epsilon = 0.02;
             }
 
@@ -442,7 +437,7 @@ fn main() {
                     max_number_solns,
                     block_length,
                     contig_out_dir.to_string(),
-                    snp_density
+                    snp_density,
                 );
                 let flow_up_vec =
                     graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
@@ -458,7 +453,7 @@ fn main() {
                     contig,
                     block_length,
                     do_binning,
-                    extend_read_clipping
+                    extend_read_clipping,
                 );
             }
             //We don't actually use this code path anymore, but it can be useful for testing purposes.
@@ -505,7 +500,7 @@ fn main() {
                     contig_out_dir.to_string(),
                     &contig,
                     &snp_to_genome_pos,
-                    extend_read_clipping
+                    extend_read_clipping,
                 );
 
                 file_reader::write_blocks_to_file(

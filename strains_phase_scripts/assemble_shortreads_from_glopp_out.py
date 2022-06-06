@@ -2,6 +2,8 @@ import sys
 import subprocess
 import os
 import glob
+from joblib import Parallel, delayed
+
 
 import re
 def sorted_nicely( l ):
@@ -34,7 +36,7 @@ subprocess.run(rm_command, shell=True)
 mkdir_string = f'mkdir {folder}; mkdir {folder}/intermediate'
 subprocess.run(mkdir_string, shell=True)
 
-for i in range(len(fastq_files1)):
+def process(i):
     f1 = fastq_files1[i]
     f2 = fastq_files2[i]
     mkdir_command = f'mkdir {folder}/intermediate/p{i}_output'
@@ -45,17 +47,19 @@ for i in range(len(fastq_files1)):
     output_bam = f'{folder}/assembly_p{i}.bam'
     abyss_contigs = f'{folder}/intermediate/p{i}_output/{i}-contigs.fa'
     abyss_unitigs = f'{folder}/intermediate/p{i}_output/{i}-3.fa'
+    cont = True
     if os.path.isfile(abyss_contigs):
         final_contigs = abyss_contigs
     elif os.path.isfile(abyss_unitigs):
         final_contigs = abyss_unitigs
     else:
-        continue
-    rename_contig_cmd = f'sed -i \'s/>/>{i}_/g\' {final_contigs}'
-    subprocess.run(rename_contig_cmd, shell=True, check=True)
-    minimap_cmd = f'{minimap2_bin} -a {ref} {final_contigs} | samtools sort -o {folder}/intermediate/assembly_p{i}.bam'
-    subprocess.run(minimap_cmd, shell=True, check=True)
-    subprocess.run(f'samtools index {folder}/intermediate/assembly_p{i}.bam', shell=True, check=True)
-
+        cont = False
+    if cont:
+        rename_contig_cmd = f'sed -i \'s/>/>{i}_/g\' {final_contigs}'
+        subprocess.run(rename_contig_cmd, shell=True, check=True)
+        minimap_cmd = f'{minimap2_bin} -a {ref} {final_contigs} | samtools sort -o {folder}/intermediate/assembly_p{i}.bam'
+        subprocess.run(minimap_cmd, shell=True, check=True)
+        subprocess.run(f'samtools index {folder}/intermediate/assembly_p{i}.bam', shell=True, check=True)
+results = Parallel(n_jobs=5)(delayed(process)(i) for i in range(len(fastq_files1)))
 merge_index_cmd = f'samtools merge -f {folder}/all_assemblies.bam {folder}/intermediate/assembly_*.bam; samtools index {folder}/all_assemblies.bam'
 subprocess.run(merge_index_cmd, shell=True, check=True)

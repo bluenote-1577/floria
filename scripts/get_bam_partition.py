@@ -6,6 +6,8 @@ if len(sys.argv) < 2:
     print("USAGE: read_part.txt bamfile.bam prefix_name contig_name")
     exit()
 
+print(sys.argv)
+
 read_part_file = sys.argv[1]
 bam_file = sys.argv[2]
 pref_nam = sys.argv[3]
@@ -34,7 +36,7 @@ for i in range(ploidy):
 file_names.append(pref_nam+"-not_mapped.bam")
 obam_files.append(pysam.AlignmentFile(pref_nam+"-not_mapped.bam", "wb", template=bam))
 
-if len(sys.argv) < 4:
+if len(sys.argv) < 5:
     fetch = bam.fetch(until_eof=True)
 else:
     contig_name = sys.argv[4]
