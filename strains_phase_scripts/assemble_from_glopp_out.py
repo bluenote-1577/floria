@@ -36,7 +36,7 @@ subprocess.run(mkdir_string, shell=True)
 for (i,fastq_file) in enumerate(fastq_files):
     mkdir_command = f'mkdir {folder}/intermediate/p{i}_output'
     subprocess.run(mkdir_command, shell=True)
-    wtdbg2_command = f'{wtdbg2_bin} -x preset2 -i {fastq_file} -o {folder}/intermediate/p{i}_output/p{i} -t 20'
+    wtdbg2_command = f'{wtdbg2_bin} -x preset2 -i {fastq_file} -o {folder}/intermediate/p{i}_output/p{i} -t 20 -e 5 -l1000 -L 3000 -S 1 -R'
     subprocess.run(wtdbg2_command, shell=True, check=True)
     final_contigs = f'{folder}/intermediate/p{i}_output/p{i}_contigs.fa'
     cns_command = f'{wtpoa_bin} -t 20 -i {folder}/intermediate/p{i}_output/p{i}.ctg.lay.gz -fo {final_contigs}'
