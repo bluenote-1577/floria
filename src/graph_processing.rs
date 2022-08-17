@@ -937,7 +937,7 @@ pub fn get_disjoint_paths_rewrite(
         cov_of_haplogroups.push(haplogroup_flow);
     }
 
-    println!("Number of haplotigs/disjoint paths: {}", best_paths.len());
+    println!("Number of haplogroups/disjoint paths: {}", best_paths.len());
 
     //Put read into best haplotig.
     if do_binning{

@@ -1438,7 +1438,7 @@ fn combine_frags(
             for (i, frag) in frags.iter().enumerate() {
                 if frag.0 & supplementary_mask != supplementary_mask {
                     if !primary_alignment_index.is_none() {
-                        panic!("More than one primary alignment for read {}. Only one primary alignment allowed
+                        println!("More than one primary alignment for read {}. Only one primary alignment allowed
                             per read unless paired.", frag.1.id);
                     }
                     primary_alignment_index = Some(i);

@@ -17,7 +17,7 @@ pub fn beam_search_phasing<'a>(
     use_mec: bool,
     use_ref_bias: bool,
 ) -> (FxHashMap<usize, FxHashSet<usize>>, Vec<FxHashSet<&'a Frag>>) {
-    if all_reads.len() == 0{
+    if all_reads.len() == 0 {
         return (FxHashMap::default(), vec![]);
     }
     let mut partition = clique.clone();
@@ -49,7 +49,7 @@ pub fn beam_search_phasing<'a>(
             max_num_soln_mut = ploidy * max_number_solns;
         }
         //        let mut search_node_list_next = vec![];
-        let mut search_node_heap_next = BinaryHeap::new();
+        let mut search_node_heap_next: BinaryHeap<(Rc<SearchNode>, HapBlock)> = BinaryHeap::new();
         let frag = &all_reads[i];
         let mut frag_in_clique = false;
         //If we use the clique construction, we don't
@@ -90,8 +90,11 @@ pub fn beam_search_phasing<'a>(
                         );
                     dist = dist_alt + dist_ref;
                 } else {
-                    let (same, diff) =
-                        utils_frags::distance_read_haplo_epsilon_empty(frag, &block.blocks[part_index], epsilon);
+                    let (same, diff) = utils_frags::distance_read_haplo_epsilon_empty(
+                        frag,
+                        &block.blocks[part_index],
+                        epsilon,
+                    );
                     dist = 1.0
                         * utils_frags::stable_binom_cdf_p_rev(
                             (same + diff) as usize,
@@ -131,24 +134,31 @@ pub fn beam_search_phasing<'a>(
                     for index in broken_blocks_node {
                         new_node.broken_blocks.insert(index);
                     }
-                    let toins = (Rc::new(new_node), new_block);
-                    search_node_heap_next.push(toins);
+                    let mut project_exists = false;
+                    for node in search_node_heap_next.iter() {
+                        if node.1 == new_block && node.0.error_vec <= new_node.error_vec{
+                            project_exists = true;
+                        }
+                    }
+                    if !project_exists {
+                        let toins = (Rc::new(new_node), new_block);
+                        search_node_heap_next.push(toins);
 
-                    if search_node_heap_next.len() > max_num_soln_mut {
-                        search_node_heap_next.pop();
+                        if search_node_heap_next.len() > max_num_soln_mut {
+                            search_node_heap_next.pop();
+                        }
                     }
                 }
             }
         }
 
         let _unused = mem::replace(&mut search_node_heap, search_node_heap_next);
-
     }
 
     let search_node_heap_to_list = search_node_heap.into_sorted_vec();
     let mut node_pointer = &search_node_heap_to_list[0].0;
-//    log::debug!("Partition count: {:?}", node_pointer.freqs);
-//    log::debug!("Best partition score: {}", node_pointer.score);
+    //    log::debug!("Partition count: {:?}", node_pointer.freqs);
+    //    log::debug!("Best partition score: {}", node_pointer.score);
 
     let mut break_positions = FxHashMap::default();
     loop {
