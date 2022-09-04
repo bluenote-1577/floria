@@ -266,7 +266,7 @@ pub fn update_frag(
         if qual <= 255 - 33 {
             frag.qual_string[pair_number as usize] = record.qual().iter().map(|x| x + 33).collect();
         } else {
-            frag.qual_string[pair_number as usize] = record.qual().iter().map(|x| 255).collect();
+            frag.qual_string[pair_number as usize] = record.qual().iter().map(|_x| 255).collect();
         }
     }
     if snp_pos < frag.first_position {

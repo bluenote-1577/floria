@@ -1,5 +1,5 @@
 use crate::alignment;
-use crate::types_structs::{build_frag, update_frag, Frag, HapBlock, VcfProfile, GAP_CHAR};
+use crate::types_structs::{build_frag, Frag, HapBlock, VcfProfile};
 use crate::utils_frags;
 use bio::alphabets::dna::revcomp;
 use bio::io::fasta;
@@ -11,8 +11,6 @@ use debruijn::*;
 use fxhash::{FxHashMap, FxHashSet};
 use rayon::prelude::*;
 use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::header::Header;
-use rust_htslib::bam::HeaderView as HeaderViewBam;
 use rust_htslib::bam::IndexedReader;
 use rust_htslib::bcf::record::GenotypeAllele;
 use rust_htslib::{bam, bam::Read as DUMMY_NAME1};
@@ -24,7 +22,6 @@ use std::fs::OpenOptions;
 use std::io::LineWriter;
 use std::io::Write;
 use std::io::{self, BufRead};
-use std::mem;
 use std::path::Path;
 use std::str;
 use std::sync::Mutex;
@@ -200,289 +197,6 @@ pub fn write_blocks_to_file<P>(
     }
 }
 
-//Given a vcf file and a bam file, we get a vector of frags.
-pub fn get_frags_from_bamvcf<P>(
-    vcf_file: P,
-    bam_file: P,
-    filter_supplementary: bool,
-    use_supplementary: bool,
-) -> FxHashMap<String, Vec<Frag>>
-where
-    P: AsRef<Path>,
-{
-    //Get which SNPS correspond to which positions on the genome.
-    let mut vcf = match bcf::Reader::from_path(vcf_file) {
-        Ok(vcf) => vcf,
-        Err(_) => panic!("rust_htslib had an error reading the VCF file. Exiting."),
-    };
-    let mut snp_counter = 1;
-    let mut vcf_set_of_pos = FxHashMap::default();
-    let mut vcf_pos_allele_map = FxHashMap::default();
-    let mut vcf_pos_to_snp_counter_map = FxHashMap::default();
-    let mut all_set_of_pos = FxHashSet::default();
-    //    let mut set_of_pos = FxHashSet::default();
-    //    let mut pos_allele_map = FxHashMap::default();
-    //    let mut pos_to_snp_counter_map = FxHashMap::default();
-    let vcf_header = vcf.header().clone();
-
-    //    if header.contig_count() > 1 {
-    //        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
-    //    }
-
-    let mut last_ref_chrom: &[u8] = &[];
-    for rec in vcf.records() {
-        let unr = rec.unwrap();
-        let alleles = unr.alleles();
-        let mut al_vec = Vec::new();
-        let mut is_snp = true;
-
-        let record_rid = unr.rid().unwrap();
-        let ref_chrom_vcf = vcf_header.rid2name(record_rid).unwrap();
-        //dbg!(String::from_utf8_lossy(ref_chrom_vcf));
-        if last_ref_chrom != ref_chrom_vcf {
-            snp_counter = 1;
-            last_ref_chrom = ref_chrom_vcf;
-        }
-        let set_of_pos = vcf_set_of_pos
-            .entry(ref_chrom_vcf)
-            .or_insert(FxHashSet::default());
-        let pos_allele_map = vcf_pos_allele_map
-            .entry(ref_chrom_vcf)
-            .or_insert(FxHashMap::default());
-        let pos_to_snp_counter_map = vcf_pos_to_snp_counter_map
-            .entry(ref_chrom_vcf)
-            .or_insert(FxHashMap::default());
-
-        for allele in alleles.iter() {
-            if allele.len() > 1 {
-                is_snp = false;
-                break;
-            }
-            al_vec.push(allele[0]);
-        }
-
-        if !is_snp {
-            //            println!(
-            //                "BAM : Variant at position {} is not a snp. Ignoring.",
-            //                unr.pos()
-            //            );
-            continue;
-        }
-
-        set_of_pos.insert(unr.pos());
-        all_set_of_pos.insert(unr.pos());
-        pos_to_snp_counter_map.insert(unr.pos(), snp_counter);
-        snp_counter += 1;
-        pos_allele_map.insert(unr.pos(), al_vec);
-    }
-
-    //    let mut bam = bam::Reader::from_path(bam_file).unwrap();
-    let mut bam = match bam::Reader::from_path(bam_file) {
-        Ok(bam) => bam,
-        Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting"),
-    };
-
-    //Check the headers to see how many references there are.
-    let header = Header::from_template(bam.header());
-    let bam_header_view = HeaderViewBam::from_header(&header);
-
-    //This may be important : We assume that distinct reads have different names. I can see this
-    //being a problem in some weird bad cases, so be careful.
-    let mut ref_id_to_frag = FxHashMap::default();
-    let mut counter_id = 0;
-
-    //Scan the pileup table for every position on the genome which contains a SNP to get the aligned reads corresponding to the SNP. TODO : There should be a way to index into the bam.pileup() object so we don't have to iterate through positions which we already know are not SNPs.
-    let errors_mask = 1796;
-    let first_in_pair_mask = 64;
-    let second_in_pair_mask = 128;
-    let secondary_mask = 256;
-    let supplementary_mask = 2048;
-    let mapq_supp_cutoff = 60;
-    let mapq_normal_cutoff = 15;
-    for p in bam.pileup() {
-        let pileup = p.unwrap();
-        let pos_genome = pileup.pos();
-
-        if !all_set_of_pos.contains(&(pos_genome as i64)) {
-            continue;
-        }
-
-        for alignment in pileup.alignments() {
-            if !alignment.is_del() && !alignment.is_refskip() {
-                let aln_record = alignment.record();
-                let flags = aln_record.flags();
-                let mapq = aln_record.mapq();
-                let is_paired;
-                let mut pair_number = 0;
-
-                if flags & first_in_pair_mask > 0 {
-                    is_paired = true;
-                } else if flags & second_in_pair_mask > 0 {
-                    is_paired = true;
-                    pair_number = 1;
-                } else {
-                    is_paired = false;
-                }
-
-                if mapq < mapq_normal_cutoff {
-                    continue;
-                }
-
-                //Erroneous alignment, skip
-                if flags & errors_mask > 0 {
-                    //dbg!(&flags,&id_string);
-                    continue;
-                }
-
-                //Secondary alignment, skip
-                if flags & secondary_mask > 0 {
-                    //dbg!(&flags,&id_string);
-                    continue;
-                }
-
-                let is_supp;
-                if flags & supplementary_mask > 0 {
-                    is_supp = true;
-                    //Don't use supplementary paired reads. More complexity, not super worth it
-                    //for now at least.
-                    if !use_supplementary || is_paired {
-                        continue;
-                    }
-                    if filter_supplementary {
-                        if mapq < mapq_supp_cutoff {
-                            continue;
-                        }
-                    }
-                } else {
-                    is_supp = false;
-                }
-
-                //                println!("{}-{}-{}",&alignment.record().seq().len(), flags , &id_string);
-                //
-
-                let tid = aln_record.tid();
-                let ref_chrom = bam_header_view.tid2name(tid as u32);
-                //dbg!(String::from_utf8_lossy(ref_chrom));
-                let get_ref_chrom = vcf_pos_to_snp_counter_map.get(ref_chrom);
-
-                let pos_to_snp_counter_map = match get_ref_chrom {
-                    Some(pos_to_snp_counter_map) => pos_to_snp_counter_map,
-                    None => continue,
-                };
-
-                if pos_to_snp_counter_map.contains_key(&(pos_genome as i64)) == false {
-                    continue;
-                }
-                let id_string = String::from_utf8(aln_record.qname().to_vec()).unwrap();
-                let id_to_frag = ref_id_to_frag
-                    .entry(ref_chrom)
-                    .or_insert(FxHashMap::default());
-
-                let snp_id = pos_to_snp_counter_map.get(&(pos_genome as i64)).unwrap();
-                let id_string2 = id_string.clone();
-
-                if !id_to_frag.contains_key(&id_string) {
-                    counter_id += 1;
-                }
-
-                let readbase = alignment.record().seq()[alignment.qpos().unwrap()];
-                let qualbase = alignment.record().qual()[alignment.qpos().unwrap()];
-
-                for (i, allele) in vcf_pos_allele_map
-                    .get(ref_chrom)
-                    .unwrap()
-                    .get(&(pos_genome as i64))
-                    .unwrap()
-                    .iter()
-                    .enumerate()
-                {
-                    //Only build the frag if the base is one of the SNP alleles.
-                    if readbase == *allele {
-                        let mut frag;
-                        if id_to_frag.contains_key(&id_string2) {
-                            frag = id_to_frag.get_mut(&id_string2).unwrap();
-                        } else {
-                            frag = id_to_frag
-                                .entry(id_string2)
-                                .or_insert(build_frag(id_string, counter_id, is_paired));
-                        }
-                        //                        let mut frag = id_to_frag.entry(id_string2).or_insert(build_frag(
-                        //                            id_string,
-                        //                            counter_id,
-                        //                            supp_aln,
-                        //                            alignment.record().seq().as_bytes(),
-                        //                            alignment.record().qual().to_vec(),
-                        //                        ));
-                        update_frag(
-                            &mut frag,
-                            i,
-                            *snp_id,
-                            qualbase,
-                            pair_number,
-                            is_supp,
-                            &aln_record,
-                            alignment.qpos().unwrap(),
-                        );
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    let mut ref_vec_frags = FxHashMap::default();
-    let mut keys = FxHashSet::default();
-    for ref_chrom in ref_id_to_frag.keys() {
-        ref_vec_frags.insert(String::from_utf8(ref_chrom.to_vec()).unwrap(), Vec::new());
-        keys.insert(ref_chrom.clone());
-    }
-    for ref_chrom in keys {
-        let vec_frags = ref_vec_frags
-            .get_mut(&String::from_utf8(ref_chrom.to_vec()).unwrap())
-            .unwrap();
-        let id_to_frag = ref_id_to_frag.get_mut(ref_chrom).unwrap();
-        let id_to_frag = mem::replace(id_to_frag, FxHashMap::default());
-        for (_id, frag) in id_to_frag.into_iter() {
-            //IMPORTANT: I'm turning this off for metagenomics because some fragments may only
-            //index one read. However, this is still useful because we don't know ploidy info.
-            let mut prev_pos = frag.first_position;
-            for pos in frag.first_position + 1..frag.last_position {
-                if !frag.positions.contains(&pos) && (pos - prev_pos < 100) {
-                    //random number. TODO TESTING GAPS IN FRAGMENTS
-                    //                                        frag.seq_dict.insert(pos, 9);
-                    //                                        frag.qual_dict.insert(pos, 7);
-                    //                                        frag.positions.insert(pos);
-                }
-                prev_pos = pos;
-            }
-            if frag.positions.len() > 0 {
-                vec_frags.push(frag);
-            }
-        }
-    }
-
-    //Think this was for debugging?
-    for vec in ref_vec_frags.values() {
-        for frag in vec.iter() {
-            let mut vec_snp_seq: Vec<(usize, usize)> = frag
-                .snp_pos_to_seq_pos
-                .iter()
-                .map(|(x, y)| (*x, y.1))
-                .collect();
-            vec_snp_seq.sort();
-            let mut prev_seq_pos = 0;
-            for item in vec_snp_seq.iter() {
-                if prev_seq_pos > item.1 {
-                    //dbg!(&vec_snp_seq, &frag.id);
-                    //                    panic!();
-                }
-                prev_seq_pos = item.1;
-            }
-        }
-    }
-
-    ref_vec_frags
-}
 
 //Read a vcf file to get the genotypes. We read genotypes into a dictionary of keypairs where the
 //keys are positions, and the values are dictionaries which encode the genotypes. E.g. the genotype
@@ -1242,7 +956,7 @@ pub fn get_frags_from_bamvcf_rewrite(
     use_supplementary: bool,
     chrom_seqs: &FxHashMap<String, Vec<u8>>,
     contig: &str,
-    use_gaps: bool,
+    _use_gaps: bool,
 ) -> Vec<Frag>
 where
 {
@@ -1504,7 +1218,7 @@ fn frag_from_record(
     let paired =
         (record.flags() & first_in_pair_mask > 0) || (record.flags() & second_in_pair_mask > 0);
     let aligned_pairs = record.aligned_pairs_full();
-    let mut last_read_aligned_pos = 0;
+    let mut _last_read_aligned_pos = 0;
     let mut frag = build_frag(
         String::from_utf8(record.qname().to_vec()).unwrap(),
         counter_id,
@@ -1521,7 +1235,7 @@ fn frag_from_record(
         let genome_pos = pair[1].unwrap();
         if !snp_positions.contains_key(&genome_pos) {
             if !pair[0].is_none() {
-                last_read_aligned_pos = pair[0].unwrap();
+                _last_read_aligned_pos = pair[0].unwrap();
             }
             continue;
         } else {
