@@ -1,15 +1,11 @@
 extern crate time;
-use clap::{App, AppSettings, Arg, Command};
+use clap::{AppSettings, Arg, Command};
 use flopp::file_reader;
-use flopp::global_clustering;
 use flopp::graph_processing;
-use flopp::local_clustering;
-use flopp::types_structs::Frag;
 use flopp::types_structs::VcfProfile;
 use flopp::utils_frags;
 use fxhash::FxHashMap;
 use std::env;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -38,7 +34,7 @@ fn main() {
                               .takes_value(true)
                               .help_heading(mandatory_options)
                               .display_order(1))
-                          .arg(Arg::new("vcf no polish")
+                          .arg(Arg::new("vcf")
                               .short('c')
                               .value_name("VCF FILE")
                               .required(true)
@@ -52,12 +48,6 @@ fn main() {
                               .help("RECOMMENDED: Improve calls by realigning onto a reference with alternate alleles.")
                               .help_heading(input_options)
                               .display_order(1))
-                          .arg(Arg::new("vcf")
-                               .short('v')
-                               .help("Input a VCF: Mandatory if using BAM file; Enables genotype polishing if using frag file.")
-                               .value_name("FILE")
-                               .takes_value(true)
-                               .hide(true))
                           .arg(Arg::new("ploidy") //Useful for testing. 
                               .short('p')
                               .help("Ploidy of organism. If not given, glopp will estimate the ploidy.")
@@ -162,13 +152,6 @@ fn main() {
         Err(_) => panic!("Number of threads must be positive integer"),
     };
 
-    let mut estimate_ploidy = false;
-    let large_numb = 300;
-    let ploidy = matches.value_of("ploidy").unwrap_or("300");
-    let ploidy = ploidy.parse::<usize>().unwrap();
-    if ploidy == large_numb {
-        estimate_ploidy = true;
-    }
     let hybrid = matches.is_present("hybrid");
     let reassign_short = matches.is_present("reassign_short");
     let do_binning = matches.is_present("do_binning");
@@ -184,9 +167,7 @@ fn main() {
     let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
     let block_length = block_length.parse::<usize>().unwrap();
     //    let use_mec = matches.is_present("use_mec");
-    let use_mec = true;
     let reference_fasta = matches.value_of("reference_fasta").unwrap_or("");
-    let use_ref_bias = false;
     let filter_supplementary = true;
     let use_supplementary = matches.is_present("use_supplementary");
     let use_gaps = matches.is_present("use_gaps");
@@ -252,40 +233,7 @@ fn main() {
         }
     };
 
-    //Whether or not we polish using genotyping information from VCF.
-    let vcf;
-    let mut vcf_file = match matches.value_of("vcf") {
-        None => {
-            vcf = false;
-            "_"
-        }
-        Some(_vcf_file) => {
-            panic!("Don't allow -v option for now.");
-            vcf = true;
-            _vcf_file
-        }
-    };
-
-    //Use a VCF without polishing.
-    let vcf_nopolish;
-    let vcf_file_nopolish = match matches.value_of("vcf no polish") {
-        None => {
-            vcf_nopolish = false;
-            "_"
-        }
-        Some(vcf_file_nopolish) => {
-            vcf_nopolish = true;
-            vcf_file_nopolish
-        }
-    };
-
-    if vcf_nopolish {
-        vcf_file = vcf_file_nopolish;
-    }
-
-    if vcf_nopolish && vcf {
-        panic!("Only use one of the VCF options. -c if diploid VCF or choosing to polish, -v otherwise.\n");
-    }
+    let vcf_file = matches.value_of("vcf").unwrap();
 
     if !bam && !frag {
         panic!("Must input a BAM file.")
@@ -293,10 +241,6 @@ fn main() {
 
     if bam && frag {
         panic!("If using frag as input, BAM file should not be specified")
-    }
-
-    if bam && (!vcf && !vcf_nopolish) {
-        panic!("Must input VCF file if using BAM file");
     }
 
     rayon::ThreadPoolBuilder::new()
@@ -314,30 +258,25 @@ fn main() {
     }
     println!("Read BAM header successfully.");
 
-    let mut snp_to_genome_pos_map: FxHashMap<String, Vec<usize>> = FxHashMap::default();
     let mut chrom_seqs = FxHashMap::default();
-    let mut vcf_profile = VcfProfile::default();
-    if vcf || vcf_nopolish {
-        let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
-            file_reader::get_genotypes_from_vcf_hts(vcf_file);
-        snp_to_genome_pos_map = snp_to_genome_pos_t;
-        vcf_profile = file_reader::get_vcf_profile(&vcf_file, &contigs_to_phase);
-        println!("Read VCF successfully.");
-    }
+    let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
+        file_reader::get_genotypes_from_vcf_hts(vcf_file);
+    let snp_to_genome_pos_map = snp_to_genome_pos_t;
+    let vcf_profile = file_reader::get_vcf_profile(&vcf_file, &contigs_to_phase);
+    println!("Read VCF successfully.");
     if reference_fasta != "" {
         chrom_seqs = file_reader::get_fasta_seqs(&reference_fasta);
         println!("Read reference fasta successfully.");
     }
     println!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
-    let first_iter = true;
     for contig in contigs_to_phase.iter() {
         if !list_to_phase.contains(&&contig[..]) && !list_to_phase.is_empty() {
             continue;
         } else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
-            || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 500
+            || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 100
         {
-            println!(
+            log::trace!(
                 "Contig {} not present or has < 500 variants. Continuing",
                 contig
             );
@@ -381,7 +320,8 @@ fn main() {
 
             //We need frags sorted by first position to make indexing easier. We want the
             //counter_id to reflect the position in the vector.
-            all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+            all_frags.sort();
+//            all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
             for (i, frag) in all_frags.iter_mut().enumerate() {
                 frag.counter_id = i;
             }
@@ -391,7 +331,6 @@ fn main() {
             println!("Median read length is {} SNPs", avg_read_length);
 
             //let cutoff_value = (1.0 / (ploidy + 1) as f64).ln();
-            let cutoff_value = f64::MIN;
 
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
@@ -408,7 +347,8 @@ fn main() {
                 let ff_sf = utils_frags::hybrid_correction(all_frags);
                 final_frags = ff_sf.0;
                 short_frags = ff_sf.1;
-                final_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+//                final_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+                final_frags.sort();
                 for (i, frag) in final_frags.iter_mut().enumerate() {
                     frag.counter_id = i;
                 }
@@ -425,95 +365,35 @@ fn main() {
 
             println!("Epsilon is {}", epsilon);
 
-            if estimate_ploidy {
-                let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
-                let num_locs = num_locs_string.parse::<usize>().unwrap();
-                let mut hap_graph = graph_processing::generate_hap_graph(
-                    length_gn,
-                    num_locs,
-                    &final_frags,
-                    epsilon,
-                    &snp_to_genome_pos,
-                    max_number_solns,
-                    block_length,
-                    contig_out_dir.to_string(),
-                    snp_density,
-                );
-                let flow_up_vec =
-                    graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
-                graph_processing::get_disjoint_paths_rewrite(
-                    &mut hap_graph,
-                    flow_up_vec,
-                    epsilon,
-                    contig_out_dir.to_string(),
-                    &snp_to_genome_pos,
-                    &short_frags,
-                    reassign_short,
-                    &vcf_profile,
-                    contig,
-                    block_length,
-                    do_binning,
-                    extend_read_clipping,
-                );
-            }
-            //We don't actually use this code path anymore, but it can be useful for testing purposes.
-            else {
-                println!("Ploidy is {}", ploidy);
-                //Phasing occurs here
-                let start_t = Instant::now();
-                let initial_part;
-                //If first_pos = last_pos, then the initial_part is empty and we rely on the beam
-                //search to determine the correct initial partition.
-                let first_pos = 1;
-                let last_pos = 1;
-                initial_part = global_clustering::get_initial_clique(
-                    &final_frags,
-                    ploidy,
-                    epsilon,
-                    first_pos,
-                    last_pos,
-                );
-                let binom_factor = 1.;
-                let all_frags_refs: Vec<&Frag> = final_frags.iter().collect();
-                let (break_positions, final_part) = global_clustering::beam_search_phasing(
-                    initial_part,
-                    &all_frags_refs,
-                    epsilon,
-                    binom_factor,
-                    cutoff_value,
-                    max_number_solns,
-                    use_mec,
-                    use_ref_bias,
-                );
-                println!("Time taken for phasing {:?}", Instant::now() - start_t);
-
-                let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
-                let (f_binom_vec, f_freq_vec) =
-                    local_clustering::get_partition_stats(&final_part, &final_block_unpolish);
-                let final_score =
-                    -1.0 * local_clustering::get_mec_score(&f_binom_vec, &f_freq_vec, 0.0, 0.0);
-                println!("Final MEC score for the partition is {:?}.", final_score);
-
-                file_reader::write_output_partition_to_file(
-                    &final_part,
-                    &vec![],
-                    contig_out_dir.to_string(),
-                    &contig,
-                    &snp_to_genome_pos,
-                    extend_read_clipping,
-                );
-
-                file_reader::write_blocks_to_file(
-                    contig_out_dir.to_string(),
-                    &vec![final_block_unpolish],
-                    &vec![length_gn],
-                    &snp_to_genome_pos,
-                    &final_part,
-                    first_iter,
-                    &contig,
-                    &break_positions,
-                );
-            }
+            let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
+            let num_locs = num_locs_string.parse::<usize>().unwrap();
+            let mut hap_graph = graph_processing::generate_hap_graph(
+                length_gn,
+                num_locs,
+                &final_frags,
+                epsilon,
+                &snp_to_genome_pos,
+                max_number_solns,
+                block_length,
+                contig_out_dir.to_string(),
+                snp_density,
+            );
+            let flow_up_vec =
+                graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
+            graph_processing::get_disjoint_paths_rewrite(
+                &mut hap_graph,
+                flow_up_vec,
+                epsilon,
+                contig_out_dir.to_string(),
+                &snp_to_genome_pos,
+                &short_frags,
+                reassign_short,
+                &vcf_profile,
+                contig,
+                block_length,
+                do_binning,
+                extend_read_clipping,
+            );
         }
     }
 }

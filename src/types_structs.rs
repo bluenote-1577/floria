@@ -26,6 +26,7 @@ pub struct TraceBackNode {
 }
 //Positions are inclusive
 #[derive(Eq, Debug, Clone, Default)]
+                //Circularity weirdness. Throw away these reads, unfortunately, for now.
 pub struct Frag {
     pub id: String,
     pub counter_id: usize,
@@ -38,6 +39,18 @@ pub struct Frag {
     pub qual_string: Vec<Vec<u8>>, //Needs to be PHRED scaled i.e. +33 from value
     pub is_paired: bool,
     pub snp_pos_to_seq_pos: FxHashMap<SnpPosition, (u8, GnPosition)>,
+}
+
+impl Ord for Frag{
+    fn cmp(&self, other: &Frag) -> Ordering {
+        return (self.first_position,self.last_position,self.counter_id).cmp(&(other.first_position,other.last_position,other.counter_id));
+    }
+}
+
+impl PartialOrd for Frag{
+    fn partial_cmp(&self, other: &Frag) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Hash for Frag {
