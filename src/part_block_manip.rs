@@ -247,7 +247,6 @@ pub fn bin_haplogroups<'a>(
     block_len: usize,
 ) -> (Vec<(usize, usize)>, Vec<FxHashSet<&'a Frag>>) {
     use statrs::distribution::{Discrete, Poisson};
-    use statrs::statistics::Distribution;
 
     fn overlap(x1: usize, x2: usize, y1: usize, y2: usize) -> bool {
         if x2 > y1 && x2 < y2 {
@@ -310,7 +309,6 @@ pub fn bin_haplogroups<'a>(
     assert!(parts.len() == cov_of_haplogroups.len());
     assert!(parts.len() == snp_endpoints.len());
     let snp_to_gn_pos = &vcf_profile.vcf_snp_pos_to_gn_pos_map[contig];
-    let gn_to_snp_pos = &vcf_profile.vcf_pos_to_snp_counter_map[contig];
 
     let mut clusters = vec![];
     let mut none_clusters = vec![];

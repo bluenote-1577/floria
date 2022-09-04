@@ -194,7 +194,7 @@ fn read_to_node_value(
     part_index: usize,
     epsilon: f64,
     _div_factor: f64,
-    use_mec: bool,
+    _use_mec: bool,
 ) -> (f64, Vec<(f64, f64)>) {
     let ploidy = block.blocks.len();
     //    let (same, diff) = utils_frags::distance_read_haplo(frag, &block.blocks[part_index]);
@@ -208,22 +208,12 @@ fn read_to_node_value(
             new_error_vec.push(node.error_vec[i]);
         }
     }
-    if use_mec {
-        let mec: f64 = new_error_vec.iter().map(|x| x.1).sum();
-        return (
-            -1.0 * mec,
-            //            local_clustering::get_mec_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
-            new_error_vec,
-        );
-    } else {
-        let _mec: f64 = new_error_vec.iter().map(|x| x.1).sum();
-        panic!("Don't allow PEM for now");
-        return (
-            -1.0 * _mec,
-            //            local_clustering::get_pem_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
-            new_error_vec,
-        );
-    }
+    let mec: f64 = new_error_vec.iter().map(|x| x.1).sum();
+    return (
+        -1.0 * mec,
+        //            local_clustering::get_mec_score(&new_error_vec, &vec![0; 1], epsilon, div_factor),
+        new_error_vec,
+    );
 }
 
 pub fn get_read_graph<'a>(

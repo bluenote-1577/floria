@@ -301,17 +301,26 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.1.8"
+version = "3.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71c47df61d9e16dc010b55dba1952a57d8c215dbb533fd13cdd13369aac73b1c"
+checksum = "23b71c3ce99b7611011217b366d923f1d0a7e07a92bb2dbf1e84508c673ca3bd"
 dependencies = [
  "atty",
  "bitflags",
+ "clap_lex",
  "indexmap",
- "os_str_bytes",
  "strsim 0.10.0",
  "termcolor",
  "textwrap 0.15.0",
+]
+
+[[package]]
+name = "clap_lex"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"
+dependencies = [
+ "os_str_bytes",
 ]
 
 [[package]]
@@ -535,34 +544,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1267f4ac4f343772758f7b1bdcbe767c218bbab93bb432acbf5162bbf85a6c4"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "flopp"
-version = "0.1.0"
-dependencies = [
- "assert_cmd",
- "bio",
- "bio-types",
- "block-aligner",
- "clap 3.1.8",
- "debruijn",
- "fxhash",
- "highs",
- "itertools",
- "log",
- "permute",
- "petgraph",
- "predicates 1.0.8",
- "rand",
- "rand_core",
- "rand_pcg",
- "rayon",
- "rust-htslib",
- "rust-lapper",
- "simple_logger",
- "statrs",
- "time",
 ]
 
 [[package]]
@@ -1041,12 +1022,9 @@ dependencies = [
 
 [[package]]
 name = "os_str_bytes"
-version = "6.0.0"
+version = "6.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e22443d1643a904602595ba1cd8f7d896afe56d26712531c5ff73a15b2fbf64"
-dependencies = [
- "memchr",
-]
+checksum = "9ff7415e9ae3fff1225851df9e0d9e4e5479f947619774677a63572e55e80eff"
 
 [[package]]
 name = "paste"
@@ -1401,6 +1379,34 @@ dependencies = [
  "itoa 1.0.1",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "sheaf"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "bio",
+ "bio-types",
+ "block-aligner",
+ "clap 3.2.20",
+ "debruijn",
+ "fxhash",
+ "highs",
+ "itertools",
+ "log",
+ "permute",
+ "petgraph",
+ "predicates 1.0.8",
+ "rand",
+ "rand_core",
+ "rand_pcg",
+ "rayon",
+ "rust-htslib",
+ "rust-lapper",
+ "simple_logger",
+ "statrs",
+ "time",
 ]
 
 [[package]]

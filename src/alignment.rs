@@ -1,6 +1,4 @@
 use crate::types_structs::Frag;
-use block_aligner::cigar::Operation;
-use block_aligner::cigar::*;
 use block_aligner::scan_block::*;
 use block_aligner::scores::*;
 use fxhash::FxHashMap;

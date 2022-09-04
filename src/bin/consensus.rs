@@ -1,10 +1,12 @@
 extern crate time;
+#[allow(deprecated)]
 use clap::{App, AppSettings, Arg};
-use flopp::file_reader;
-use flopp::local_clustering;
-use flopp::types_structs::Frag;
-use flopp::utils_frags;
+use sheaf::file_reader;
+use sheaf::local_clustering;
+use sheaf::types_structs::Frag;
+use sheaf::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
+#[allow(deprecated)]
 fn main() {
     let matches = App::new("glopp")
         .version("0.1.0")
@@ -104,7 +106,7 @@ fn main() {
     let mut snp_to_genome_pos_map: FxHashMap<String, Vec<usize>> = FxHashMap::default();
 
     if vcf {
-        let (snp_to_genome_pos_t, _genotype_dict_t, vcf_ploidy) =
+        let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
             file_reader::get_genotypes_from_vcf_hts(vcf_file);
         snp_to_genome_pos_map = snp_to_genome_pos_t;
 
@@ -125,7 +127,6 @@ fn main() {
     for bam_file in bam_files {
         let contigs_to_phase = file_reader::get_contigs_to_phase(&bam_file);
         let vcf_profile = file_reader::get_vcf_profile(&vcf_file, &contigs_to_phase);
-        //                let all_frags_map = file_reader::get_frags_from_bamvcf(vcf_file, bam_file, true, true);
 
         for contig in contigs_to_phase.iter() {
             let bam_fragments = file_reader::get_frags_from_bamvcf_rewrite(

@@ -1,9 +1,8 @@
 extern crate time;
 use clap::{AppSettings, Arg, Command};
-use flopp::file_reader;
-use flopp::graph_processing;
-use flopp::types_structs::VcfProfile;
-use flopp::utils_frags;
+use sheaf::file_reader;
+use sheaf::graph_processing;
+use sheaf::utils_frags;
 use fxhash::FxHashMap;
 use std::env;
 use std::fs::File;
@@ -11,6 +10,7 @@ use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 
+#[allow(deprecated)]
 fn main() {
     let input_options = "INPUT";
     let output_options = "OUTPUT";

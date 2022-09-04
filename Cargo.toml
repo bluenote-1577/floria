@@ -1,5 +1,5 @@
 [package]
-name = "flopp"
+name = "sheaf"
 version = "0.1.0"
 authors = ["jim <jimshawster@gmail.com>"]
 edition = "2018"
@@ -16,7 +16,7 @@ rand="*"
 rand_pcg="*"
 rand_core="*"
 rust-htslib="*"
-clap = "*"
+clap = "3"
 debruijn = "*"
 simple_logger="*"
 log="*"
