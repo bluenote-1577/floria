@@ -1,13 +1,14 @@
 use crate::file_reader;
+use crate::part_block_manip;
 use crate::global_clustering;
 use crate::local_clustering;
 use crate::types_structs::{Frag, HapNode, TraceBackNode, VcfProfile};
 use crate::utils_frags;
+use crate::constants;
 use fxhash::{FxHashMap, FxHashSet};
 use highs::{RowProblem, Sense};
 use rayon::prelude::*;
 use std::sync::Mutex;
-use std::time::Instant;
 //use osqp::{CscMatrix, Problem, Settings};
 use petgraph::algo;
 use petgraph::dot::Dot;
@@ -16,53 +17,11 @@ use std::fs::File;
 use std::io::Write;
 use std::mem;
 
-//Not using osqp anymore.
-
-//pub fn entry_list_to_csc<'a>(
-//    mut entry_list: Vec<(usize, usize, f64)>,
-//    ncols: usize,
-//    nrows: usize,
-//) -> CscMatrix<'a> {
-//    //Traverse each column first
-//
-//    let mut indptr = vec![];
-//    let mut indices = vec![];
-//    let mut data = vec![];
-//    entry_list.sort_by(|x, y| x.0.cmp(&y.0));
-//    let mut current_col = usize::MAX;
-//    for entry in entry_list {
-//        let col_id = entry.0;
-//        if col_id != current_col {
-//            if current_col == usize::MAX {
-//                current_col = 0;
-//                indptr.push(0);
-//            }
-//            for _i in current_col..col_id {
-//                indptr.push(data.len());
-//            }
-//            current_col = col_id;
-//        }
-//        let row_id = entry.1;
-//        let val = entry.2;
-//        indices.push(row_id);
-//        data.push(val);
-//    }
-//    indptr.push(data.len());
-//
-//    CscMatrix {
-//        nrows: nrows,
-//        ncols: ncols,
-//        indptr: indptr.into(),
-//        indices: indices.into(),
-//        data: data.into(),
-//    }
-//}
-
 type FlowUpVec = Vec<((usize, usize), (usize, usize), f64)>;
 
-pub fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
+fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
     //    let pseudo_count = 10.;
-    let cutoff_val = 3.0;
+    let cutoff_val = constants::MIN_SHARED_READS_UNAMBIG;
     let mut out_edges_block_hap = vec![];
     for i in 0..hap_graph.len() - 1 {
         let mut out_edges_block = vec![];
@@ -71,7 +30,7 @@ pub fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
         for hap_node1 in hap_block1 {
             let mut out_weights = vec![0.0; hap_block2.len()];
             //We have to make sure that ambiguous reads do not
-            //get accounted for.
+            //get accounted for. For short reads, this is important.
             for read in hap_node1.frag_set.iter() {
                 let mut read_to_hap_sim = vec![];
                 let mut hap_id_in = usize::MAX;
@@ -142,7 +101,7 @@ pub fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
 }
 
 pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> FlowUpVec {
-    let flow_cutoff = 3.0;
+    let flow_cutoff = constants::MIN_SHARED_READS_UNAMBIG;
     let mut ae = vec![];
 
     //LP values
@@ -340,7 +299,7 @@ fn get_local_hap_blocks<'a>(
     glopp_out_dir: &str,
     j: usize,
     random_vec: &Vec<(usize, usize)>,
-) -> Vec<Vec<HapNode<'a>>> {
+) -> Option<Vec<Vec<HapNode<'a>>>> {
     let ploidy_start = 1;
     let ploidy_end = 6;
     let error_rate = epsilon;
@@ -358,7 +317,7 @@ fn get_local_hap_blocks<'a>(
     );
     let mut best_ploidy = ploidy_start;
     if reads.is_empty() {
-        return vec![];
+        return None;
     }
     for ploidy in ploidy_start..ploidy_end {
         best_ploidy = ploidy;
@@ -372,9 +331,9 @@ fn get_local_hap_blocks<'a>(
             vec![FxHashSet::default(); ploidy],
             &vec_reads_own,
             epsilon,
-            0.05,
+            constants::DIV_FACTOR,
             //            f64::MIN,
-            0.0001_f64.ln(),
+            constants::PROB_CUTOFF.ln(),
             max_number_solns,
             true,
             false,
@@ -388,7 +347,9 @@ fn get_local_hap_blocks<'a>(
             utils_frags::split_part_using_breaks(&break_pos, &optimized_part, &all_frags);
         let endpoints;
         if j != 0 {
-            endpoints = (random_vec[j - 1].1 + 1, random_vec[j].1 + 1);
+            //I feel like this is wrong, so I changed it. TODO
+            //endpoints = (random_vec[j - 1].1 + 1, random_vec[j].1 + 1);
+            endpoints = (random_vec[j].0 + 1, random_vec[j].1 + 1);
         } else {
             endpoints = (random_vec[j].0 + 1, random_vec[j].1 + 1);
         }
@@ -396,7 +357,8 @@ fn get_local_hap_blocks<'a>(
             merge_split_parts(split_part, break_pos, endpoints);
         //            let block = utils_frags::hap_block_from_partition(&optimized_part);
         //            let (binom_vec, _freq_vec) = local_clustering::get_partition_stats(&part, &block);
-        let binom_vec = local_clustering::get_mec_stats_epsilon(&optimized_part, &block, epsilon, false);
+        let binom_vec =
+            local_clustering::get_mec_stats_epsilon(&optimized_part, &block, epsilon, false);
         for (good, bad) in binom_vec {
             mec_vector[ploidy - ploidy_start] += bad;
             num_alleles += good;
@@ -467,6 +429,9 @@ fn get_local_hap_blocks<'a>(
     let best_endpoints = mem::take(&mut endpoints_vector[best_ploidy - ploidy_start]);
     let local_part_dir = format!("{}/local_parts/", glopp_out_dir);
     let mut hap_node_blocks = vec![];
+    if best_ploidy == 1{
+        return None;
+    }
 
     for (l, best_part) in best_parts.iter().enumerate() {
         let mut hap_node_block = vec![];
@@ -487,11 +452,11 @@ fn get_local_hap_blocks<'a>(
             local_part_dir.clone(),
             &format!("{}-{}-{}-{}", j, l, random_vec[j].0, best_ploidy),
             &snp_to_genome_pos,
-            false
+            false,
         );
     }
 
-    return hap_node_blocks;
+    return Some(hap_node_blocks);
 }
 
 fn process_chunks(mut chunks: Vec<(usize, Vec<Vec<HapNode>>)>) -> Vec<Vec<HapNode>> {
@@ -522,7 +487,7 @@ pub fn generate_hap_graph<'a>(
     max_number_solns: usize,
     block_length: usize,
     glopp_out_dir: String,
-    minimal_density: f64
+    minimal_density: f64,
 ) -> Vec<Vec<HapNode<'a>>> {
     let using_bam;
     //Using frags instead of bam
@@ -540,8 +505,12 @@ pub fn generate_hap_graph<'a>(
         }
     } else {
         //        iter_vec = (0..num_blocks).step_by(num_blocks / num_iters).collect();
-        iter_vec =
-            utils_frags::get_range_with_lengths(snp_to_genome_pos, block_length, block_length / 3, minimal_density);
+        iter_vec = utils_frags::get_range_with_lengths(
+            snp_to_genome_pos,
+            block_length,
+            block_length / 3,
+            minimal_density,
+        );
     }
 
     let interval_vec = iter_vec[0..iter_vec.len()].to_vec();
@@ -552,16 +521,6 @@ pub fn generate_hap_graph<'a>(
         .collect::<Vec<usize>>()
         .into_par_iter()
         .for_each(|j| {
-            //    for j in 0..random_vec.len() {
-            //            if j % 1 == 0 {
-            //                println!(
-            //                    "Iteration {}/{}, SNP coords {} ",
-            //                    j,
-            //                    random_vec.len(),
-            //                    random_vec[j].1
-            //                );
-            //            }
-
             let block_chunk = get_local_hap_blocks(
                 num_blocks,
                 num_iters,
@@ -574,15 +533,22 @@ pub fn generate_hap_graph<'a>(
                 j,
                 &interval_vec,
             );
-
-            let mut locked = block_chunks.lock().unwrap();
-            locked.push((j, block_chunk));
+            //If the ploidy is 1, we return nothing. 
+            if !block_chunk.is_none(){
+                let mut locked = block_chunks.lock().unwrap();
+                locked.push((j, block_chunk.unwrap()));
+            }
         });
 
     let block_chunks = block_chunks.into_inner().unwrap();
     let mut hap_node_blocks = process_chunks(block_chunks);
     println!("Phasing done");
-    update_hap_graph(&mut hap_node_blocks);
+    if hap_node_blocks.is_empty(){
+        return vec![];
+    }
+    else{
+        update_hap_graph(&mut hap_node_blocks);
+    }
     hap_node_blocks
 }
 
@@ -686,7 +652,7 @@ pub fn get_disjoint_paths_rewrite(
     contig: &str,
     block_len: usize,
     do_binning: bool,
-    extend_read_clipping: bool
+    extend_read_clipping: bool,
 ) {
     let flow_cutoff = 3.0;
     let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
@@ -940,8 +906,8 @@ pub fn get_disjoint_paths_rewrite(
     println!("Number of haplogroups/disjoint paths: {}", best_paths.len());
 
     //Put read into best haplotig.
-    if do_binning{
-        let (binned_path_parts_snp_endspoints, binned_all_joined_path_parts) = bin_haplogroups(
+    if do_binning {
+        let (binned_path_parts_snp_endspoints, binned_all_joined_path_parts) = part_block_manip::bin_haplogroups(
             &all_joined_path_parts,
             &path_parts_snp_endspoints,
             &cov_of_haplogroups,
@@ -953,24 +919,23 @@ pub fn get_disjoint_paths_rewrite(
         path_parts_snp_endspoints = binned_path_parts_snp_endspoints;
     }
 
-    process_reads_for_final_parts(
+    part_block_manip::process_reads_for_final_parts(
         &mut all_joined_path_parts,
         epsilon,
         short_frags,
-        &path_parts_snp_endspoints,
+        &mut path_parts_snp_endspoints,
         reassign_short,
     );
 
-    
     let glopp_out_dir_copy = glopp_out_dir.clone();
-    let path_parts_snps_endpoints_copy = path_parts_snp_endspoints.clone();
+    let _path_parts_snps_endpoints_copy = path_parts_snp_endspoints.clone();
     file_reader::write_output_partition_to_file(
         &all_joined_path_parts,
         &path_parts_snp_endspoints,
         glopp_out_dir,
         &format!("all"),
         &snp_to_genome_pos,
-        extend_read_clipping
+        extend_read_clipping,
     );
 
     let mut path_debug_file =
@@ -978,256 +943,11 @@ pub fn get_disjoint_paths_rewrite(
     for (i, path) in best_pathscolrow.iter().enumerate() {
         writeln!(path_debug_file, "{}", i).unwrap();
         writeln!(path_debug_file, "{:?}", path).unwrap();
-//        writeln!(path_debug_file, "{:?}", path_parts_snps_endpoints_copy[i]).unwrap();
+        //        writeln!(path_debug_file, "{:?}", path_parts_snps_endpoints_copy[i]).unwrap();
         writeln!(path_debug_file, "{:?}", cov_of_haplogroups[i]).unwrap();
     }
 }
 
-fn process_reads_for_final_parts<'a>(
-    all_joined_path_parts: &mut Vec<FxHashSet<&'a Frag>>,
-    epsilon: f64,
-    short_frags: &'a Vec<Frag>,
-    snp_range_parts_vec: &Vec<(usize, usize)>,
-    reassign_short: bool,
-) {
-    let mut all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
-    let mut read_to_parts_map = FxHashMap::default();
-    for (i, set) in all_joined_path_parts.iter().enumerate() {
-        for frag in set.iter() {
-            let corresponding_partitions = read_to_parts_map
-                .entry(*frag)
-                .or_insert(FxHashSet::default());
-            corresponding_partitions.insert(i);
-        }
-    }
-
-    //Only have the long-read fragment be in the best candidate haplotig
-    //instead of appearing in multiple
-    for (frag, part_ids) in read_to_parts_map {
-        let mut diff_part_vec = vec![];
-        for id in part_ids.iter() {
-            let block_with_id = &all_parts_block.blocks[*id];
-            let (same, diff) =
-                utils_frags::distance_read_haplo_epsilon_empty(frag, block_with_id, epsilon);
-            diff_part_vec.push(((diff + 1.) / (same + 1.), id));
-        }
-        let best_part = diff_part_vec
-            .iter()
-            .min_by(|x, y| x.partial_cmp(&y).unwrap())
-            .unwrap()
-            .1;
-        for id in part_ids.iter() {
-            if *id != *best_part {
-                all_joined_path_parts[*id].remove(frag);
-                utils_frags::remove_read_from_block(&mut all_parts_block, frag, *id);
-            }
-        }
-    }
-
-    if reassign_short {
-        let start_t = Instant::now();
-        //Assign short-read fragments to multiple best haplotigs
-        for frag in short_frags.iter() {
-            let mut best_candidate_block_map = FxHashMap::default();
-            for (i, block) in all_parts_block.blocks.iter().enumerate() {
-                let mut intersection = false;
-                let (a, b) = snp_range_parts_vec[i];
-                if a <= frag.first_position && frag.first_position <= b {
-                    intersection = true;
-                } else if a <= frag.last_position && frag.last_position <= b {
-                    intersection = true;
-                }
-                if intersection {
-                    let (same, diff) =
-                        utils_frags::distance_read_haplo_epsilon_empty(frag, block, epsilon);
-                    let score = ((diff * 10. + 1.) as usize, (same * 10. + 1.) as usize);
-                    let candidate_blocks = best_candidate_block_map.entry(score).or_insert(vec![]);
-                    candidate_blocks.push(i);
-                }
-            }
-            let best_key = best_candidate_block_map.keys().min_by(|x, y| {
-                (x.0 as f64 / x.1 as f64)
-                    .partial_cmp(&(y.0 as f64 / y.1 as f64))
-                    .unwrap()
-            });
-            //        dbg!(best_candidate_block_map.keys(), best_key);
-            if !best_key.is_none() {
-                for i in best_candidate_block_map[&best_key.unwrap()].iter() {
-                    all_joined_path_parts[*i].insert(frag);
-                }
-            }
-        }
-
-        println!("Time taken for reassign {:?}", Instant::now() - start_t);
-    }
-}
-
-fn bin_haplogroups<'a>(
-    parts: &Vec<FxHashSet<&'a Frag>>,
-    snp_endpoints: &Vec<(usize, usize)>,
-    cov_of_haplogroups: &Vec<Option<f64>>,
-    vcf_profile: &VcfProfile,
-    contig: &str,
-    block_len: usize,
-) -> (Vec<(usize, usize)>, Vec<FxHashSet<&'a Frag>>) {
-    use statrs::distribution::{Discrete, Poisson};
-    use statrs::statistics::Distribution;
-
-    fn overlap(x1: usize, x2: usize, y1: usize, y2: usize) -> bool {
-        if x2 > y1 && x2 < y2 {
-            return true;
-        } else if y2 > x1 && y2 < x2 {
-            return true;
-        } else if x1 >= y1 && x2 <= y2 {
-            return true;
-        } else if x1 <= y1 && x2 >= y2 {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    fn close_enough(x1: usize, x2: usize, y1: usize, y2: usize, block_len: usize) -> bool {
-        if (x2 as i64 - y1 as i64).abs() < 2 * block_len as i64
-            || (y2 as i64 - x1 as i64).abs() < 2 * block_len as i64
-        {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    fn dist(
-        x: &Vec<(usize, usize, f64, usize)>,
-        y: &Vec<(usize, usize, f64, usize)>,
-        block_len: usize,
-    ) -> f64 {
-        let mut compat_ol = true;
-        let mut compat_ce = false;
-        for hap1 in x.iter() {
-            for hap2 in y.iter() {
-                let ol = overlap(hap1.0, hap1.1, hap2.0, hap2.1);
-                let ce = close_enough(hap1.0, hap1.1, hap2.0, hap2.1, block_len);
-                if ce {
-                    compat_ce = true;
-                }
-                if ol {
-                    compat_ol = false;
-                    break;
-                }
-            }
-        }
-
-        if !compat_ol || !compat_ce {
-            return f64::MAX;
-        } else {
-            let cov_x = x.iter().map(|x| x.2).sum::<f64>() / x.len() as f64;
-            let cov_y = y.iter().map(|x| x.2).sum::<f64>() / y.len() as f64;
-            let poix = Poisson::new(cov_x).unwrap();
-            let poiy = Poisson::new(cov_y).unwrap();
-            let dist = poix.pmf(cov_y as u64) + poiy.pmf(cov_x as u64);
-//            dbg!(x,y,cov_x,cov_y,dist);
-            return -1. * (dist / 2.).ln();
-        }
-    }
-
-    assert!(parts.len() == cov_of_haplogroups.len());
-    assert!(parts.len() == snp_endpoints.len());
-    let snp_to_gn_pos = &vcf_profile.vcf_snp_pos_to_gn_pos_map[contig];
-    let gn_to_snp_pos = &vcf_profile.vcf_pos_to_snp_counter_map[contig];
-
-    let mut clusters = vec![];
-    let mut none_clusters = vec![];
-    for i in 0..snp_endpoints.len() {
-        let left_gn = snp_to_gn_pos[&(snp_endpoints[i].0 as i64)] as usize;
-        let right_gn = snp_to_gn_pos[&(snp_endpoints[i].1 as i64)] as usize;
-        let cov = cov_of_haplogroups[i];
-        if !cov.is_none() {
-            clusters.push(vec![(left_gn, right_gn, cov.unwrap(), i)]);
-        }
-        else{
-            none_clusters.push(i);
-        }
-    }
-
-    clusters.sort_by(|x, y| x[0].0.cmp(&y[0].0));
-    let cutoff_dist = -(0.01f64.ln());
-    loop {
-        let mut best_moves = vec![];
-        for i in 0..clusters.len() {
-            let mut best_moves_i = vec![];
-            let h = 100;
-            let max_move = usize::min(clusters.len(), i + h);
-            let min_move;
-
-            if h > i{
-                min_move = 0;
-            }
-
-            else{
-                min_move = i - h;
-            }
-
-            for j in min_move..max_move {
-                if i == j {
-                    continue;
-                }
-                let d = dist(&clusters[i], &clusters[j], block_len);
-                if d < cutoff_dist {
-                    best_moves_i.push((i, j, d));
-                }
-            }
-            //Only allow very concordant moves
-            if best_moves_i.len() == 1{
-                best_moves.extend(best_moves_i);
-            }
-        }
-        if best_moves.is_empty(){
-            break;
-        } else {
-            best_moves.sort_by(|x,y| x.2.partial_cmp(&y.2).unwrap());
-            let best_move = best_moves[0];
-            let high_ind = usize::max(best_move.0, best_move.1);
-            let low_ind = usize::min(best_move.0, best_move.1);
-            let removed_clust = clusters.remove(high_ind);
-            for item in removed_clust {
-                clusters[low_ind].push(item);
-            }
-        }
-        println!("Clusters remaining {}", clusters.len());
-    }
 
 
-    let mut file = File::create("debug_clusters.txt").expect("Can't create file");
-    write!(&mut file, "{:?}", &clusters).unwrap();
 
-    let mut new_parts = vec![];
-    let mut new_snp_ranges = vec![];
-    for cluster in clusters{
-        let mut new_snp_range = (usize::MAX,usize::MIN);
-        let mut new_part = FxHashSet::default();
-        for info in cluster{
-            let index = info.3;
-            let part = &parts[index];
-            let range = &snp_endpoints[index];
-            for frag in part.iter(){
-                new_part.insert(*frag);
-            }
-            if range.0 < new_snp_range.0{
-                new_snp_range.0 = range.0;
-            }
-            if range.1 > new_snp_range.1{
-                new_snp_range.1 = range.1;
-            }
-        }
-        new_parts.push(new_part);
-        new_snp_ranges.push(new_snp_range);
-    }
-
-    for index in none_clusters{
-        new_parts.push(parts[index].clone());
-        new_snp_ranges.push(snp_endpoints[index].clone());
-    }
-    
-    return ( new_snp_ranges, new_parts);
-}

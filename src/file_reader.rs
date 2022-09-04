@@ -499,7 +499,7 @@ where
 {
     let mut vcf = match bcf::Reader::from_path(vcf_file) {
         Ok(vcf) => vcf,
-        Err(_) => panic!("rust_htslib had an error while reading the BAM file. Exiting."),
+        Err(_) => panic!("rust_htslib had an error while reading the VCF file. Exiting."),
     };
     let mut map_positions_vec = FxHashMap::default();
     let mut map_genotype_dict = FxHashMap::default();
@@ -667,7 +667,7 @@ pub fn write_output_partition_to_file(
     out_bam_part_dir: String,
     contig: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
-    extend_read_clipping: bool
+    extend_read_clipping: bool,
 ) {
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
@@ -688,9 +688,13 @@ pub fn write_output_partition_to_file(
     let mut total_err_all = 0.;
 
     for (i, set) in part.iter().enumerate() {
+        if set.is_empty() {
+            continue;
+        }
         //Populate all_part.txt file
         let mut vec_part: Vec<&Frag> = set.into_iter().cloned().collect();
-        vec_part.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+        vec_part.sort();
+//        vec_part.sort_by(|a, b| a.first_position.cmp(&b.first_position));
         if snp_range_parts_vec.is_empty() {
             write!(file, "#{}\n", i).unwrap();
         } else {
@@ -700,8 +704,15 @@ pub fn write_output_partition_to_file(
                 utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
             write!(
                 file,
-                "#{},{},{},{},{}\n",
-                i, cov, err, left_snp_pos, right_snp_pos
+                "#{},{},{},{},{},{},{}\n",
+                //1-indexed snp poses are output... this is annoying
+                i,
+                cov,
+                err,
+                left_snp_pos,
+                right_snp_pos,
+                snp_pos_to_genome_pos[left_snp_pos - 1],
+                snp_pos_to_genome_pos[right_snp_pos - 1],
             )
             .unwrap();
             total_cov_all += total_cov;
@@ -709,7 +720,10 @@ pub fn write_output_partition_to_file(
         }
 
         for frag in vec_part.iter() {
-            if !frag.is_paired {
+            //I think this was done because there
+            //can be a lot of short reads. I think we should still
+            //output it, though. 
+//            if !frag.is_paired {
                 write!(
                     file,
                     "{}\t{}\t{}\n",
@@ -718,7 +732,7 @@ pub fn write_output_partition_to_file(
                     frag.last_position
                 )
                 .unwrap();
-            }
+//            }
         }
 
         //Non-empty means that we're writing the final partition after path collection
@@ -768,17 +782,20 @@ pub fn write_output_partition_to_file(
                     }
                 }
                 if !found_primary {
-                    //                    println!(
-                    //                        "{} primary not found. Paired: {}",
-                    //                        &frag.id, &frag.is_paired
-                    //                    );
+                    log::trace!(
+                        "{} primary not found. Paired: {}",
+                        &frag.id, &frag.is_paired
+                    );
                     continue;
                 }
-                //Circularity weirdness. Throw away these reads, unfortunately, for now.
+                //We can merge haplogroups such that small reads may fall off the
+                //snp range intervals
                 if frag.first_position > right_snp_pos {
+                    log::trace!("Read {} past right endpoint; trim until empty.", &frag.id);
                     continue;
                 }
                 if frag.last_position < left_snp_pos {
+                    log::trace!("Read {} past left endpoint; trim until empty.", &frag.id);
                     continue;
                 }
                 let mut left_seq_pos;
@@ -1225,7 +1242,7 @@ pub fn get_frags_from_bamvcf_rewrite(
     use_supplementary: bool,
     chrom_seqs: &FxHashMap<String, Vec<u8>>,
     contig: &str,
-    use_gaps: bool
+    use_gaps: bool,
 ) -> Vec<Frag>
 where
 {
@@ -1270,9 +1287,9 @@ where
     for record_vec in rec_vecs {
         record_vec
             .into_par_iter()
+//            .into_iter()
             .enumerate()
             .for_each(|(count, record)| {
-                //No alignment
                 if record.tid() < 0 {
                 } else {
                     let ref_ctg = record.contig();
@@ -1295,8 +1312,6 @@ where
                             frag_from_record(&record, snp_positions_contig, pos_allele_map, count);
 
                         if frag.positions.len() > 0 {
-                            //Race condition in realign for some reason. TODO
-                            //figure out why.
                             if !chrom_seqs.is_empty() {
                                 alignment::realign(
                                     &chrom_seqs[&ref_ctg.to_owned()],
@@ -1305,18 +1320,6 @@ where
                                     &pos_allele_map,
                                 );
                             }
-
-                            //TODO TEST OUT GAPS
-                            if use_gaps{
-                                for pos in frag.first_position..frag.last_position {
-                                    if !frag.positions.contains(&pos){
-                                        frag.seq_dict.insert(pos, GAP_CHAR);
-                                        frag.qual_dict.insert(pos, 7);
-                                        frag.positions.insert(pos);
-                                    }
-                                }
-                            }
-
                             let mut locked = ref_id_to_frag_map.lock().unwrap();
                             let bucket = locked.entry(rec_name).or_insert(vec![]);
                             bucket.push((record.flags(), frag));
@@ -1361,8 +1364,11 @@ fn combine_frags(
         //        dbg!(&str::from_utf8(&_id), frags.len(), frags.iter().map(|x| x.0).collect::<Vec<u16>>());
         //paired
         if frags.len() == 2 && frags[0].1.is_paired && frags[1].1.is_paired {
+            log::trace!("{}, {},{},{},{}",frags[0].1.id, frags[0].0, frags[0].1.first_position,frags[1].0, frags[1].1.first_position);
+            frags.sort();
             let first = std::mem::take(&mut frags[0]);
             let second = std::mem::take(&mut frags[1]);
+            log::trace!("{},{},{},{}",first.1.id, second.1.id, first.1.counter_id, second.1.counter_id);
 
             let mut first_frag;
             let mut sec_frag;

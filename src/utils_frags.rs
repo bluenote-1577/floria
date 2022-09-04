@@ -33,7 +33,16 @@ pub fn distance_read_haplo_epsilon_empty(
     let mut diff = 0.0;
     let mut same = 0.0;
     for pos in r.positions.iter() {
-        if !hap.contains_key(pos) {
+        let mut empty_pos = true;
+        if hap.contains_key(pos){
+            for (_key,val) in hap[&pos].iter(){
+                if *val != 0{
+                    empty_pos = false;
+                    break
+                }
+            }
+        }
+        if empty_pos{
             diff += epsilon;
             //TODO remove this just a test
             if epsilon < 0.0001 {
@@ -556,7 +565,15 @@ pub fn get_range_with_lengths(
             else{
                 log::trace!("Block endpoints {} - {} has density {} < min density {}", left_endpoint, i-1, snp_density, minimal_density);
             }
-            left_endpoint = new_left_end;
+            log::trace!("{}, {}, {} ,{}, {}, {}", new_left_end, block_length, snp_to_genome_pos[new_left_end], snp_to_genome_pos[new_left_end+1],snp_to_genome_pos[new_left_end-1],i);
+            //left_endpoint = new_left_end;
+            if snp_to_genome_pos[new_left_end] + block_length < snp_to_genome_pos[new_left_end+1]{
+                left_endpoint = new_left_end;
+            }
+            else{
+                left_endpoint = new_left_end+1;
+            }
+            last_pos = snp_to_genome_pos[left_endpoint];
             hit_new_left = false;
         }
     }
@@ -582,7 +599,9 @@ pub fn remove_read_from_block(block: &mut HapBlock, frag: &Frag, part: usize) {
             .entry(*pos)
             .or_insert(FxHashMap::default());
         let site_counter = sites.entry(*var_at_pos).or_insert(0);
-        *site_counter -= 1;
+        if *site_counter != 0{
+            *site_counter -= 1;
+        }
     }
 }
 
@@ -740,4 +759,39 @@ pub fn get_errors_cov_from_frags(
     }
 
     return (cov, errors as f64/total_support as f64, errors as f64, total_support as f64);
+}
+
+pub fn distance_between_haplotypes(
+    hap1: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    hap2: &FxHashMap<usize, FxHashMap<usize, usize>>,) -> (f64, f64) {
+    let mut same = 0.;
+    let mut diff = 0.;
+    for pos in hap1.keys(){
+        if hap2.contains_key(pos){
+            let consensus_var1 = hap1
+            .get(pos)
+            .unwrap()
+            .iter()
+            .max_by_key(|entry| entry.1)
+            .unwrap()
+            .0;
+
+            let consensus_var2 = hap2
+            .get(pos)
+            .unwrap()
+            .iter()
+            .max_by_key(|entry| entry.1)
+            .unwrap()
+            .0;
+
+            if consensus_var1 == consensus_var2{
+                same += 1.;
+            }
+            else{
+                diff +=1.;
+            }
+        }
+    }
+    
+    return (same,diff)
 }

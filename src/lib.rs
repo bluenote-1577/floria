@@ -13,3 +13,7 @@ pub mod vcf_polishing;
 pub mod graph_processing;
 
 pub mod alignment; 
+
+pub mod part_block_manip;
+
+pub mod constants;

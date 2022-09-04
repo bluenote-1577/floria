@@ -26,6 +26,7 @@ block-aligner = { version = "^0.2.0", features = ["simd_avx2"] }
 petgraph = "*"
 bio = "*"
 bio-types ="*"
+rust-lapper = "*"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"
