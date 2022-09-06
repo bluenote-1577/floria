@@ -1,5 +1,5 @@
 use crate::types_structs;
-use crate::types_structs::{Frag, HapBlock, SearchNode};
+use crate::types_structs::{Frag, HapBlock, SearchNode, SnpPosition};
 use std::collections::binary_heap::BinaryHeap;
 use std::mem;
 use std::rc::Rc;
@@ -16,7 +16,7 @@ pub fn beam_search_phasing<'a>(
     max_number_solns: usize,
     use_mec: bool,
     use_ref_bias: bool,
-) -> (FxHashMap<usize, FxHashSet<usize>>, Vec<FxHashSet<&'a Frag>>) {
+) -> (FxHashMap<SnpPosition , FxHashSet<usize>>, Vec<FxHashSet<&'a Frag>>) {
     if all_reads.len() == 0 {
         return (FxHashMap::default(), vec![]);
     }

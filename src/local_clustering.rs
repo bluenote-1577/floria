@@ -1,4 +1,5 @@
 use crate::types_structs::{Frag, HapBlock, GAP_CHAR};
+use crate::types_structs::{Genotype, GenotypeCount, SnpPosition, GnPosition, Haplotype};
 use rand::prelude::*;
 use rand_core::SeedableRng;
 //use rand::rng::Rng;
@@ -21,8 +22,8 @@ macro_rules! debug {
 //Return the set of reads for which every read covers at least one position in the interval
 //(inclusive)
 pub fn find_reads_in_interval<'a>(
-    start: usize,
-    end: usize,
+    start: SnpPosition,
+    end: SnpPosition,
     //position_to_reads : &FxHashMap<usize,FxHashSet<&Frag>>,
     all_frags: &'a Vec<Frag>,
     max_num_reads: usize
@@ -71,8 +72,8 @@ pub fn find_reads_in_interval<'a>(
 
 //Return a partition from a set of reads using our local clustering method.
 pub fn generate_hap_block<'a>(
-    start: usize,
-    end: usize,
+    start: SnpPosition,
+    end: SnpPosition,
     //position_to_reads : &'a FxHashMap<usize,FxHashSet<&Frag>>,
     ploidy: usize,
     all_frags: &'a Vec<Frag>,
@@ -791,7 +792,7 @@ pub fn get_mec_stats_epsilon(
         let mut errors = 0.;
         let mut bases = 0.;
         for seq_dict in hap.values(){
-            let mut allele_counts : Vec<(&usize, &usize)>= seq_dict.iter().collect();
+            let mut allele_counts : Vec<(&Genotype, &GenotypeCount)>= seq_dict.iter().collect();
             if !use_gaps{
                 let mut index_to_remove = None;
                 for (i,(allele, _count)) in allele_counts.iter_mut().enumerate(){
@@ -809,7 +810,7 @@ pub fn get_mec_stats_epsilon(
             }
 
             allele_counts.sort_by(|x,y| x.1.cmp(&y.1));
-            let allele_counts : Vec<&usize> = allele_counts.iter().map(|x| x.1).collect();
+            let allele_counts : Vec<&GenotypeCount> = allele_counts.iter().map(|x| x.1).collect();
             let cons_bases = **allele_counts.last().unwrap();
             bases += cons_bases as f64;
             for i in 0..allele_counts.len()-1{
@@ -973,7 +974,7 @@ pub fn estimate_epsilon(
     num_tries: usize,
     ploidy: usize,
     all_frags: &Vec<Frag>,
-    block_len: usize,
+    block_len: SnpPosition,
     initial_epsilon: f64,
 ) -> f64 {
     let mut rng = Pcg64::seed_from_u64(1);
@@ -988,8 +989,8 @@ pub fn estimate_epsilon(
     let mut part_stats = vec![Vec::new();ploidy];
     for i in random_vec.into_iter() {
         let part = generate_hap_block(
-            i * block_len,
-            (i + 1) * block_len,
+            i as SnpPosition * block_len,
+            (i + 1) as SnpPosition * block_len,
             ploidy,
             all_frags,
             initial_epsilon,
@@ -1047,8 +1048,8 @@ pub fn estimate_ploidy_flopp(
         let mut num_alleles = 0;
         for i in random_vec.iter(){
             let part = generate_hap_block(
-                i * block_len,
-                (i + 1) * block_len,
+                *i as SnpPosition * block_len,
+                (i + 1) as SnpPosition * block_len,
                 ploidy,
                 all_frags,
                 initial_epsilon,

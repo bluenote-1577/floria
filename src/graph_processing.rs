@@ -2,7 +2,7 @@ use crate::file_reader;
 use crate::part_block_manip;
 use crate::global_clustering;
 use crate::local_clustering;
-use crate::types_structs::{Frag, HapNode, TraceBackNode, VcfProfile};
+use crate::types_structs::{Frag, HapNode, TraceBackNode, VcfProfile, SnpPosition, GnPosition};
 use crate::utils_frags;
 use crate::constants;
 use fxhash::{FxHashMap, FxHashSet};
@@ -289,16 +289,14 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> F
 }
 
 fn get_local_hap_blocks<'a>(
-    _num_blocks: usize,
-    _num_iters: usize,
     all_frags: &'a Vec<Frag>,
     epsilon: f64,
-    snp_to_genome_pos: &'a Vec<usize>,
+    snp_to_genome_pos: &'a Vec<GnPosition>,
     max_number_solns: usize,
     _block_length: usize,
     glopp_out_dir: &str,
     j: usize,
-    random_vec: &Vec<(usize, usize)>,
+    random_vec: &Vec<(SnpPosition, SnpPosition)>,
 ) -> Option<Vec<Vec<HapNode<'a>>>> {
     let ploidy_start = 1;
     let ploidy_end = 6;
@@ -492,7 +490,7 @@ fn process_chunks(mut chunks: Vec<(usize, Vec<Vec<HapNode>>)>) -> Vec<Vec<HapNod
 }
 
 pub fn generate_hap_graph<'a>(
-    num_blocks: usize,
+    length_gn: SnpPosition,
     num_iters: usize,
     all_frags: &'a Vec<Frag>,
     epsilon: f64,
@@ -510,9 +508,9 @@ pub fn generate_hap_graph<'a>(
         using_bam = true;
     }
 
-    let mut iter_vec: Vec<(usize, usize)> = vec![];
+    let mut iter_vec: Vec<(SnpPosition, SnpPosition)> = vec![];
     if using_bam == false {
-        let temp_iter_vec: Vec<usize> = (0..num_blocks).step_by(num_blocks / num_iters).collect();
+        let temp_iter_vec: Vec<SnpPosition> = (0..length_gn).step_by(length_gn as usize / num_iters).collect();
         for i in 0..temp_iter_vec.len() - 1 {
             iter_vec.push((temp_iter_vec[i], temp_iter_vec[i + 1]));
         }
@@ -535,8 +533,6 @@ pub fn generate_hap_graph<'a>(
         .into_par_iter()
         .for_each(|j| {
             let block_chunk = get_local_hap_blocks(
-                num_blocks,
-                num_iters,
                 all_frags,
                 epsilon,
                 snp_to_genome_pos,
@@ -567,9 +563,9 @@ pub fn generate_hap_graph<'a>(
 
 fn merge_split_parts(
     mut split_part: Vec<Vec<FxHashSet<&Frag>>>,
-    break_pos: FxHashMap<usize, FxHashSet<usize>>,
-    original_snp_endpoints: (usize, usize),
-) -> (Vec<Vec<FxHashSet<&Frag>>>, Vec<(usize, usize)>) {
+    break_pos: FxHashMap<SnpPosition, FxHashSet<usize>>,
+    original_snp_endpoints: (SnpPosition, SnpPosition),
+) -> (Vec<Vec<FxHashSet<&Frag>>>, Vec<(SnpPosition, SnpPosition)>) {
     let mut breaks_with_min_sorted = vec![];
     for (key, value) in break_pos.iter() {
         if value.len() > 1 {
@@ -665,7 +661,7 @@ pub fn get_disjoint_paths_rewrite<'a> (
     block_len: usize,
     do_binning: bool,
     snp_to_genome_pos: &'a Vec<usize>,
-) -> (Vec<FxHashSet<&'a Frag>>, Vec<(usize,usize)>){
+) -> (Vec<FxHashSet<&'a Frag>>, Vec<(SnpPosition,SnpPosition)>){
     let flow_cutoff = 3.0;
     let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
     //Update the graph to include flows.
@@ -859,7 +855,7 @@ pub fn get_disjoint_paths_rewrite<'a> (
             hap_petgraph.node_count()
         );
         let mut joined_path_part = FxHashSet::default();
-        let mut snp_endpoints = (usize::MAX, usize::MIN);
+        let mut snp_endpoints = (SnpPosition::MAX, SnpPosition::MIN);
         let mut haplogroup_flows = vec![];
         while !index_of_best_end_node.is_none() {
             let node_index = NodeIndex::new(index_of_best_end_node.unwrap());

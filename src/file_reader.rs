@@ -1,5 +1,5 @@
 use crate::alignment;
-use crate::types_structs::{build_frag, Frag, HapBlock, VcfProfile};
+use crate::types_structs::{build_frag, Frag, HapBlock, VcfProfile, Genotype, SnpPosition, GnPosition};
 use crate::utils_frags;
 use crate::constants;
 use bio::alphabets::dna::revcomp;
@@ -59,7 +59,6 @@ where
                     //                    println!("{}",num_blocks);
                     let mut seqs = FxHashMap::default();
                     let mut quals = FxHashMap::default();
-                    let mut positions = FxHashSet::default();
                     let mut list_of_positions = Vec::new();
                     let mut first_position = 1;
                     let mut last_position = 1;
@@ -67,14 +66,14 @@ where
                     // For each block, read it into a dictionary with corresp. base
                     for i in 0..num_blocks {
                         let index = i as usize;
-                        let start_pos = v[2 * index + 2].parse::<usize>().unwrap();
+                        let start_pos = v[2 * index + 2].parse::<SnpPosition>().unwrap();
                         if i == 0 {
                             first_position = start_pos;
                         }
                         for (j, c) in v[2 * index + 3].chars().enumerate() {
-                            seqs.insert(start_pos + j, c.to_digit(10).unwrap() as usize);
+                            let j = j as SnpPosition;
+                            seqs.insert(start_pos + j, c.to_digit(10).unwrap() as Genotype);
                             list_of_positions.push(start_pos + j);
-                            positions.insert(start_pos + j);
                             last_position = start_pos + j
                         }
                     }
@@ -89,9 +88,9 @@ where
                     let new_frag = Frag {
                         id: v[1].to_string(),
                         counter_id: counter,
+                        positions: seqs.keys().map(|x| *x).collect::<FxHashSet<SnpPosition>>(),
                         seq_dict: seqs,
                         qual_dict: quals,
-                        positions: positions,
                         first_position: first_position,
                         last_position: last_position,
                         seq_string: vec![DnaString::new(); 2],
@@ -123,7 +122,7 @@ pub fn write_blocks_to_file<P>(
     part: &Vec<FxHashSet<&Frag>>,
     _first_iter: bool,
     contig: &String,
-    break_positions: &FxHashMap<usize, FxHashSet<usize>>,
+    break_positions: &FxHashMap<SnpPosition, FxHashSet<SnpPosition>>,
 ) where
     P: AsRef<Path>,
 {
@@ -151,13 +150,14 @@ pub fn write_blocks_to_file<P>(
         let title_string = format!("**{}**\n", contig);
         file.write_all(title_string.as_bytes()).unwrap();
         for pos in length_prev_block..length_prev_block + lengths[i] {
+            let pos = pos as SnpPosition;
             if break_positions.contains_key(&pos) {
                 write!(file, "--------\n").unwrap();
             }
             if snp_to_genome.len() == 0 {
                 write!(file, "{}:NA\t", pos).unwrap();
             } else {
-                write!(file, "{}:{}\t", pos, snp_to_genome[pos - 1]).unwrap();
+                write!(file, "{}:{}\t", pos, snp_to_genome[(pos - 1) as usize]).unwrap();
             }
             //Write haplotypes
             for k in 0..ploidy {
@@ -306,10 +306,10 @@ where
 
 //Convert a fragment which stores sequences in a dictionary format to a block format which makes
 //writing to frag files easier.
-fn convert_dict_to_block(frag: Frag) -> (Vec<usize>, Vec<Vec<usize>>, Vec<u8>) {
+fn convert_dict_to_block(frag: Frag) -> (Vec<SnpPosition>, Vec<Vec<Genotype>>, Vec<u8>) {
     let d = frag.seq_dict;
-    let vec_d: BTreeMap<usize, usize> = d.into_iter().collect();
-    let vec_q: BTreeMap<usize, u8> = frag.qual_dict.into_iter().collect();
+    let vec_d: BTreeMap<SnpPosition, Genotype> = d.into_iter().collect();
+    let vec_q: BTreeMap<SnpPosition, u8> = frag.qual_dict.into_iter().collect();
     let mut prev_pos = 0;
     let mut block_start_pos = Vec::new();
     let mut blocks = Vec::new();
@@ -377,7 +377,7 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
 
 pub fn write_outputs(
     part: &Vec<FxHashSet<&Frag>>,
-    snp_range_parts_vec: &Vec<(usize, usize)>,
+    snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: String,
     prefix: &String,
     contig: &String,
@@ -618,10 +618,10 @@ fn write_fragset_haplotypes(
     frags: &FxHashSet<&Frag>,
     name: &str,
     dir: &str,
-    snp_pos_to_genome_pos: &Vec<usize>,
+    snp_pos_to_genome_pos: &Vec<GnPosition>,
     append: bool,
-    left_snp_pos: usize,
-    right_snp_pos: usize,
+    left_snp_pos: SnpPosition,
+    right_snp_pos: SnpPosition,
 ) -> Vec<u8> {
     let filename = format!("{}/haplotypes/{}_hap.txt", dir, name);
     let mut file = OpenOptions::new()
@@ -635,7 +635,7 @@ fn write_fragset_haplotypes(
     let emptydict = FxHashMap::default();
     let title_string = format!(">{},{},{}\n", name, left_snp_pos, right_snp_pos);
     write!(file, "{}", title_string).unwrap();
-    let positions: Vec<&usize> = hap_map.keys().collect();
+    let positions: Vec<&SnpPosition> = hap_map.keys().collect();
     if positions.len() == 0 {
         return vec![];
     }
@@ -645,7 +645,7 @@ fn write_fragset_haplotypes(
         if snp_pos_to_genome_pos.len() == 0 {
             write!(file, "{}:NA\t", pos).unwrap();
         } else {
-            write!(file, "{}:{}\t", pos, snp_pos_to_genome_pos[pos - 1]).unwrap();
+            write!(file, "{}:{}\t", pos, snp_pos_to_genome_pos[(pos - 1) as usize]).unwrap();
         }
         let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
         //If a block has no coverage at a position, we write -1.
@@ -732,17 +732,17 @@ pub fn get_vcf_profile<'a>(vcf_file: &str, ref_chroms: &'a Vec<String>) -> VcfPr
                 is_snp = false;
                 break;
             }
-            al_vec.push(allele[0]);
+            al_vec.push(allele[0] as Genotype);
         }
 
         if !is_snp {
             continue;
         }
 
-        snp_pos_to_gn_pos_map.insert(snp_counter, unr.pos());
-        pos_to_snp_counter_map.insert(unr.pos(), snp_counter);
+        snp_pos_to_gn_pos_map.insert(snp_counter, unr.pos() as GnPosition);
+        pos_to_snp_counter_map.insert(unr.pos() as GnPosition, snp_counter);
         snp_counter += 1;
-        pos_allele_map.insert(unr.pos(), al_vec);
+        pos_allele_map.insert(unr.pos() as GnPosition, al_vec);
     }
 
     vcf_prof.vcf_pos_allele_map = vcf_pos_allele_map;
@@ -834,7 +834,7 @@ where
                         let mut frag =
                             frag_from_record(&record, snp_positions_contig, pos_allele_map, count);
 
-                        if frag.positions.len() > 0 {
+                        if frag.seq_dict.keys().len() > 0 {
                             if !chrom_seqs.is_empty() {
                                 alignment::realign(
                                     &chrom_seqs[&ref_ctg.to_owned()],
@@ -930,8 +930,8 @@ fn combine_frags(
             first_frag.positions.extend(sec_frag.positions);
 
             first_frag.first_position =
-                usize::min(first_frag.first_position, sec_frag.first_position);
-            first_frag.last_position = usize::max(first_frag.last_position, sec_frag.last_position);
+                SnpPosition::min(first_frag.first_position, sec_frag.first_position);
+            first_frag.last_position = SnpPosition::max(first_frag.last_position, sec_frag.last_position);
 
             let mut temp = DnaString::new();
             std::mem::swap(&mut sec_frag.seq_string[0], &mut temp);
@@ -966,14 +966,14 @@ fn combine_frags(
             let mut supp_intervals = vec![];
 
             for frag in frags.iter() {
-                supp_intervals.push((frag.1.first_position as i64, frag.1.last_position as i64));
+                supp_intervals.push((frag.1.first_position, frag.1.last_position));
             }
             supp_intervals.sort();
 
             let snp_to_gn = &vcf_profile.vcf_snp_pos_to_gn_pos_map[contig];
             let mut take_primary_only = false;
             for i in 0..supp_intervals.len() - 1 {
-                if snp_to_gn[&supp_intervals[i + 1].0] - snp_to_gn[&supp_intervals[i].1]
+                if snp_to_gn[&supp_intervals[i + 1].0] as i64 - snp_to_gn[&supp_intervals[i].1] as i64
                     > supp_aln_dist_cutoff
                 {
                     take_primary_only = true;
@@ -1016,9 +1016,9 @@ fn combine_frags(
                     primary_frag.positions.extend(frag.positions);
 
                     primary_frag.first_position =
-                        usize::min(primary_frag.first_position, frag.first_position);
+                        SnpPosition::min(primary_frag.first_position, frag.first_position);
                     primary_frag.last_position =
-                        usize::max(primary_frag.last_position, frag.last_position);
+                        SnpPosition::max(primary_frag.last_position, frag.last_position);
 
                     primary_frag
                         .snp_pos_to_seq_pos
@@ -1034,8 +1034,8 @@ fn combine_frags(
 
 fn frag_from_record(
     record: &bam::Record,
-    snp_positions: &FxHashMap<i64, i64>,
-    pos_allele_map: &FxHashMap<i64, Vec<u8>>,
+    snp_positions: &FxHashMap<GnPosition, SnpPosition>,
+    pos_allele_map: &FxHashMap<GnPosition, Vec<Genotype>>,
     counter_id: usize,
 ) -> Frag {
     let first_in_pair_mask = 64;
@@ -1059,29 +1059,28 @@ fn frag_from_record(
         if pair[1].is_none() {
             continue;
         }
-        let genome_pos = pair[1].unwrap();
+        let genome_pos = pair[1].unwrap() as GnPosition;
         if !snp_positions.contains_key(&genome_pos) {
             if !pair[0].is_none() {
-                _last_read_aligned_pos = pair[0].unwrap();
+                _last_read_aligned_pos = pair[0].unwrap() as GnPosition;
             }
             continue;
         } else {
             //Deletion
             if pair[0].is_none() {
             } else {
-                let seq_pos = pair[0].unwrap() as usize;
-                let readbase = record.seq()[seq_pos];
+                let seq_pos = pair[0].unwrap() as GnPosition;
+                let readbase = record.seq()[seq_pos] as Genotype;
                 for (i, allele) in pos_allele_map
-                    .get(&(genome_pos as i64))
+                    .get(&(genome_pos))
                     .unwrap()
                     .iter()
                     .enumerate()
                 {
                     if readbase == *allele {
-                        let snp_pos = snp_positions[&genome_pos] as usize;
-                        frag.seq_dict.insert(snp_pos, i);
+                        let snp_pos = snp_positions[&genome_pos] as SnpPosition;
+                        frag.seq_dict.insert(snp_pos, i as Genotype);
                         frag.qual_dict.insert(snp_pos, record.qual()[seq_pos]);
-                        frag.positions.insert(snp_pos);
                         if snp_pos < frag.first_position {
                             frag.first_position = snp_pos;
                         }
@@ -1099,6 +1098,7 @@ fn frag_from_record(
     }
 
     frag.seq_string[0] = DnaString::from_acgt_bytes(&record.seq().as_bytes());
+    frag.positions = frag.seq_dict.keys().map(|x| *x).collect::<FxHashSet<SnpPosition>>();
     frag.qual_string[0] = record.qual().iter().map(|x| x + 33).collect();
     return frag;
 }
@@ -1130,7 +1130,7 @@ fn hapQ_score(error_rate: f64, epsilon: f64, cov: f64, read_ratio: f64) -> u8 {
 fn write_haplotypes(
     part: &Vec<FxHashSet<&Frag>>,
     contig: &String,
-    snp_range_parts_vec: &Vec<(usize, usize)>,
+    snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
     epsilon: f64,
@@ -1175,8 +1175,8 @@ fn write_haplotypes(
                 dbg!(&snp_range_parts_vec[i], contig);
                 panic!();
             }
-            let left_gn_pos = snp_pos_to_genome_pos[left_snp_pos - 1];
-            let right_gn_pos = snp_pos_to_genome_pos[right_snp_pos - 1];
+            let left_gn_pos = snp_pos_to_genome_pos[(left_snp_pos - 1) as usize];
+            let right_gn_pos = snp_pos_to_genome_pos[(right_snp_pos - 1) as usize];
 
             let bases_covered_haplotig = right_gn_pos - left_gn_pos;
             total_bases_covered += bases_covered_haplotig;
@@ -1195,8 +1195,8 @@ fn write_haplotypes(
             );
             if hap_Q > constants::HAPQ_CUTOFF{
                 for i in left_snp_pos..right_snp_pos + 1 {
-                    snp_covered_count[i - 1] += 1.;
-                    coverage_count[i - 1] += cov
+                    snp_covered_count[(i - 1) as usize] += 1.;
+                    coverage_count[(i - 1) as usize] += cov
                 }
             }
 
@@ -1268,7 +1268,7 @@ fn write_haplotypes(
 
 fn write_all_parts_file(
     part: &Vec<FxHashSet<&Frag>>,
-    snp_range_parts_vec: &Vec<(usize, usize)>,
+    snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     prefix: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
@@ -1303,8 +1303,8 @@ fn write_all_parts_file(
                 i,
                 left_snp_pos,
                 right_snp_pos,
-                snp_pos_to_genome_pos[left_snp_pos - 1] + 1,
-                snp_pos_to_genome_pos[right_snp_pos - 1] + 1,
+                snp_pos_to_genome_pos[(left_snp_pos - 1) as usize] + 1,
+                snp_pos_to_genome_pos[(right_snp_pos - 1) as usize] + 1,
                 cov,
                 err,
                 hapQ_scores[&i],
@@ -1338,7 +1338,7 @@ fn write_all_parts_file(
 
 fn write_reads(
     part: &Vec<FxHashSet<&Frag>>,
-    snp_range_parts_vec: &Vec<(usize, usize)>,
+    snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     extend_read_clipping: bool,
 ) {
@@ -1449,7 +1449,7 @@ fn write_reads(
                         break;
                     }
                     if tmp == 0 {
-                        dbg!(&frag.positions, left_snp_pos, right_snp_pos);
+                        dbg!(left_snp_pos, right_snp_pos);
                     }
                     tmp -= 1;
                 }

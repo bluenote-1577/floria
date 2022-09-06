@@ -2,6 +2,7 @@ use crate::types_structs::Frag;
 use crate::constants;
 use crate::types_structs::{HapBlock, GAP_CHAR};
 use fxhash::{FxHashMap, FxHashSet};
+use crate::types_structs::{Genotype, SnpPosition, Haplotype};
 use itertools::Itertools; // 0.8.2
 use rayon::prelude::*;
 use statrs::distribution::ChiSquared;
@@ -28,7 +29,7 @@ pub fn distance(r1: &Frag, r2: &Frag) -> (i32, i32) {
 
 pub fn distance_read_haplo_epsilon_empty(
     r: &Frag,
-    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    hap: &Haplotype, 
     epsilon: f64,
 ) -> (f64, f64) {
     let mut diff = 0.0;
@@ -45,10 +46,6 @@ pub fn distance_read_haplo_epsilon_empty(
         }
         if empty_pos {
             diff += epsilon;
-            //TODO remove this just a test
-            if epsilon < 0.0001 {
-                diff -= epsilon;
-            }
             continue;
         }
 
@@ -79,11 +76,11 @@ pub fn distance_read_haplo_epsilon_empty(
 
 pub fn chunk_vec_update(
     frag: &Frag,
-    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
-    chunk_vec: &mut Vec<usize>,
+    hap: &Haplotype, 
+    chunk_vec: &mut Vec<SnpPosition>,
 ) {
     let n = 10;
-    let mut sorted_pos: Vec<&usize> = frag.positions.iter().collect();
+    let mut sorted_pos: Vec<&SnpPosition> = frag.positions.iter().collect();
     sorted_pos.sort();
 
     let mut same = 0;
@@ -124,7 +121,7 @@ pub fn chunk_vec_update(
 
 pub fn distance_read_haplo(
     r1: &Frag,
-    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    hap: &Haplotype,
 ) -> (usize, usize) {
     let mut diff = 0;
     let mut same = 0;
@@ -160,7 +157,7 @@ pub fn distance_read_haplo(
 
 pub fn distance_read_haplo_ref_wild(
     r1: &Frag,
-    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    hap: &Haplotype
 ) -> ((usize, usize), (usize, usize)) {
     let mut diff_ref = 0;
     let mut same_ref = 0;
@@ -214,9 +211,9 @@ pub fn distance_read_haplo_ref_wild(
 
 pub fn distance_read_haplo_range(
     r1: &Frag,
-    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
-    start: usize,
-    end: usize,
+    hap: &Haplotype,
+    start: SnpPosition,
+    end: SnpPosition,
 ) -> (usize, usize) {
     let mut diff = 0;
     let mut same = 0;
@@ -244,7 +241,7 @@ pub fn distance_read_haplo_range(
 }
 
 //Index each position by the set of fragments which overlap that position
-pub fn get_all_overlaps(frags: &Vec<Frag>) -> FxHashMap<usize, FxHashSet<&Frag>> {
+pub fn get_all_overlaps(frags: &Vec<Frag>) -> FxHashMap<SnpPosition, FxHashSet<&Frag>> {
     let mut overlaps = FxHashMap::default();
     for frag in frags.iter() {
         for pos in frag.positions.iter() {
@@ -293,7 +290,7 @@ pub fn check_overlap(r1: &Frag, r2: &Frag) -> bool {
     }
 }
 
-pub fn set_to_seq_dict(frag_set: &FxHashSet<&Frag>) -> FxHashMap<usize, FxHashMap<usize, usize>> {
+pub fn set_to_seq_dict(frag_set: &FxHashSet<&Frag>) -> Haplotype{ 
     let mut hap_map = FxHashMap::default();
     for frag in frag_set.iter() {
         for pos in frag.positions.iter() {
@@ -315,7 +312,7 @@ pub fn hap_block_from_partition(part: &Vec<FxHashSet<&Frag>>) -> HapBlock {
     HapBlock { blocks: block_vec }
 }
 
-pub fn get_avg_length(all_frags: &Vec<Frag>, quantile: f64) -> usize {
+pub fn get_avg_length(all_frags: &Vec<Frag>, quantile: f64) -> SnpPosition {
     let mut length_vec = Vec::new();
     for frag in all_frags.iter() {
         length_vec.push(frag.last_position - frag.first_position);
@@ -324,7 +321,7 @@ pub fn get_avg_length(all_frags: &Vec<Frag>, quantile: f64) -> usize {
     return length_vec[(length_vec.len() as f64 * quantile) as usize];
 }
 
-pub fn get_length_gn(all_frags: &Vec<Frag>) -> usize {
+pub fn get_length_gn(all_frags: &Vec<Frag>) -> SnpPosition {
     let mut last_pos = 0;
     for frag in all_frags.iter() {
         if frag.last_position > last_pos {
@@ -393,7 +390,7 @@ pub fn log_sum_exp(probs: &Vec<f64>) -> f64 {
 pub fn get_seq_err_correlations(
     partition: &Vec<FxHashSet<&Frag>>,
     hap_block: &HapBlock,
-    gap: usize,
+    gap: SnpPosition,
 ) -> f64 {
     let ploidy = partition.len();
     let mut seq_err_corr_vec = vec![];
@@ -479,9 +476,9 @@ pub fn get_seq_err_correlations(
 
 pub fn err_correlations(
     r1: &Frag,
-    hap: &FxHashMap<usize, FxHashMap<usize, usize>>,
-    seq_err_corr_map: &mut FxHashMap<usize, FxHashMap<(usize, usize), usize>>,
-    gap: usize,
+    hap: &Haplotype,
+    seq_err_corr_map: &mut FxHashMap<SnpPosition, FxHashMap<(Genotype, Genotype), usize>>,
+    gap: SnpPosition,
 ) {
     for pos in r1.positions.iter() {
         if !hap.contains_key(pos) {
@@ -502,7 +499,7 @@ pub fn err_correlations(
 }
 
 pub fn split_part_using_breaks<'a>(
-    breaks: &FxHashMap<usize, FxHashSet<usize>>,
+    breaks: &FxHashMap<SnpPosition, FxHashSet<usize>>,
     part_to_split: &Vec<FxHashSet<&Frag>>,
     all_reads: &'a Vec<Frag>,
 ) -> Vec<Vec<FxHashSet<&'a Frag>>> {
@@ -538,7 +535,7 @@ pub fn get_range_with_lengths(
     block_length: usize,
     overlap_len: usize,
     minimal_density: f64,
-) -> Vec<(usize, usize)> {
+) -> Vec<(SnpPosition, SnpPosition)> {
     let mut return_vec = vec![];
     let mut cum_pos = 0;
     let mut last_pos = snp_to_genome_pos[0];
@@ -547,7 +544,8 @@ pub fn get_range_with_lengths(
     let mut hit_new_left = false;
 
     for (i, pos) in snp_to_genome_pos.iter().enumerate() {
-        if i == snp_to_genome_pos.len() - 1 {
+        let i = i as SnpPosition;
+        if i == snp_to_genome_pos.len() as SnpPosition - 1 {
             return_vec.push((left_endpoint, i));
             break;
         }
@@ -572,13 +570,13 @@ pub fn get_range_with_lengths(
                 );
             }
             //left_endpoint = new_left_end;
-            if snp_to_genome_pos[new_left_end] + block_length < snp_to_genome_pos[new_left_end + 1]
+            if snp_to_genome_pos[new_left_end as usize] + block_length < snp_to_genome_pos[(new_left_end + 1) as usize]
             {
                 left_endpoint = new_left_end;
             } else {
                 left_endpoint = new_left_end + 1;
             }
-            last_pos = snp_to_genome_pos[left_endpoint];
+            last_pos = snp_to_genome_pos[left_endpoint as usize];
             hit_new_left = false;
         }
     }
@@ -630,7 +628,7 @@ pub fn hybrid_correction(frags: Vec<Frag>) -> (Vec<Frag>, Vec<Frag>) {
     long_frags.into_par_iter().for_each(|long_frag| {
         let mut covered_positions = FxHashSet::default();
         let mut covering_frags = FxHashSet::default();
-        let mut positions = long_frag.positions.iter().collect::<Vec<&usize>>();
+        let mut positions = long_frag.positions.iter().collect::<Vec<&SnpPosition>>();
         positions.sort();
         for (i, _position) in positions.iter().enumerate() {
             if covered_positions.contains(positions[i]) {
@@ -695,7 +693,7 @@ pub fn hybrid_correction(frags: Vec<Frag>) -> (Vec<Frag>, Vec<Frag>) {
 }
 
 fn correct_long_read(
-    short_frags_dict: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    short_frags_dict: &Haplotype, 
     long_frag: &Frag,
 ) -> Frag {
     let mut new_frag = long_frag.clone();
@@ -719,8 +717,8 @@ fn correct_long_read(
 
 pub fn get_errors_cov_from_frags(
     frags: &FxHashSet<&Frag>,
-    left_snp_pos: usize,
-    right_snp_pos: usize,
+    left_snp_pos: SnpPosition,
+    right_snp_pos: SnpPosition,
 ) -> (f64, f64, f64, f64) {
     let mean = true;
     let hap_map = set_to_seq_dict(frags);
@@ -729,23 +727,24 @@ pub fn get_errors_cov_from_frags(
     let mut errors = 0;
     let mut total_support = 0;
     for pos in left_snp_pos..right_snp_pos + 1 {
-        let mut snp_support = 0;
-        let mut max_count_pos = 0;
+        let mut snp_support = 0 as usize;
+        let mut max_count_pos = 0 as usize;
         let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
         if *allele_map != emptydict {
             for (site, count) in allele_map {
+                let count = *count as usize;
                 if *site == GAP_CHAR {
                     continue;
                 }
-                if *count > snp_support {
-                    max_count_pos = *count;
+                if count > snp_support  as usize{
+                    max_count_pos = count;
                 }
                 snp_support += count;
             }
         }
         total_support += snp_support;
         errors += snp_support - max_count_pos;
-        snp_counter_list.push(snp_support);
+        snp_counter_list.push(snp_support as usize);
     }
     snp_counter_list.sort();
     let cov;
@@ -771,17 +770,17 @@ pub fn get_errors_cov_from_frags(
 }
 
 pub fn distance_between_haplotypes(
-    hap1: &FxHashMap<usize, FxHashMap<usize, usize>>,
-    hap2: &FxHashMap<usize, FxHashMap<usize, usize>>,
-    range: &(usize, usize),
+    hap1: &Haplotype,
+    hap2: &Haplotype,
+    range: &(SnpPosition, SnpPosition),
 ) -> (f64, f64) {
     let cov_cutoff = constants::DIST_COV_CUTOFF;
     let mut same = 0.;
     let mut diff = 0.;
     for pos in hap1.keys() {
-        let cov_pos_1 = hap1[pos].iter().map(|x| x.1).sum::<usize>();
+        let cov_pos_1 = hap1[pos].iter().map(|x| *x.1 as usize).sum::<usize>();
             if hap2.contains_key(pos) {
-                let cov_pos_2 = hap2[pos].iter().map(|x| x.1).sum::<usize>();
+                let cov_pos_2 = hap2[pos].iter().map(|x| *x.1 as usize).sum::<usize>();
                 if (cov_pos_1 > cov_cutoff && cov_pos_2 > cov_cutoff) || 
                     *pos >= range.0 && *pos <= range.1 {
                 let consensus_var1 = hap1
