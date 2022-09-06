@@ -309,6 +309,7 @@ fn main() {
 
         println!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
+        let start_t = Instant::now();
         if snp_to_genome_pos_map.contains_key(contig) || bam == false {
             let contig_out_dir = format!("{}/{}", part_out_dir, contig);
             fs::create_dir_all(&contig_out_dir).unwrap();
@@ -407,5 +408,7 @@ fn main() {
                 epsilon
             );
         }
+
+        println!("Total time taken is {:?}", Instant::now() - start_t);
     }
 }

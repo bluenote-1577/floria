@@ -1,7 +1,7 @@
-use crate::types_structs::{Frag, VcfProfile};
-use disjoint_sets::UnionFind;
 use crate::constants;
+use crate::types_structs::{Frag, VcfProfile};
 use crate::utils_frags;
+use disjoint_sets::UnionFind;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_lapper::{Interval, Lapper};
 use std::fs::File;
@@ -9,7 +9,7 @@ use std::io::Write;
 use std::mem;
 use std::time::Instant;
 
-fn overlap_percent(x1: usize, x2: usize, y1: usize, y2: usize) -> f64{
+fn overlap_percent(x1: usize, x2: usize, y1: usize, y2: usize) -> f64 {
     let intersect = usize::min(x2 - y1, y2 - x1);
     return intersect as f64 / usize::min(x2 - x1, y2 - y1) as f64;
 }
@@ -121,11 +121,20 @@ fn merge_overlapping_haplogroups<'a>(
         let index = i;
         for interval_found in overlaps {
             let index_found = interval_found.val;
-            let overlap_p = overlap_percent(interval_found.start, interval_found.stop, range.start, range.stop);
-            log::trace!("overlap percent {} {} = {}; range {:?}", i, interval_found.val, overlap_p, range );
-            if  overlap_p > constants::MERGE_CUTOFF
-                && index_found != i
-            {
+            let overlap_p = overlap_percent(
+                interval_found.start,
+                interval_found.stop,
+                range.start,
+                range.stop,
+            );
+            log::trace!(
+                "overlap percent {} {} = {}; range {:?}",
+                i,
+                interval_found.val,
+                overlap_p,
+                range
+            );
+            if overlap_p > constants::MERGE_CUTOFF && index_found != i {
                 let vec = all_overlaps.entry(index).or_insert(vec![]);
                 vec.push(interval_found);
             }
@@ -138,13 +147,16 @@ fn merge_overlapping_haplogroups<'a>(
         for inter in overlap_vec.iter() {
             let orig_snp_range = &snp_range_parts_vec[*index];
             let inter_snp_range = &snp_range_parts_vec[inter.val];
-            let check_range = (usize::min(orig_snp_range.0, inter_snp_range.0), usize::max(orig_snp_range.1, inter_snp_range.1));
+            let check_range = (
+                usize::min(orig_snp_range.0, inter_snp_range.0),
+                usize::max(orig_snp_range.1, inter_snp_range.1),
+            );
             let (same, diff) = utils_frags::distance_between_haplotypes(
                 &all_parts_block.blocks[*index],
                 &all_parts_block.blocks[inter.val],
                 &check_range,
             );
-            if (diff / same ) < epsilon{
+            if (diff / same) < epsilon {
                 log::trace!("potential_merge {} {} {} {}", diff, same, index, inter.val);
                 potential_merges.push((index, inter.val, check_range.0, check_range.1, same, diff));
             }
@@ -159,32 +171,35 @@ fn merge_overlapping_haplogroups<'a>(
     }
 
     let mut disjoint_set_to_merge = FxHashMap::default();
-    for index in 0..snp_range_parts_vec.len(){
+    for index in 0..snp_range_parts_vec.len() {
         let rep = merge_redirect.find(index);
-        let set = disjoint_set_to_merge.entry(rep).or_insert(FxHashSet::default());
+        let set = disjoint_set_to_merge
+            .entry(rep)
+            .or_insert(FxHashSet::default());
         set.insert(index);
     }
 
-    for (rep,set) in disjoint_set_to_merge{
-        if set.len() <= 1{
-            continue
+    for (rep, set) in disjoint_set_to_merge {
+        if set.len() <= 1 {
+            continue;
         }
         let mut all_range = (usize::MAX, usize::MIN);
-        for index in set{
-            if index == rep{
-                continue
-            }
+        for index in set {
+            
             log::trace!("MERGING {} {}", rep, index);
-            let old_set = mem::take(&mut all_joined_path_parts[index]);
-            let set_parent = &mut all_joined_path_parts[rep];
-            if all_range.0 > snp_range_parts_vec[index].0{
+            if all_range.0 > snp_range_parts_vec[index].0 {
                 all_range.0 = snp_range_parts_vec[index].0;
             }
-            if all_range.1 < snp_range_parts_vec[index].1{
+            if all_range.1 < snp_range_parts_vec[index].1 {
                 all_range.1 = snp_range_parts_vec[index].1;
             }
-            for read in old_set{
-                set_parent.insert(read);
+            if index != rep {
+                let old_set = mem::take(&mut all_joined_path_parts[index]);
+                let set_parent = &mut all_joined_path_parts[rep];
+
+                for read in old_set {
+                    set_parent.insert(read);
+                }
             }
         }
         snp_range_parts_vec[rep] = all_range;
@@ -234,12 +249,17 @@ pub fn process_reads_for_final_parts<'a>(
             .min_by(|x, y| x.partial_cmp(&y).unwrap())
             .unwrap()
             .1;
-//        log::trace!("Frag {}, best partitions {:?}", &frag.id, &diff_part_vec);
+        //        log::trace!("Frag {}, best partitions {:?}", &frag.id, &diff_part_vec);
         all_joined_path_parts[*best_part].insert(frag);
         utils_frags::add_read_to_block(&mut all_parts_block, frag, *best_part);
     }
 
-    merge_overlapping_haplogroups(all_joined_path_parts, snp_range_parts_vec, epsilon, &snp_to_genome_pos);
+    merge_overlapping_haplogroups(
+        all_joined_path_parts,
+        snp_range_parts_vec,
+        epsilon,
+        &snp_to_genome_pos,
+    );
     separate_broken_haplogroups(all_joined_path_parts, snp_range_parts_vec);
 
     if reassign_short {
