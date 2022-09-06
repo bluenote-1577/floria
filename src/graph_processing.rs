@@ -315,6 +315,7 @@ fn get_local_hap_blocks<'a>(
         all_frags,
         usize::MAX,
     );
+
     let mut best_ploidy = ploidy_start;
     if reads.is_empty() {
         return None;
@@ -353,8 +354,18 @@ fn get_local_hap_blocks<'a>(
         } else {
             endpoints = (random_vec[j].0 + 1, random_vec[j].1 + 1);
         }
+//        let split_part_merge = split_part;
         let (split_part_merge, split_part_endpoints) =
             merge_split_parts(split_part, break_pos, endpoints);
+        for vec in split_part_merge.iter(){
+            for set in vec.iter(){
+                for frag in set.iter(){
+                    if frag.id.contains("485041"){
+//                        dbg!(&frag.id, ploidy, endpoints);
+                    }
+                }
+            }
+        }
         //            let block = utils_frags::hap_block_from_partition(&optimized_part);
         //            let (binom_vec, _freq_vec) = local_clustering::get_partition_stats(&part, &block);
         let binom_vec =
@@ -429,9 +440,9 @@ fn get_local_hap_blocks<'a>(
     let best_endpoints = mem::take(&mut endpoints_vector[best_ploidy - ploidy_start]);
     let local_part_dir = format!("{}/local_parts/", glopp_out_dir);
     let mut hap_node_blocks = vec![];
-    if best_ploidy == 1{
-        return None;
-    }
+//    if best_ploidy == 1{
+//        return None;
+//    }
 
     for (l, best_part) in best_parts.iter().enumerate() {
         let mut hap_node_block = vec![];
@@ -446,13 +457,15 @@ fn get_local_hap_blocks<'a>(
         }
         hap_node_blocks.push(hap_node_block);
 
-        file_reader::write_output_partition_to_file(
+        file_reader::write_outputs(
             &frag_best_part,
             &vec![],
             local_part_dir.clone(),
             &format!("{}-{}-{}-{}", j, l, random_vec[j].0, best_ploidy),
+            &String::new(),
             &snp_to_genome_pos,
             false,
+            0.
         );
     }
 
@@ -582,7 +595,7 @@ fn merge_split_parts(
             continue;
         }
         if cov_rat > 0.95 || cov_rat < 0.05 {
-            tomerge.push(k);
+//            tomerge.push(k);
         } else {
             snp_breakpoints.push((left_endpoint_merged, *breaks_with_min_sorted[k]));
             left_endpoint_merged = *breaks_with_min_sorted[k];
@@ -640,20 +653,19 @@ fn merge_split_parts(
     return (split_part_merge, snp_breakpoints);
 }
 
-pub fn get_disjoint_paths_rewrite(
-    hap_graph: &mut Vec<Vec<HapNode>>,
+pub fn get_disjoint_paths_rewrite<'a> (
+    hap_graph: &'a mut Vec<Vec<HapNode>>,
     flow_update_vec: FlowUpVec,
     epsilon: f64,
     glopp_out_dir: String,
-    snp_to_genome_pos: &Vec<usize>,
-    short_frags: &Vec<Frag>,
+    short_frags: &'a Vec<Frag>,
     reassign_short: bool,
     vcf_profile: &VcfProfile,
     contig: &str,
     block_len: usize,
     do_binning: bool,
-    extend_read_clipping: bool,
-) {
+    snp_to_genome_pos: &'a Vec<usize>,
+) -> (Vec<FxHashSet<&'a Frag>>, Vec<(usize,usize)>){
     let flow_cutoff = 3.0;
     let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
     //Update the graph to include flows.
@@ -904,6 +916,15 @@ pub fn get_disjoint_paths_rewrite(
     }
 
     println!("Number of haplogroups/disjoint paths: {}", best_paths.len());
+    let glopp_out_dir_copy = glopp_out_dir.clone();
+    let mut path_debug_file =
+        File::create(format!("{}/debug_paths.txt", glopp_out_dir_copy)).expect("Can't create file");
+    for (i, path) in best_pathscolrow.iter().enumerate() {
+        writeln!(path_debug_file, "{}", i).unwrap();
+        writeln!(path_debug_file, "{:?}", path).unwrap();
+        //        writeln!(path_debug_file, "{:?}", path_parts_snps_endpoints_copy[i]).unwrap();
+        writeln!(path_debug_file, "{:?}", cov_of_haplogroups[i]).unwrap();
+    }
 
     //Put read into best haplotig.
     if do_binning {
@@ -925,27 +946,10 @@ pub fn get_disjoint_paths_rewrite(
         short_frags,
         &mut path_parts_snp_endspoints,
         reassign_short,
-    );
-
-    let glopp_out_dir_copy = glopp_out_dir.clone();
-    let _path_parts_snps_endpoints_copy = path_parts_snp_endspoints.clone();
-    file_reader::write_output_partition_to_file(
-        &all_joined_path_parts,
-        &path_parts_snp_endspoints,
-        glopp_out_dir,
-        &format!("all"),
         &snp_to_genome_pos,
-        extend_read_clipping,
     );
 
-    let mut path_debug_file =
-        File::create(format!("{}/debug_paths.txt", glopp_out_dir_copy)).expect("Can't create file");
-    for (i, path) in best_pathscolrow.iter().enumerate() {
-        writeln!(path_debug_file, "{}", i).unwrap();
-        writeln!(path_debug_file, "{:?}", path).unwrap();
-        //        writeln!(path_debug_file, "{:?}", path_parts_snps_endpoints_copy[i]).unwrap();
-        writeln!(path_debug_file, "{:?}", cov_of_haplogroups[i]).unwrap();
-    }
+    return (all_joined_path_parts, path_parts_snp_endspoints);
 }
 
 

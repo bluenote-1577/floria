@@ -202,13 +202,15 @@ fn main() {
         -1.0 * final_score
     );
 
-    file_reader::write_output_partition_to_file(
+    file_reader::write_outputs(
         &final_part_reference,
         &vec![],
         part_out_dir.clone(),
         &String::from("cons"),
+        &String::new(),
         &snp_to_genome_pos,
-        false
+        false,
+        0.
     );
 
     file_reader::write_blocks_to_file(

@@ -1,6 +1,7 @@
 use crate::alignment;
 use crate::types_structs::{build_frag, Frag, HapBlock, VcfProfile};
 use crate::utils_frags;
+use crate::constants;
 use bio::alphabets::dna::revcomp;
 use bio::io::fasta;
 use bio::io::fastq;
@@ -197,7 +198,6 @@ pub fn write_blocks_to_file<P>(
     }
 }
 
-
 //Read a vcf file to get the genotypes. We read genotypes into a dictionary of keypairs where the
 //keys are positions, and the values are dictionaries which encode the genotypes. E.g. the genotype
 //1 1 0 0 at position 5 would be (5,{1 : 2, 0 : 2}).
@@ -375,13 +375,15 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
     }
 }
 
-pub fn write_output_partition_to_file(
+pub fn write_outputs(
     part: &Vec<FxHashSet<&Frag>>,
     snp_range_parts_vec: &Vec<(usize, usize)>,
     out_bam_part_dir: String,
+    prefix: &String,
     contig: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
     extend_read_clipping: bool,
+    epsilon: f64,
 ) {
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
@@ -392,233 +394,29 @@ pub fn write_output_partition_to_file(
         fs::create_dir_all(&format!("{}/haplotypes", out_bam_part_dir)).unwrap();
     }
 
-    let contig_path = &format!("{}/{}_part.txt", out_bam_part_dir, contig);
-    //        out_bam_part_dir
-    //        .as_ref()
-    //        .join(format!("{}_part.txt", contig));
-    let file = File::create(contig_path).expect("Can't create file");
-    let mut file = LineWriter::new(file);
-    let mut total_cov_all = 0.;
-    let mut total_err_all = 0.;
 
-    for (i, set) in part.iter().enumerate() {
-        if set.is_empty() {
-            continue;
-        }
-        //Populate all_part.txt file
-        let mut vec_part: Vec<&Frag> = set.into_iter().cloned().collect();
-        vec_part.sort();
-//        vec_part.sort_by(|a, b| a.first_position.cmp(&b.first_position));
-        if snp_range_parts_vec.is_empty() {
-            write!(file, "#{}\n", i).unwrap();
-        } else {
-            let left_snp_pos = snp_range_parts_vec[i].0;
-            let right_snp_pos = snp_range_parts_vec[i].1;
-            let (cov, err, total_err, total_cov) =
-                utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
-            write!(
-                file,
-                "#{},{},{},{},{},{},{}\n",
-                //1-indexed snp poses are output... this is annoying
-                i,
-                cov,
-                err,
-                left_snp_pos,
-                right_snp_pos,
-                snp_pos_to_genome_pos[left_snp_pos - 1],
-                snp_pos_to_genome_pos[right_snp_pos - 1],
-            )
-            .unwrap();
-            total_cov_all += total_cov;
-            total_err_all += total_err;
-        }
-
-        for frag in vec_part.iter() {
-            //I think this was done because there
-            //can be a lot of short reads. I think we should still
-            //output it, though. 
-//            if !frag.is_paired {
-                write!(
-                    file,
-                    "{}\t{}\t{}\n",
-                    frag.id.clone(),
-                    frag.first_position,
-                    frag.last_position
-                )
-                .unwrap();
-//            }
-        }
-
-        //Non-empty means that we're writing the final partition after path collection
-        if !snp_range_parts_vec.is_empty() {
-            let append;
-            if i == 0 {
-                append = true;
-            } else {
-                append = false;
-            }
-
-            let left_snp_pos = snp_range_parts_vec[i].0;
-            let right_snp_pos = snp_range_parts_vec[i].1;
-
-            write_fragset_haplotypes(
-                set,
-                &format!("{}", i),
-                &out_bam_part_dir,
-                &snp_pos_to_genome_pos,
-                append,
-                left_snp_pos,
-                right_snp_pos,
-            );
-
-            let part_fastq_reads = format!("{}/long_reads/{}_part.fastq", out_bam_part_dir, i);
-            let part_fastq_reads_paired1 =
-                format!("{}/short_reads/{}_part_paired1.fastq", out_bam_part_dir, i);
-            let part_fastq_reads_paired2 =
-                format!("{}/short_reads/{}_part_paired2.fastq", out_bam_part_dir, i);
-
-            let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
-            let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
-            let fastq_file2 = File::create(part_fastq_reads_paired2).expect("Can't create file");
-
-            let mut fastq_writer = fastq::Writer::new(fastq_file);
-            let mut fastq_writer_paired1 = fastq::Writer::new(fastq_file1);
-            let mut fastq_writer_paired2 = fastq::Writer::new(fastq_file2);
-
-            //1-indexing for snp position already accounted for
-            let extension = 25;
-            for frag in vec_part.iter() {
-                let mut found_primary = false;
-                for seq in frag.seq_string.iter() {
-                    if seq.len() != 0 {
-                        found_primary = true;
-                        break;
-                    }
-                }
-                if !found_primary {
-                    log::trace!(
-                        "{} primary not found. Paired: {}",
-                        &frag.id, &frag.is_paired
-                    );
-                    continue;
-                }
-                //We can merge haplogroups such that small reads may fall off the
-                //snp range intervals
-                if frag.first_position > right_snp_pos {
-                    log::trace!("Read {} past right endpoint; trim until empty.", &frag.id);
-                    continue;
-                }
-                if frag.last_position < left_snp_pos {
-                    log::trace!("Read {} past left endpoint; trim until empty.", &frag.id);
-                    continue;
-                }
-                let mut left_seq_pos;
-                let mut tmp = left_snp_pos;
-                let left_read_pair;
-                if frag.first_position > left_snp_pos && extend_read_clipping {
-                    left_seq_pos = 0;
-                    left_read_pair = 0;
-                } else {
-                    loop {
-                        if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
-                            let info = frag.snp_pos_to_seq_pos[&tmp];
-                            left_seq_pos = info.1;
-                            left_read_pair = info.0;
-                            break;
-                        }
-                        tmp += 1;
-                        if tmp - left_snp_pos > 10000000 {
-                            dbg!(
-                                &frag.first_position,
-                                &frag.last_position,
-                                left_snp_pos,
-                                right_snp_pos,
-                                &frag.snp_pos_to_seq_pos,
-                            );
-                            panic!("left snp position of partition for the read was not found.");
-                        }
-                    }
-                }
-                if left_seq_pos > extension {
-                    left_seq_pos -= extension;
-                } else {
-                    left_seq_pos = 0;
-                }
-
-                let mut right_seq_pos;
-                let mut tmp = right_snp_pos;
-                let right_read_pair;
-                if frag.last_position < right_snp_pos && extend_read_clipping {
-                    if frag.is_paired {
-                        right_read_pair = 1;
-                    } else {
-                        right_read_pair = 0;
-                    }
-                    right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
-                } else {
-                    loop {
-                        if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
-                            let info = frag.snp_pos_to_seq_pos[&tmp];
-                            right_seq_pos = info.1;
-                            right_read_pair = info.0;
-                            break;
-                        }
-                        if tmp == 0 {
-                            dbg!(&frag.positions, left_snp_pos, right_snp_pos);
-                        }
-                        tmp -= 1;
-                    }
-                }
-
-                if frag.seq_string[right_read_pair as usize].len() == 0 {
-                    right_seq_pos = 0;
-                } else if frag.seq_string[right_read_pair as usize].len() > extension + 1
-                    && right_seq_pos
-                        < frag.seq_string[right_read_pair as usize].len() - extension - 1
-                {
-                    right_seq_pos += extension;
-                } else {
-                    right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
-                }
-
-                if frag.is_paired {
-                    write_paired_reads_no_trim(
-                        &mut fastq_writer_paired1,
-                        &mut fastq_writer_paired2,
-                        left_read_pair,
-                        right_read_pair,
-                        left_seq_pos,
-                        right_seq_pos,
-                        &frag,
-                    );
-                } else {
-                    if left_seq_pos > right_seq_pos {
-                        log::trace!(
-                            "{} left seq pos > right seq pos at {:?}. Left:{}, Right:{}.
-                            This usually happens when a read id is not unique. May happen with suppl. alignments too.",
-                            &frag.id, snp_range_parts_vec[i], left_seq_pos, right_seq_pos
-                        );
-                        continue;
-                    }
-                    fastq_writer
-                        .write(
-                            &frag.id,
-                            None,
-                            &frag.seq_string[0].to_ascii_vec()[left_seq_pos..right_seq_pos + 1],
-                            &frag.qual_string[0].as_slice()[left_seq_pos..right_seq_pos + 1],
-                        )
-                        .unwrap();
-                }
-            }
-        }
-    }
-
-    if !snp_range_parts_vec.is_empty() {
-        println!(
-            "Final SNP error rate for all haplogroups is {}",
-            total_err_all / total_cov_all
-        );
-    }
+    let hapQ_scores = write_haplotypes(
+        part,
+        contig,
+        snp_range_parts_vec,
+        &out_bam_part_dir,
+        snp_pos_to_genome_pos,
+        epsilon,
+    );
+    write_all_parts_file(
+        part,
+        snp_range_parts_vec,
+        &out_bam_part_dir,
+        prefix,
+        snp_pos_to_genome_pos,
+        hapQ_scores,
+    );
+    write_reads(
+        part,
+        snp_range_parts_vec,
+        &out_bam_part_dir,
+        extend_read_clipping,
+    );
 }
 
 fn write_paired_reads_no_trim<W: Write>(
@@ -824,7 +622,7 @@ fn write_fragset_haplotypes(
     append: bool,
     left_snp_pos: usize,
     right_snp_pos: usize,
-) {
+) -> Vec<u8> {
     let filename = format!("{}/haplotypes/{}_hap.txt", dir, name);
     let mut file = OpenOptions::new()
         .write(true)
@@ -839,8 +637,9 @@ fn write_fragset_haplotypes(
     write!(file, "{}", title_string).unwrap();
     let positions: Vec<&usize> = hap_map.keys().collect();
     if positions.len() == 0 {
-        return;
+        return vec![];
     }
+    let mut vec_of_alleles = vec![];
     for pos in left_snp_pos..right_snp_pos + 1 {
         let mut snp_support = 0;
         if snp_pos_to_genome_pos.len() == 0 {
@@ -852,9 +651,12 @@ fn write_fragset_haplotypes(
         //If a block has no coverage at a position, we write -1.
         if *allele_map == emptydict {
             file.write_all(b"-1\t").unwrap();
+            //This prints ?
+            vec_of_alleles.push(15);
         } else {
             let best_allele = allele_map.iter().max_by_key(|entry| entry.1).unwrap().0;
             write!(file, "{}\t", best_allele).unwrap();
+            vec_of_alleles.push(*best_allele as u8);
         }
 
         if *allele_map == emptydict {
@@ -875,6 +677,7 @@ fn write_fragset_haplotypes(
         }
         write!(file, "\n").unwrap();
     }
+    return vec_of_alleles;
 }
 
 pub fn get_vcf_profile<'a>(vcf_file: &str, ref_chroms: &'a Vec<String>) -> VcfProfile<'a> {
@@ -1001,7 +804,7 @@ where
     for record_vec in rec_vecs {
         record_vec
             .into_par_iter()
-//            .into_iter()
+            //            .into_iter()
             .enumerate()
             .for_each(|(count, record)| {
                 if record.tid() < 0 {
@@ -1013,6 +816,12 @@ where
                         use_supplementary,
                         filter_supplementary,
                     );
+
+//                    log::trace!(
+//                        "{},{:?}",
+//                        str::from_utf8(&record.qname()).unwrap(),
+//                        passed_check
+//                    );
 
                     if passed_check.0 {
                         let rec_name: Vec<u8> = record.qname().iter().cloned().collect();
@@ -1049,6 +858,11 @@ where
         contig,
     );
 
+    //    for frag in ref_vec_frags.iter(){
+    //        if frag.id.contains("485041"){
+    //            dbg!(&frag);
+    //        }
+    //    }
     ref_vec_frags
 }
 
@@ -1078,11 +892,24 @@ fn combine_frags(
         //        dbg!(&str::from_utf8(&_id), frags.len(), frags.iter().map(|x| x.0).collect::<Vec<u16>>());
         //paired
         if frags.len() == 2 && frags[0].1.is_paired && frags[1].1.is_paired {
-            log::trace!("{}, {},{},{},{}",frags[0].1.id, frags[0].0, frags[0].1.first_position,frags[1].0, frags[1].1.first_position);
+//            log::trace!(
+//                "{}, {},{},{},{}",
+//                frags[0].1.id,
+//                frags[0].0,
+//                frags[0].1.first_position,
+//                frags[1].0,
+//                frags[1].1.first_position
+//            );
             frags.sort();
             let first = std::mem::take(&mut frags[0]);
             let second = std::mem::take(&mut frags[1]);
-            log::trace!("{},{},{},{}",first.1.id, second.1.id, first.1.counter_id, second.1.counter_id);
+//            log::trace!(
+//                "{},{},{},{}",
+//                first.1.id,
+//                second.1.id,
+//                first.1.counter_id,
+//                second.1.counter_id
+//            );
 
             let mut first_frag;
             let mut sec_frag;
@@ -1284,4 +1111,388 @@ pub fn get_contigs_to_phase(bam_file: &str) -> Vec<String> {
         .iter()
         .map(|x| String::from_utf8(x.to_vec()).unwrap())
         .collect();
+}
+
+#[allow(non_snake_case)]
+fn hapQ_score(error_rate: f64, epsilon: f64, cov: f64, read_ratio: f64) -> u8 {
+    let constant = 0.05_f64.ln() / 20.;
+    let score = (-10. * error_rate / epsilon) - 120.*(constant * cov).exp() + 140. + 10. * read_ratio.ln();
+    if score < 0. {
+        return 0;
+    } else if score > 60. {
+        return 60;
+    } else {
+        return score as u8;
+    }
+}
+
+#[allow(non_snake_case)]
+fn write_haplotypes(
+    part: &Vec<FxHashSet<&Frag>>,
+    contig: &String,
+    snp_range_parts_vec: &Vec<(usize, usize)>,
+    out_bam_part_dir: &String,
+    snp_pos_to_genome_pos: &Vec<usize>,
+    epsilon: f64,
+) -> FxHashMap<usize,u8> {
+    let haplotig_file = format!("{}/haplotigs.fa", out_bam_part_dir);
+    let ploidy_file = format!("{}/ploidy_info.txt", out_bam_part_dir);
+    let mut longest_haplotig_bases = 0;
+    let mut snp_covered_count = vec![0.; snp_pos_to_genome_pos.len()];
+    let mut coverage_count = vec![0.; snp_pos_to_genome_pos.len()];
+    let mut hapQ_scores = FxHashMap::default();
+    let mut total_bases_covered = 0;
+//    let mut hapQ_scores = vec![];
+    let mut haplotig_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(true)
+        .open(haplotig_file)
+        .unwrap();
+    let max = snp_range_parts_vec.iter().max_by(|x, y| (x.1 - x.0).cmp(&(y.1 - y.0)));
+    let num_max_interval;
+    if max.is_none() {
+        num_max_interval = 0;
+    } else {
+        num_max_interval = max.unwrap().1 - max.unwrap().0;
+    }
+    for (i, set) in part.iter().enumerate() {
+        if set.is_empty() {
+            continue;
+        }
+
+        if !snp_range_parts_vec.is_empty() {
+            let append;
+            if i == 0 {
+                append = true;
+            } else {
+                append = false;
+            }
+
+            let left_snp_pos = snp_range_parts_vec[i].0;
+            let right_snp_pos = snp_range_parts_vec[i].1;
+            if left_snp_pos > right_snp_pos {
+                dbg!(&snp_range_parts_vec[i], contig);
+                panic!();
+            }
+            let left_gn_pos = snp_pos_to_genome_pos[left_snp_pos - 1];
+            let right_gn_pos = snp_pos_to_genome_pos[right_snp_pos - 1];
+
+            let bases_covered_haplotig = right_gn_pos - left_gn_pos;
+            total_bases_covered += bases_covered_haplotig;
+            if bases_covered_haplotig > longest_haplotig_bases {
+                longest_haplotig_bases = bases_covered_haplotig;
+            }
+
+            let (cov, err, _total_err, _total_cov) =
+                utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
+
+            let hap_Q = hapQ_score(
+                err,
+                epsilon,
+                cov,
+                (right_snp_pos - left_snp_pos) as f64 / num_max_interval as f64,
+            );
+            if hap_Q > constants::HAPQ_CUTOFF{
+                for i in left_snp_pos..right_snp_pos + 1 {
+                    snp_covered_count[i - 1] += 1.;
+                    coverage_count[i - 1] += cov
+                }
+            }
+
+            hapQ_scores.insert(i,hap_Q);
+
+            write!(
+                haplotig_file,
+                ">{}_HAP{} SNPRANGE:{}-{} BASERANGE:{}-{} COV:{} ERR:{} HAPQ:{}\n",
+                contig,
+                i,
+                left_snp_pos,
+                right_snp_pos,
+                left_gn_pos + 1,
+                right_gn_pos + 1,
+                cov,
+                err,
+                hap_Q,
+            )
+            .unwrap();
+            let vec_of_alleles = write_fragset_haplotypes(
+                set,
+                &format!("{}", i),
+                &out_bam_part_dir,
+                &snp_pos_to_genome_pos,
+                append,
+                left_snp_pos,
+                right_snp_pos,
+            );
+            write!(
+                haplotig_file,
+                "{}\n",
+                str::from_utf8(
+                    &vec_of_alleles
+                        .into_iter()
+                        .map(|x| x + 48)
+                        .collect::<Vec<u8>>()
+                )
+                .unwrap()
+            )
+            .unwrap();
+        }
+    }
+
+    let mut ploidy_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(ploidy_file)
+        .unwrap();
+
+        let num_nonzero = snp_covered_count
+            .iter()
+            .filter(|x| **x > 0.)
+            .collect::<Vec<_>>()
+            .len();
+        let avg_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
+        let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
+        write!(
+            ploidy_file,
+            "{}\t{}\t{}\t{}\n",
+            contig,
+            avg_ploidy,
+            rough_cvg,
+            total_bases_covered as f64 / avg_ploidy
+        )
+        .unwrap();
+    
+    return hapQ_scores;
+}
+
+fn write_all_parts_file(
+    part: &Vec<FxHashSet<&Frag>>,
+    snp_range_parts_vec: &Vec<(usize, usize)>,
+    out_bam_part_dir: &String,
+    prefix: &String,
+    snp_pos_to_genome_pos: &Vec<usize>,
+    hapQ_scores: FxHashMap<usize,u8>
+) {
+    let part_path = &format!("{}/{}_part.txt", out_bam_part_dir, prefix);
+    let file = File::create(part_path).expect("Can't create file");
+
+    let mut file = LineWriter::new(file);
+    let mut total_cov_all = 0.;
+    let mut total_err_all = 0.;
+
+    for (i, set) in part.iter().enumerate() {
+        if set.is_empty() {
+            continue;
+        }
+
+        //Populate all_part.txt file
+        let mut vec_part: Vec<&Frag> = set.into_iter().cloned().collect();
+        vec_part.sort();
+        if snp_range_parts_vec.is_empty() {
+            write!(file, "#{}\n", i).unwrap();
+        } else {
+            let left_snp_pos = snp_range_parts_vec[i].0;
+            let right_snp_pos = snp_range_parts_vec[i].1;
+            let (cov, err, total_err, total_cov) =
+                utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
+            write!(
+                file,
+                "#{},SNPRANGE:{}-{},BASERANGE:{}-{},COV:{},ERR:{},HAPQ:{}\n",
+                //1-indexed snp poses are output... this is annoying
+                i,
+                left_snp_pos,
+                right_snp_pos,
+                snp_pos_to_genome_pos[left_snp_pos - 1] + 1,
+                snp_pos_to_genome_pos[right_snp_pos - 1] + 1,
+                cov,
+                err,
+                hapQ_scores[&i],
+            )
+            .unwrap();
+            total_cov_all += total_cov;
+            total_err_all += total_err;
+        }
+
+        for frag in vec_part.iter() {
+            //I think this was done because there
+            //can be a lot of short reads. I think we should still
+            //output it, though.
+            write!(
+                file,
+                "{}\t{}\t{}\n",
+                frag.id.clone(),
+                frag.first_position,
+                frag.last_position
+            )
+            .unwrap();
+        }
+    }
+    if !snp_range_parts_vec.is_empty() {
+        println!(
+            "Final SNP error rate for all haplogroups is {}",
+            total_err_all / total_cov_all
+        );
+    }
+}
+
+fn write_reads(
+    part: &Vec<FxHashSet<&Frag>>,
+    snp_range_parts_vec: &Vec<(usize, usize)>,
+    out_bam_part_dir: &String,
+    extend_read_clipping: bool,
+) {
+    for (i, set) in part.iter().enumerate() {
+        if set.is_empty() {
+            continue;
+        }
+        if snp_range_parts_vec.is_empty() {
+            continue;
+        }
+        let left_snp_pos = snp_range_parts_vec[i].0;
+        let right_snp_pos = snp_range_parts_vec[i].1;
+        //Populate all_part.txt file
+        let mut vec_part: Vec<&Frag> = set.into_iter().cloned().collect();
+        vec_part.sort();
+        //Non-empty means that we're writing the final partition after path collection
+        let part_fastq_reads = format!("{}/long_reads/{}_part.fastq", out_bam_part_dir, i);
+        let part_fastq_reads_paired1 =
+            format!("{}/short_reads/{}_part_paired1.fastq", out_bam_part_dir, i);
+        let part_fastq_reads_paired2 =
+            format!("{}/short_reads/{}_part_paired2.fastq", out_bam_part_dir, i);
+
+        let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
+        let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
+        let fastq_file2 = File::create(part_fastq_reads_paired2).expect("Can't create file");
+
+        let mut fastq_writer = fastq::Writer::new(fastq_file);
+        let mut fastq_writer_paired1 = fastq::Writer::new(fastq_file1);
+        let mut fastq_writer_paired2 = fastq::Writer::new(fastq_file2);
+
+        //1-indexing for snp position already accounted for
+        let extension = 25;
+        for frag in vec_part.iter() {
+            let mut found_primary = false;
+            for seq in frag.seq_string.iter() {
+                if seq.len() != 0 {
+                    found_primary = true;
+                    break;
+                }
+            }
+            if !found_primary {
+                log::trace!(
+                    "{} primary not found. Paired: {}",
+                    &frag.id,
+                    &frag.is_paired
+                );
+                continue;
+            }
+            //We can merge haplogroups such that small reads may fall off the
+            //snp range intervals
+            if frag.first_position > right_snp_pos {
+                log::trace!("Read {} past right endpoint; trim until empty.", &frag.id);
+                continue;
+            }
+            if frag.last_position < left_snp_pos {
+                log::trace!("Read {} past left endpoint; trim until empty.", &frag.id);
+                continue;
+            }
+            let mut left_seq_pos;
+            let mut tmp = left_snp_pos;
+            let left_read_pair;
+            if frag.first_position > left_snp_pos && extend_read_clipping {
+                left_seq_pos = 0;
+                left_read_pair = 0;
+            } else {
+                loop {
+                    if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
+                        let info = frag.snp_pos_to_seq_pos[&tmp];
+                        left_seq_pos = info.1;
+                        left_read_pair = info.0;
+                        break;
+                    }
+                    tmp += 1;
+                    if tmp - left_snp_pos > 10000000 {
+                        dbg!(
+                            &frag.first_position,
+                            &frag.last_position,
+                            left_snp_pos,
+                            right_snp_pos,
+                            &frag.snp_pos_to_seq_pos,
+                        );
+                        panic!("left snp position of partition for the read was not found.");
+                    }
+                }
+            }
+            if left_seq_pos > extension {
+                left_seq_pos -= extension;
+            } else {
+                left_seq_pos = 0;
+            }
+
+            let mut right_seq_pos;
+            let mut tmp = right_snp_pos;
+            let right_read_pair;
+            if frag.last_position < right_snp_pos && extend_read_clipping {
+                if frag.is_paired {
+                    right_read_pair = 1;
+                } else {
+                    right_read_pair = 0;
+                }
+                right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
+            } else {
+                loop {
+                    if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
+                        let info = frag.snp_pos_to_seq_pos[&tmp];
+                        right_seq_pos = info.1;
+                        right_read_pair = info.0;
+                        break;
+                    }
+                    if tmp == 0 {
+                        dbg!(&frag.positions, left_snp_pos, right_snp_pos);
+                    }
+                    tmp -= 1;
+                }
+            }
+
+            if frag.seq_string[right_read_pair as usize].len() == 0 {
+                right_seq_pos = 0;
+            } else if frag.seq_string[right_read_pair as usize].len() > extension + 1
+                && right_seq_pos < frag.seq_string[right_read_pair as usize].len() - extension - 1
+            {
+                right_seq_pos += extension;
+            } else {
+                right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
+            }
+
+            if frag.is_paired {
+                write_paired_reads_no_trim(
+                    &mut fastq_writer_paired1,
+                    &mut fastq_writer_paired2,
+                    left_read_pair,
+                    right_read_pair,
+                    left_seq_pos,
+                    right_seq_pos,
+                    &frag,
+                );
+            } else {
+                if left_seq_pos > right_seq_pos {
+                    log::trace!(
+                            "{} left seq pos > right seq pos at {:?}. Left:{}, Right:{}.
+                            This usually happens when a read id is not unique. May happen with suppl. alignments too.",
+                            &frag.id, snp_range_parts_vec[i], left_seq_pos, right_seq_pos
+                        );
+                    continue;
+                }
+                fastq_writer
+                    .write(
+                        &frag.id,
+                        None,
+                        &frag.seq_string[0].to_ascii_vec()[left_seq_pos..right_seq_pos + 1],
+                        &frag.qual_string[0].as_slice()[left_seq_pos..right_seq_pos + 1],
+                    )
+                    .unwrap();
+            }
+        }
+    }
 }

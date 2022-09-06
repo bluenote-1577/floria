@@ -1,4 +1,6 @@
 use crate::types_structs::{Frag, VcfProfile};
+use disjoint_sets::UnionFind;
+use crate::constants;
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
 use rust_lapper::{Interval, Lapper};
@@ -7,12 +9,16 @@ use std::io::Write;
 use std::mem;
 use std::time::Instant;
 
+fn overlap_percent(x1: usize, x2: usize, y1: usize, y2: usize) -> f64{
+    let intersect = usize::min(x2 - y1, y2 - x1);
+    return intersect as f64 / usize::min(x2 - x1, y2 - y1) as f64;
+}
+
 //TODO not sure if this is needed. Will implement if needed.
 fn separate_broken_haplogroups<'a>(
     all_joined_path_parts: &mut Vec<FxHashSet<&'a Frag>>,
     snp_range_parts_vec: &mut Vec<(usize, usize)>,
 ) {
-    assert!(snp_range_parts_vec.len() == all_joined_path_parts.len());
     let mut all_breaks = vec![];
     for i in 0..snp_range_parts_vec.len() {
         let part = &all_joined_path_parts[i];
@@ -22,7 +28,11 @@ fn separate_broken_haplogroups<'a>(
         let mut breaks = vec![];
         for frag in vec_of_frags {
             if current_lastest_pos != 0 && frag.first_position > current_lastest_pos {
-                breaks.push(current_lastest_pos);
+                if current_lastest_pos >= snp_range_parts_vec[i].0
+                    && current_lastest_pos < snp_range_parts_vec[i].1
+                {
+                    breaks.push(current_lastest_pos);
+                }
             }
             if frag.last_position > current_lastest_pos {
                 current_lastest_pos = frag.last_position;
@@ -47,20 +57,18 @@ fn separate_broken_haplogroups<'a>(
         let mut new_part = FxHashSet::default();
 
         for frag in vec_of_frags.iter() {
-            if frag.last_position <= end_spot{
+            if frag.last_position <= end_spot {
                 new_part.insert(**frag);
-            }
-            else{
+            } else {
                 let new_snp_range = (break_start, end_spot);
                 new_parts.push(new_part);
                 new_ranges.push(new_snp_range);
 
                 break_start = end_spot + 1;
-                spot_index+=1;
-                if spot_index != break_spots.len(){
+                spot_index += 1;
+                if spot_index != break_spots.len() {
                     end_spot = break_spots[spot_index];
-                }
-                else{
+                } else {
                     end_spot = usize::MAX;
                 }
                 new_part = FxHashSet::default();
@@ -81,7 +89,9 @@ fn separate_broken_haplogroups<'a>(
 }
 fn merge_overlapping_haplogroups<'a>(
     all_joined_path_parts: &mut Vec<FxHashSet<&'a Frag>>,
+    snp_range_parts_vec: &mut Vec<(usize, usize)>,
     epsilon: f64,
+    snp_to_genome_pos: &'a Vec<usize>,
 ) {
     let all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
     let mut interval_vec = vec![];
@@ -102,16 +112,18 @@ fn merge_overlapping_haplogroups<'a>(
             val: i,
         });
     }
+    let interval_vec_clone = interval_vec.clone();
 
     let laps = Lapper::new(interval_vec);
     let mut all_overlaps = FxHashMap::default();
-    for (i, range) in laps.iter().enumerate() {
+    for (i, range) in interval_vec_clone.iter().enumerate() {
         let overlaps = laps.find(range.start, range.stop);
         let index = i;
         for interval_found in overlaps {
             let index_found = interval_found.val;
-            if range.start >= interval_found.start
-                && range.stop <= interval_found.stop
+            let overlap_p = overlap_percent(interval_found.start, interval_found.stop, range.start, range.stop);
+            log::trace!("overlap percent {} {} = {}; range {:?}", i, interval_found.val, overlap_p, range );
+            if  overlap_p > constants::MERGE_CUTOFF
                 && index_found != i
             {
                 let vec = all_overlaps.entry(index).or_insert(vec![]);
@@ -120,16 +132,21 @@ fn merge_overlapping_haplogroups<'a>(
         }
     }
 
-    let mut merges = vec![];
+    let mut merge_redirect = UnionFind::new(snp_range_parts_vec.len());
     for (index, overlap_vec) in all_overlaps.iter() {
         let mut potential_merges = vec![];
         for inter in overlap_vec.iter() {
+            let orig_snp_range = &snp_range_parts_vec[*index];
+            let inter_snp_range = &snp_range_parts_vec[inter.val];
+            let check_range = (usize::min(orig_snp_range.0, inter_snp_range.0), usize::max(orig_snp_range.1, inter_snp_range.1));
             let (same, diff) = utils_frags::distance_between_haplotypes(
                 &all_parts_block.blocks[*index],
                 &all_parts_block.blocks[inter.val],
+                &check_range,
             );
-            if diff / same < epsilon {
-                potential_merges.push((index, inter.val, inter.start, inter.stop, same, diff));
+            if (diff / same ) < epsilon{
+                log::trace!("potential_merge {} {} {} {}", diff, same, index, inter.val);
+                potential_merges.push((index, inter.val, check_range.0, check_range.1, same, diff));
             }
         }
         if !potential_merges.is_empty() {
@@ -137,16 +154,40 @@ fn merge_overlapping_haplogroups<'a>(
                 .iter()
                 .max_by(|x, y| (x.3 - x.2).cmp(&(y.3 - y.2)))
                 .unwrap();
-            merges.push(best_merge);
+            merge_redirect.union(*best_merge.0, best_merge.1);
         }
     }
 
-    for merge in merges {
-        let set_to_merge = mem::replace(&mut all_joined_path_parts[*merge.0], FxHashSet::default());
-        let set_parent = &mut all_joined_path_parts[merge.1];
-        for frag in set_to_merge.iter() {
-            set_parent.insert(frag);
+    let mut disjoint_set_to_merge = FxHashMap::default();
+    for index in 0..snp_range_parts_vec.len(){
+        let rep = merge_redirect.find(index);
+        let set = disjoint_set_to_merge.entry(rep).or_insert(FxHashSet::default());
+        set.insert(index);
+    }
+
+    for (rep,set) in disjoint_set_to_merge{
+        if set.len() <= 1{
+            continue
         }
+        let mut all_range = (usize::MAX, usize::MIN);
+        for index in set{
+            if index == rep{
+                continue
+            }
+            log::trace!("MERGING {} {}", rep, index);
+            let old_set = mem::take(&mut all_joined_path_parts[index]);
+            let set_parent = &mut all_joined_path_parts[rep];
+            if all_range.0 > snp_range_parts_vec[index].0{
+                all_range.0 = snp_range_parts_vec[index].0;
+            }
+            if all_range.1 < snp_range_parts_vec[index].1{
+                all_range.1 = snp_range_parts_vec[index].1;
+            }
+            for read in old_set{
+                set_parent.insert(read);
+            }
+        }
+        snp_range_parts_vec[rep] = all_range;
     }
 }
 
@@ -156,6 +197,7 @@ pub fn process_reads_for_final_parts<'a>(
     short_frags: &'a Vec<Frag>,
     snp_range_parts_vec: &mut Vec<(usize, usize)>,
     reassign_short: bool,
+    snp_to_genome_pos: &'a Vec<usize>,
 ) {
     //The interval method failed, but may be useful in the future.
     let mut all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
@@ -192,12 +234,12 @@ pub fn process_reads_for_final_parts<'a>(
             .min_by(|x, y| x.partial_cmp(&y).unwrap())
             .unwrap()
             .1;
-        log::trace!("Frag {}, best partitions {:?}", &frag.id, &diff_part_vec);
+//        log::trace!("Frag {}, best partitions {:?}", &frag.id, &diff_part_vec);
         all_joined_path_parts[*best_part].insert(frag);
         utils_frags::add_read_to_block(&mut all_parts_block, frag, *best_part);
     }
 
-    merge_overlapping_haplogroups(all_joined_path_parts, epsilon);
+    merge_overlapping_haplogroups(all_joined_path_parts, snp_range_parts_vec, epsilon, &snp_to_genome_pos);
     separate_broken_haplogroups(all_joined_path_parts, snp_range_parts_vec);
 
     if reassign_short {

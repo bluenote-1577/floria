@@ -680,7 +680,7 @@ pub fn optimize_clustering<'a>(
         let new_binom_vec = get_mec_stats_epsilon(&new_part, &new_block,epsilon, true);
         let new_score = new_binom_vec.iter().map(|x| x.1).sum::<f64>() * -1.;
         if new_score > prev_score{
-            log::trace!("Iter {} successful, new {} prev {}", i, new_score, prev_score);
+//            log::trace!("Iter {} successful, new {} prev {}", i, new_score, prev_score);
         }
 
         if new_score > prev_score {
@@ -947,7 +947,7 @@ fn opt_iterate<'a>(
     if number_of_moves == 0 && best_moves.len() > 0{
         number_of_moves = best_moves.len()/3 + 1;
     }
-    log::trace!("Number of moves {}", number_of_moves);
+//    log::trace!("Number of moves {}", number_of_moves);
 
     for (mv_num, mv) in best_moves.iter().enumerate() {
         let (i, read, j) = mv.1;

@@ -1,14 +1,15 @@
 extern crate time;
 use clap::{AppSettings, Arg, Command};
+use fxhash::FxHashMap;
 use sheaf::file_reader;
 use sheaf::graph_processing;
 use sheaf::utils_frags;
-use fxhash::FxHashMap;
 use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
+use std::fs;
 
 #[allow(deprecated)]
 fn main() {
@@ -78,8 +79,7 @@ fn main() {
                               .takes_value(true)
                               .value_name("INT")
                               .help("Maximum number of solutions for beam search. Increasing may improve accuracy slightly. (default: 10)")
-                              .help_heading(alg_options)
-                              .hide(true))
+                              .help_heading(alg_options))
                           .arg(Arg::new("num_iters_ploidy_est")
                               .short('q')
                               .takes_value(true)
@@ -309,9 +309,10 @@ fn main() {
 
         println!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
-        println!("Number of fragments {}", all_frags.len());
         if snp_to_genome_pos_map.contains_key(contig) || bam == false {
             let contig_out_dir = format!("{}/{}", part_out_dir, contig);
+            fs::create_dir_all(&contig_out_dir).unwrap();
+
             let mut snp_to_genome_pos: &Vec<usize> = &Vec::new();
 
             if bam == true {
@@ -321,16 +322,11 @@ fn main() {
             //We need frags sorted by first position to make indexing easier. We want the
             //counter_id to reflect the position in the vector.
             all_frags.sort();
-//            all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+            //            all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
             for (i, frag) in all_frags.iter_mut().enumerate() {
                 frag.counter_id = i;
             }
 
-            //Output median length of reads in SNPs.
-            let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
-            println!("Median read length is {} SNPs", avg_read_length);
-
-            //let cutoff_value = (1.0 / (ploidy + 1) as f64).ln();
 
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
@@ -347,7 +343,7 @@ fn main() {
                 let ff_sf = utils_frags::hybrid_correction(all_frags);
                 final_frags = ff_sf.0;
                 short_frags = ff_sf.1;
-//                final_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+                //                final_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
                 final_frags.sort();
                 for (i, frag) in final_frags.iter_mut().enumerate() {
                     frag.counter_id = i;
@@ -355,6 +351,11 @@ fn main() {
             } else {
                 final_frags = all_frags;
             }
+
+            let avg_read_length = utils_frags::get_avg_length(&final_frags, 0.5);
+            println!("Median read length is {} SNPs", avg_read_length);
+
+            println!("Number of fragments {}", final_frags.len());
 
             match matches.value_of("epsilon") {
                 None => {}
@@ -380,19 +381,30 @@ fn main() {
             );
             let flow_up_vec =
                 graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
-            graph_processing::get_disjoint_paths_rewrite(
-                &mut hap_graph,
-                flow_up_vec,
-                epsilon,
+            let (all_path_parts, path_parts_snp_endpoints) =
+                graph_processing::get_disjoint_paths_rewrite(
+                    &mut hap_graph,
+                    flow_up_vec,
+                    epsilon,
+                    contig_out_dir.to_string(),
+                    &short_frags,
+                    reassign_short,
+                    &vcf_profile,
+                    contig,
+                    block_length,
+                    do_binning,
+                    &snp_to_genome_pos
+                );
+
+            file_reader::write_outputs(
+                &all_path_parts,
+                &path_parts_snp_endpoints,
                 contig_out_dir.to_string(),
+                &format!("all"),
+                &contig, 
                 &snp_to_genome_pos,
-                &short_frags,
-                reassign_short,
-                &vcf_profile,
-                contig,
-                block_length,
-                do_binning,
                 extend_read_clipping,
+                epsilon
             );
         }
     }
