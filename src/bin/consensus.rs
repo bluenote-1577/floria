@@ -216,7 +216,7 @@ fn main() {
     file_reader::write_blocks_to_file(
         part_out_dir.clone(),
         &vec![final_block_unpolish],
-        &vec![length_gn],
+        &vec![length_gn as usize],
         &snp_to_genome_pos,
         &final_part_reference,
         first_iter,

@@ -1,4 +1,5 @@
 use crate::constants;
+use crate::types_structs::{Genotype, GenotypeCount, SnpPosition, GnPosition, Haplotype};
 use crate::types_structs::{Frag, VcfProfile};
 use crate::utils_frags;
 use disjoint_sets::UnionFind;
@@ -9,15 +10,15 @@ use std::io::Write;
 use std::mem;
 use std::time::Instant;
 
-fn overlap_percent(x1: usize, x2: usize, y1: usize, y2: usize) -> f64 {
-    let intersect = usize::min(x2 - y1, y2 - x1);
-    return intersect as f64 / usize::min(x2 - x1, y2 - y1) as f64;
+fn overlap_percent(x1: SnpPosition, x2: SnpPosition, y1: SnpPosition, y2: SnpPosition) -> f64 {
+    let intersect = SnpPosition::min(x2 - y1, y2 - x1);
+    return intersect as f64 / SnpPosition::min(x2 - x1, y2 - y1) as f64;
 }
 
 //TODO not sure if this is needed. Will implement if needed.
 fn separate_broken_haplogroups<'a>(
     all_joined_path_parts: &mut Vec<FxHashSet<&'a Frag>>,
-    snp_range_parts_vec: &mut Vec<(usize, usize)>,
+    snp_range_parts_vec: &mut Vec<(SnpPosition, SnpPosition)>,
 ) {
     let mut all_breaks = vec![];
     for i in 0..snp_range_parts_vec.len() {
@@ -69,7 +70,7 @@ fn separate_broken_haplogroups<'a>(
                 if spot_index != break_spots.len() {
                     end_spot = break_spots[spot_index];
                 } else {
-                    end_spot = usize::MAX;
+                    end_spot = SnpPosition::MAX;
                 }
                 new_part = FxHashSet::default();
             }
@@ -89,15 +90,15 @@ fn separate_broken_haplogroups<'a>(
 }
 fn merge_overlapping_haplogroups<'a>(
     all_joined_path_parts: &mut Vec<FxHashSet<&'a Frag>>,
-    snp_range_parts_vec: &mut Vec<(usize, usize)>,
+    snp_range_parts_vec: &mut Vec<(SnpPosition, SnpPosition)>,
     epsilon: f64,
-    snp_to_genome_pos: &'a Vec<usize>,
+    snp_to_genome_pos: &'a Vec<GnPosition>,
 ) {
     let all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
     let mut interval_vec = vec![];
-    type Iv = Interval<usize, usize>;
+    type Iv = Interval<SnpPosition, usize>;
     for (i, parts) in all_joined_path_parts.iter().enumerate() {
-        let mut range = (usize::MAX, usize::MIN);
+        let mut range = (SnpPosition::MAX, SnpPosition::MIN);
         for read in parts.iter() {
             if read.first_position < range.0 {
                 range.0 = read.first_position;
@@ -148,8 +149,8 @@ fn merge_overlapping_haplogroups<'a>(
             let orig_snp_range = &snp_range_parts_vec[*index];
             let inter_snp_range = &snp_range_parts_vec[inter.val];
             let check_range = (
-                usize::min(orig_snp_range.0, inter_snp_range.0),
-                usize::max(orig_snp_range.1, inter_snp_range.1),
+                SnpPosition::min(orig_snp_range.0, inter_snp_range.0),
+                SnpPosition::max(orig_snp_range.1, inter_snp_range.1),
             );
             let (same, diff) = utils_frags::distance_between_haplotypes(
                 &all_parts_block.blocks[*index],
@@ -183,7 +184,7 @@ fn merge_overlapping_haplogroups<'a>(
         if set.len() <= 1 {
             continue;
         }
-        let mut all_range = (usize::MAX, usize::MIN);
+        let mut all_range = (SnpPosition::MAX, SnpPosition::MIN);
         for index in set {
             
             log::trace!("MERGING {} {}", rep, index);
@@ -210,7 +211,7 @@ pub fn process_reads_for_final_parts<'a>(
     all_joined_path_parts: &mut Vec<FxHashSet<&'a Frag>>,
     epsilon: f64,
     short_frags: &'a Vec<Frag>,
-    snp_range_parts_vec: &mut Vec<(usize, usize)>,
+    snp_range_parts_vec: &mut Vec<(SnpPosition, SnpPosition)>,
     reassign_short: bool,
     snp_to_genome_pos: &'a Vec<usize>,
 ) {
@@ -302,12 +303,12 @@ pub fn process_reads_for_final_parts<'a>(
 
 pub fn bin_haplogroups<'a>(
     parts: &Vec<FxHashSet<&'a Frag>>,
-    snp_endpoints: &Vec<(usize, usize)>,
+    snp_endpoints: &Vec<(SnpPosition, SnpPosition)>,
     cov_of_haplogroups: &Vec<Option<f64>>,
     vcf_profile: &VcfProfile,
     contig: &str,
     block_len: usize,
-) -> (Vec<(usize, usize)>, Vec<FxHashSet<&'a Frag>>) {
+) -> (Vec<(SnpPosition, SnpPosition)>, Vec<FxHashSet<&'a Frag>>) {
     use statrs::distribution::{Discrete, Poisson};
 
     fn overlap(x1: usize, x2: usize, y1: usize, y2: usize) -> bool {
@@ -375,8 +376,8 @@ pub fn bin_haplogroups<'a>(
     let mut clusters = vec![];
     let mut none_clusters = vec![];
     for i in 0..snp_endpoints.len() {
-        let left_gn = snp_to_gn_pos[&(snp_endpoints[i].0 as i64)] as usize;
-        let right_gn = snp_to_gn_pos[&(snp_endpoints[i].1 as i64)] as usize;
+        let left_gn = snp_to_gn_pos[&(snp_endpoints[i].0)] as usize;
+        let right_gn = snp_to_gn_pos[&(snp_endpoints[i].1)] as usize;
         let cov = cov_of_haplogroups[i];
         if !cov.is_none() {
             clusters.push(vec![(left_gn, right_gn, cov.unwrap(), i)]);
@@ -436,7 +437,7 @@ pub fn bin_haplogroups<'a>(
     let mut new_parts = vec![];
     let mut new_snp_ranges = vec![];
     for cluster in clusters {
-        let mut new_snp_range = (usize::MAX, usize::MIN);
+        let mut new_snp_range = (SnpPosition::MAX, SnpPosition::MIN);
         let mut new_part = FxHashSet::default();
         for info in cluster {
             let index = info.3;
