@@ -2,29 +2,37 @@ import pysam
 import subprocess
 import sys
 
-if len(sys.argv) < 4:
-    print("usage: haplotag_bam.py contig_part.txt original_bam.bam new_haplotagged_bam_name.bam (contig_name)")
+if len(sys.argv) < 5:
+    print("usage: haplotag_bam.py contig_part.txt original_bam.bam new_haplotagged_bam_name.bam contig_name min_hapQ")
     exit()
 
 read_part_file = sys.argv[1]
 bam_file = sys.argv[2]
 new_name = sys.argv[3]
-contig_name = None
-if len(sys.argv) == 5:
-    contig_name = sys.argv[4]
+contig_name = sys.argv[4]
+min_hapq = 1
+if len(sys.argv) == 6:
+    min_hapq = int(sys.argv[5])
 
 bam = pysam.AlignmentFile(bam_file)
 
 read_part = dict()
 
 index = 0
+hapq_good = False;
 for line in open(read_part_file,'r'):
     if '#' in line:
         split = line.split(',');
         index = int(split[0][1:])
-        read_part[index] = set()
+        hapq = int(split[-1].split(':')[-1])
+        if hapq > min_hapq:
+            hapq_good = True
+            read_part[index] = set()
+        else:
+            hapq_good = False
     else:
-        read_part[index].add(line.split()[0])
+        if hapq_good:
+            read_part[index].add(line.split()[0])
 
 
 new_bam_name = new_name

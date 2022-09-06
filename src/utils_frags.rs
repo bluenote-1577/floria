@@ -1,4 +1,5 @@
 use crate::types_structs::Frag;
+use crate::constants;
 use crate::types_structs::{HapBlock, GAP_CHAR};
 use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools; // 0.8.2
@@ -34,15 +35,15 @@ pub fn distance_read_haplo_epsilon_empty(
     let mut same = 0.0;
     for pos in r.positions.iter() {
         let mut empty_pos = true;
-        if hap.contains_key(pos){
-            for (_key,val) in hap[&pos].iter(){
-                if *val != 0{
+        if hap.contains_key(pos) {
+            for (_key, val) in hap[&pos].iter() {
+                if *val != 0 {
                     empty_pos = false;
-                    break
+                    break;
                 }
             }
         }
-        if empty_pos{
+        if empty_pos {
             diff += epsilon;
             //TODO remove this just a test
             if epsilon < 0.0001 {
@@ -536,7 +537,7 @@ pub fn get_range_with_lengths(
     snp_to_genome_pos: &Vec<usize>,
     block_length: usize,
     overlap_len: usize,
-    minimal_density : f64
+    minimal_density: f64,
 ) -> Vec<(usize, usize)> {
     let mut return_vec = vec![];
     let mut cum_pos = 0;
@@ -558,20 +559,24 @@ pub fn get_range_with_lengths(
         }
         if cum_pos > block_length {
             cum_pos = 0;
-            let snp_density = (i - left_endpoint) as f64 / block_length as f64 ;
-            if snp_density > minimal_density{
+            let snp_density = (i - left_endpoint) as f64 / block_length as f64;
+            if snp_density > minimal_density {
                 return_vec.push((left_endpoint, i - 1));
+            } else {
+                log::trace!(
+                    "Block endpoints {} - {} has density {} < min density {}",
+                    left_endpoint,
+                    i - 1,
+                    snp_density,
+                    minimal_density
+                );
             }
-            else{
-                log::trace!("Block endpoints {} - {} has density {} < min density {}", left_endpoint, i-1, snp_density, minimal_density);
-            }
-            log::trace!("{}, {}, {} ,{}, {}, {}", new_left_end, block_length, snp_to_genome_pos[new_left_end], snp_to_genome_pos[new_left_end+1],snp_to_genome_pos[new_left_end-1],i);
             //left_endpoint = new_left_end;
-            if snp_to_genome_pos[new_left_end] + block_length < snp_to_genome_pos[new_left_end+1]{
+            if snp_to_genome_pos[new_left_end] + block_length < snp_to_genome_pos[new_left_end + 1]
+            {
                 left_endpoint = new_left_end;
-            }
-            else{
-                left_endpoint = new_left_end+1;
+            } else {
+                left_endpoint = new_left_end + 1;
             }
             last_pos = snp_to_genome_pos[left_endpoint];
             hit_new_left = false;
@@ -599,7 +604,7 @@ pub fn remove_read_from_block(block: &mut HapBlock, frag: &Frag, part: usize) {
             .entry(*pos)
             .or_insert(FxHashMap::default());
         let site_counter = sites.entry(*var_at_pos).or_insert(0);
-        if *site_counter != 0{
+        if *site_counter != 0 {
             *site_counter -= 1;
         }
     }
@@ -610,9 +615,9 @@ pub fn hybrid_correction(frags: Vec<Frag>) -> (Vec<Frag>, Vec<Frag>) {
     let mut pos_to_frags = FxHashMap::default();
     let mut long_frags = vec![];
 
-    for frag in frags.iter(){
+    for frag in frags.iter() {
         if frag.is_paired {
-            for pos in frag.positions.iter(){
+            for pos in frag.positions.iter() {
                 let vec_pos = pos_to_frags.entry(pos).or_insert(FxHashSet::default());
                 vec_pos.insert(frag);
             }
@@ -620,7 +625,6 @@ pub fn hybrid_correction(frags: Vec<Frag>) -> (Vec<Frag>, Vec<Frag>) {
             long_frags.push(frag);
         }
     }
-
 
     let final_frags: Mutex<Vec<_>> = Mutex::new(vec![]);
     long_frags.into_par_iter().for_each(|long_frag| {
@@ -682,7 +686,7 @@ pub fn hybrid_correction(frags: Vec<Frag>) -> (Vec<Frag>, Vec<Frag>) {
 
     println!("Time taken error_correct {:?}", Instant::now() - start_t);
     let mut short_frags = vec![];
-    for frag in frags.into_iter(){
+    for frag in frags.into_iter() {
         if frag.is_paired {
             short_frags.push(frag);
         }
@@ -730,10 +734,10 @@ pub fn get_errors_cov_from_frags(
         let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
         if *allele_map != emptydict {
             for (site, count) in allele_map {
-                if *site == GAP_CHAR{
-                    continue
+                if *site == GAP_CHAR {
+                    continue;
                 }
-                if *count > snp_support{
+                if *count > snp_support {
                     max_count_pos = *count;
                 }
                 snp_support += count;
@@ -749,49 +753,61 @@ pub fn get_errors_cov_from_frags(
         cov = 0.;
     } else {
         //Quantile
-        if !mean{
-        cov = snp_counter_list[snp_counter_list.len() * 2 / 3] as f64;
+        if !mean {
+            cov = snp_counter_list[snp_counter_list.len() * 2 / 3] as f64;
         }
         //Mean
-        else{
-        cov = snp_counter_list.iter().sum::<usize>() as f64 / snp_counter_list.len() as f64;
+        else {
+            cov = snp_counter_list.iter().sum::<usize>() as f64 / snp_counter_list.len() as f64;
         }
     }
 
-    return (cov, errors as f64/total_support as f64, errors as f64, total_support as f64);
+    return (
+        cov,
+        errors as f64 / total_support as f64,
+        errors as f64,
+        total_support as f64,
+    );
 }
 
 pub fn distance_between_haplotypes(
     hap1: &FxHashMap<usize, FxHashMap<usize, usize>>,
-    hap2: &FxHashMap<usize, FxHashMap<usize, usize>>,) -> (f64, f64) {
+    hap2: &FxHashMap<usize, FxHashMap<usize, usize>>,
+    range: &(usize, usize),
+) -> (f64, f64) {
+    let cov_cutoff = constants::DIST_COV_CUTOFF;
     let mut same = 0.;
     let mut diff = 0.;
-    for pos in hap1.keys(){
-        if hap2.contains_key(pos){
-            let consensus_var1 = hap1
-            .get(pos)
-            .unwrap()
-            .iter()
-            .max_by_key(|entry| entry.1)
-            .unwrap()
-            .0;
+    for pos in hap1.keys() {
+        let cov_pos_1 = hap1[pos].iter().map(|x| x.1).sum::<usize>();
+            if hap2.contains_key(pos) {
+                let cov_pos_2 = hap2[pos].iter().map(|x| x.1).sum::<usize>();
+                if (cov_pos_1 > cov_cutoff && cov_pos_2 > cov_cutoff) || 
+                    *pos >= range.0 && *pos <= range.1 {
+                let consensus_var1 = hap1
+                    .get(pos)
+                    .unwrap()
+                    .iter()
+                    .max_by_key(|entry| entry.1)
+                    .unwrap()
+                    .0;
 
-            let consensus_var2 = hap2
-            .get(pos)
-            .unwrap()
-            .iter()
-            .max_by_key(|entry| entry.1)
-            .unwrap()
-            .0;
+                let consensus_var2 = hap2
+                    .get(pos)
+                    .unwrap()
+                    .iter()
+                    .max_by_key(|entry| entry.1)
+                    .unwrap()
+                    .0;
 
-            if consensus_var1 == consensus_var2{
-                same += 1.;
-            }
-            else{
-                diff +=1.;
+                if consensus_var1 == consensus_var2 {
+                    same += 1.;
+                } else {
+                    diff += 1.;
+                }
             }
         }
     }
-    
-    return (same,diff)
+
+    return (same, diff);
 }

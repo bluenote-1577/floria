@@ -27,6 +27,7 @@ petgraph = "*"
 bio = "*"
 bio-types ="*"
 rust-lapper = "*"
+disjoint-sets = "0.4.2"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"
@@ -34,6 +35,7 @@ predicates = "1"
 
 [profile.release]
 opt-level = 3
+debug = true
 
 [profile.dev]
 opt-level = 3
