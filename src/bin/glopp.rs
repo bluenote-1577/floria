@@ -3,6 +3,7 @@ use clap::{AppSettings, Arg, Command};
 use fxhash::FxHashMap;
 use sheaf::file_reader;
 use sheaf::graph_processing;
+use sheaf::part_block_manip;
 use sheaf::utils_frags;
 use std::env;
 use std::fs::File;
@@ -248,6 +249,7 @@ fn main() {
         .build_global()
         .unwrap();
 
+    let start_t_initial = Instant::now();
     println!("Preprocessing inputs");
     let start_t = Instant::now();
     let contigs_to_phase;
@@ -382,20 +384,25 @@ fn main() {
             );
             let flow_up_vec =
                 graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
-            let (all_path_parts, path_parts_snp_endpoints) =
+            let (mut all_path_parts, mut path_parts_snp_endpoints) =
                 graph_processing::get_disjoint_paths_rewrite(
                     &mut hap_graph,
                     flow_up_vec,
-                    epsilon,
                     contig_out_dir.to_string(),
-                    &short_frags,
-                    reassign_short,
                     &vcf_profile,
                     contig,
                     block_length,
                     do_binning,
-                    &snp_to_genome_pos
                 );
+
+            part_block_manip::process_reads_for_final_parts(
+                &mut all_path_parts,
+                epsilon,
+                &short_frags,
+                &mut path_parts_snp_endpoints,
+                reassign_short,
+                &snp_to_genome_pos,
+            );
 
             file_reader::write_outputs(
                 &all_path_parts,
@@ -409,6 +416,6 @@ fn main() {
             );
         }
 
-        println!("Total time taken is {:?}", Instant::now() - start_t);
+        println!("Total time taken is {:?}", Instant::now() - start_t_initial);
     }
 }

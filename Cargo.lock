@@ -114,7 +114,7 @@ dependencies = [
  "newtype_derive",
  "num-integer",
  "num-traits",
- "ordered-float",
+ "ordered-float 1.1.1",
  "petgraph",
  "rand",
  "regex",
@@ -1027,6 +1027,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordered-float"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7940cf2ca942593318d07fcf2596cdca60a85c9e7fab408a5e21a4f9dcd40d87"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "os_str_bytes"
 version = "6.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1402,6 +1411,7 @@ dependencies = [
  "highs",
  "itertools",
  "log",
+ "ordered-float 2.10.0",
  "permute",
  "petgraph",
  "predicates 1.0.8",

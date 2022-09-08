@@ -143,7 +143,7 @@ pub fn write_blocks_to_file<P>(
     let mut file = LineWriter::new(file);
     let mut length_prev_block = 1;
     let emptydict = FxHashMap::default();
-    let unpolished_block = utils_frags::hap_block_from_partition(part);
+    let unpolished_block = utils_frags::hap_block_from_partition(part, true);
     //dbg!(snp_to_genome.len(),lengths[0] + 1);
 
     for (i, block) in blocks.iter().enumerate() {
@@ -409,13 +409,14 @@ pub fn write_outputs(
         &out_bam_part_dir,
         prefix,
         snp_pos_to_genome_pos,
-        hapQ_scores,
+        &hapQ_scores,
     );
     write_reads(
         part,
         snp_range_parts_vec,
         &out_bam_part_dir,
         extend_read_clipping,
+        &hapQ_scores
     );
 }
 
@@ -631,7 +632,7 @@ fn write_fragset_haplotypes(
         .open(filename)
         .unwrap();
 
-    let hap_map = utils_frags::set_to_seq_dict(&frags);
+    let hap_map = utils_frags::set_to_seq_dict(&frags, false);
     let emptydict = FxHashMap::default();
     let title_string = format!(">{},{},{}\n", name, left_snp_pos, right_snp_pos);
     write!(file, "{}", title_string).unwrap();
@@ -641,7 +642,6 @@ fn write_fragset_haplotypes(
     }
     let mut vec_of_alleles = vec![];
     for pos in left_snp_pos..right_snp_pos + 1 {
-        let mut snp_support = 0;
         if snp_pos_to_genome_pos.len() == 0 {
             write!(file, "{}:NA\t", pos).unwrap();
         } else {
@@ -664,14 +664,13 @@ fn write_fragset_haplotypes(
         } else {
             let mut first = true;
             for (site, count) in allele_map {
-                snp_support += count;
                 if !first {
                     write!(file, "|").unwrap();
                 }
                 if first {
                     first = false;
                 }
-                write!(file, "{}:{}", site, count).unwrap();
+                write!(file, "{}:{}", site, count.round() as usize).unwrap();
             }
             write!(file, "\t").unwrap();
         }
@@ -1193,7 +1192,7 @@ fn write_haplotypes(
                 cov,
                 (right_snp_pos - left_snp_pos) as f64 / num_max_interval as f64,
             );
-            if hap_Q > constants::HAPQ_CUTOFF{
+            if hap_Q >= constants::HAPQ_CUTOFF{
                 for i in left_snp_pos..right_snp_pos + 1 {
                     snp_covered_count[(i - 1) as usize] += 1.;
                     coverage_count[(i - 1) as usize] += cov
@@ -1272,7 +1271,7 @@ fn write_all_parts_file(
     out_bam_part_dir: &String,
     prefix: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
-    hapQ_scores: FxHashMap<usize,u8>
+    hapQ_scores: &FxHashMap<usize,u8>
 ) {
     let part_path = &format!("{}/{}_part.txt", out_bam_part_dir, prefix);
     let file = File::create(part_path).expect("Can't create file");
@@ -1341,12 +1340,16 @@ fn write_reads(
     snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     extend_read_clipping: bool,
+    hapQ_scores: &FxHashMap<usize,u8>
 ) {
     for (i, set) in part.iter().enumerate() {
         if set.is_empty() {
             continue;
         }
         if snp_range_parts_vec.is_empty() {
+            continue;
+        }
+        if hapQ_scores[&i] < constants::HAPQ_CUTOFF{
             continue;
         }
         let left_snp_pos = snp_range_parts_vec[i].0;
