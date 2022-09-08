@@ -15,15 +15,18 @@ pub fn beam_search_phasing<'a>(
     cutoff_value: f64,
     max_number_solns: usize,
     use_mec: bool,
-    use_ref_bias: bool,
-) -> (FxHashMap<SnpPosition , FxHashSet<usize>>, Vec<FxHashSet<&'a Frag>>) {
+    _use_ref_bias: bool,
+) -> (
+    FxHashMap<SnpPosition, FxHashSet<usize>>,
+    Vec<FxHashSet<&'a Frag>>,
+) {
     if all_reads.len() == 0 {
         return (FxHashMap::default(), vec![]);
     }
     let mut partition = clique.clone();
     let ploidy = clique.len();
 
-    let first_block = utils_frags::hap_block_from_partition(&clique);
+    let first_block = utils_frags::hap_block_from_partition(&clique, true);
     let random_frag = &all_reads[0];
 
     let starting_freq = vec![1; clique.len()];
@@ -67,43 +70,19 @@ pub fn beam_search_phasing<'a>(
             let mut p_value_list = vec![];
             for part_index in 0..ploidy {
                 let dist;
-                if use_ref_bias {
-                    let ((same_ref, diff_ref), (same_alt, diff_alt)) =
-                        utils_frags::distance_read_haplo_ref_wild(frag, &block.blocks[part_index]);
-                    let epsilon_ref = 0.01;
-                    let epsilon_alt = 2.0 * epsilon;
-                    let dist_ref = 1.0
-                        * utils_frags::stable_binom_cdf_p_rev(
-                            (same_ref + diff_ref) as usize,
-                            diff_ref as usize,
-                            //2.0 * epsilon_ref * (1.0 - epsilon_ref),
-                            epsilon_ref,
-                            div_factor,
-                        );
-                    let dist_alt = 1.0
-                        * utils_frags::stable_binom_cdf_p_rev(
-                            (same_alt + diff_alt) as usize,
-                            diff_alt as usize,
-                            //2.0 * epsilon_alt* (1.0 - epsilon_alt),
-                            epsilon_alt,
-                            div_factor,
-                        );
-                    dist = dist_alt + dist_ref;
-                } else {
-                    let (same, diff) = utils_frags::distance_read_haplo_epsilon_empty(
-                        frag,
-                        &block.blocks[part_index],
+                let (same, diff) = utils_frags::distance_read_haplo_epsilon_empty(
+                    frag,
+                    &block.blocks[part_index],
+                    epsilon,
+                );
+                dist = 1.0
+                    * utils_frags::stable_binom_cdf_p_rev(
+                        (same + diff) as usize,
+                        diff as usize,
+                        //2.0 * epsilon_ref * (1.0 - epsilon_ref),
                         epsilon,
+                        div_factor,
                     );
-                    dist = 1.0
-                        * utils_frags::stable_binom_cdf_p_rev(
-                            (same + diff) as usize,
-                            diff as usize,
-                            //2.0 * epsilon_ref * (1.0 - epsilon_ref),
-                            epsilon,
-                            div_factor,
-                        );
-                }
 
                 p_value_list.push(dist);
             }
@@ -136,7 +115,7 @@ pub fn beam_search_phasing<'a>(
                     }
                     let mut project_exists = false;
                     for node in search_node_heap_next.iter() {
-                        if node.1 == new_block && node.0.error_vec <= new_node.error_vec{
+                        if node.1 == new_block && node.0.score >= new_node.score {
                             project_exists = true;
                         }
                     }

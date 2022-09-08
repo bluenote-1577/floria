@@ -1,4 +1,6 @@
+use ordered_float::*;
 use debruijn::dna_string::DnaString;
+use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::Keys;
 use rust_htslib::bam::Record;
@@ -9,7 +11,7 @@ use std::rc::Rc;
 pub type GnPosition = usize;
 pub type SnpPosition = u32;
 pub type Genotype = u8;
-pub type GenotypeCount = u16;
+pub type GenotypeCount = OrderedFloat<f64>;
 pub type Haplotype = FxHashMap<SnpPosition, FxHashMap<Genotype, GenotypeCount>>;
 pub static GAP_CHAR: Genotype = 9;
 
@@ -133,24 +135,24 @@ impl<'a> HapNode<'a> {
                 if *pos <= snp_endpoints.1 && *pos >= snp_endpoints.0 {
                     let var_at_pos = frag.seq_dict.get(pos).unwrap();
                     let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
-                    let site_counter = sites.entry(*var_at_pos).or_insert(0);
-                    *site_counter += 1;
+                    let site_counter = sites.entry(*var_at_pos).or_insert(OrderedFloat(0.));
+                    *site_counter += utils_frags::phred_scale(frag, pos);
                 }
             }
         }
         let mut allele_cov_list = vec![];
         for values1 in hap_map.values() {
             for allele_count in values1.values() {
-                allele_cov_list.push(*allele_count as f64);
+                allele_cov_list.push(*allele_count);
             }
         }
 
-        allele_cov_list.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+        allele_cov_list.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let cov;
         if allele_cov_list.is_empty() {
             cov = 0.;
         } else {
-            cov = allele_cov_list[allele_cov_list.len() * 2 / 3];
+            cov = *allele_cov_list[allele_cov_list.len() * 2 / 3];
         }
         //        let cov = allele_cov_list.last().unwrap_or(&0.);
         let toret = HapNode {
@@ -323,8 +325,8 @@ pub fn build_truncated_hap_block(
     for pos in frag.seq_dict.keys() {
         let var_at_pos = frag.seq_dict.get(pos).unwrap();
         let sites = block_vec[part].entry(*pos).or_insert(FxHashMap::default());
-        let site_counter = sites.entry(*var_at_pos).or_insert(0);
-        *site_counter += 1;
+        let site_counter = sites.entry(*var_at_pos).or_insert(OrderedFloat(0.));
+        *site_counter += utils_frags::phred_scale(frag,pos);
     }
 
     return (blocks_broken, HapBlock { blocks: block_vec });

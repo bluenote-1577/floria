@@ -94,7 +94,7 @@ fn merge_overlapping_haplogroups<'a>(
     epsilon: f64,
     snp_to_genome_pos: &'a Vec<GnPosition>,
 ) {
-    let all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
+    let all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts, true);
     let mut interval_vec = vec![];
     type Iv = Interval<SnpPosition, usize>;
     for (i, parts) in all_joined_path_parts.iter().enumerate() {
@@ -157,7 +157,7 @@ fn merge_overlapping_haplogroups<'a>(
                 &all_parts_block.blocks[inter.val],
                 &check_range,
             );
-            if (diff / same) < epsilon {
+            if (diff / same) < epsilon && same > constants::SMALL_HAPLOGROUP_CUTOFF as f64{
                 log::trace!("potential_merge {} {} {} {}", diff, same, index, inter.val);
                 potential_merges.push((index, inter.val, check_range.0, check_range.1, same, diff));
             }
@@ -216,7 +216,7 @@ pub fn process_reads_for_final_parts<'a>(
     snp_to_genome_pos: &'a Vec<usize>,
 ) {
     //The interval method failed, but may be useful in the future.
-    let mut all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts);
+    let mut all_parts_block = utils_frags::hap_block_from_partition(&all_joined_path_parts, true);
     let mut read_to_parts_map = FxHashMap::default();
     for (i, set) in all_joined_path_parts.iter().enumerate() {
         for frag in set.iter() {
@@ -255,13 +255,17 @@ pub fn process_reads_for_final_parts<'a>(
         utils_frags::add_read_to_block(&mut all_parts_block, frag, *best_part);
     }
 
-    merge_overlapping_haplogroups(
-        all_joined_path_parts,
-        snp_range_parts_vec,
-        epsilon,
-        &snp_to_genome_pos,
-    );
-    separate_broken_haplogroups(all_joined_path_parts, snp_range_parts_vec);
+    if constants::MERGE_SIMILAR_HAPLOGROUPS{
+        merge_overlapping_haplogroups(
+            all_joined_path_parts,
+            snp_range_parts_vec,
+            epsilon,
+            &snp_to_genome_pos,
+        );
+    }
+    if constants::SEPARATE_BROKEN_HAPLOGROUPS{
+        separate_broken_haplogroups(all_joined_path_parts, snp_range_parts_vec);
+    }
 
     if reassign_short {
         let start_t = Instant::now();

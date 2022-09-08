@@ -165,7 +165,7 @@ fn main() {
     }
 
     let first_iter = true;
-    let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part_reference);
+    let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part_reference, false);
     let (f_binom_vec, f_freq_vec) =
         local_clustering::get_partition_stats(&final_part_reference, &final_block_unpolish);
 
