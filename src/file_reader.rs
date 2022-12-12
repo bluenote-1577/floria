@@ -1,7 +1,9 @@
 use crate::alignment;
-use crate::types_structs::{build_frag, Frag, HapBlock, VcfProfile, Genotype, SnpPosition, GnPosition};
-use crate::utils_frags;
 use crate::constants;
+use crate::types_structs::{
+    build_frag, Frag, Genotype, GnPosition, HapBlock, SnpPosition, VcfProfile,
+};
+use crate::utils_frags;
 use bio::alphabets::dna::revcomp;
 use bio::io::fasta;
 use bio::io::fastq;
@@ -9,6 +11,8 @@ use bio::io::fastq::Writer;
 use bio_types::genome::AbstractInterval;
 use debruijn::dna_string::DnaString;
 use debruijn::*;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use fxhash::{FxHashMap, FxHashSet};
 use rayon::prelude::*;
 use rust_htslib::bam::ext::BamRecordExtensions;
@@ -22,7 +26,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::LineWriter;
 use std::io::Write;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, BufWriter};
 use std::path::Path;
 use std::str;
 use std::sync::Mutex;
@@ -384,6 +388,7 @@ pub fn write_outputs(
     snp_pos_to_genome_pos: &Vec<usize>,
     extend_read_clipping: bool,
     epsilon: f64,
+    gzip: bool,
 ) {
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
@@ -393,7 +398,6 @@ pub fn write_outputs(
         fs::create_dir_all(&format!("{}/long_reads", out_bam_part_dir)).unwrap();
         fs::create_dir_all(&format!("{}/haplotypes", out_bam_part_dir)).unwrap();
     }
-
 
     let hapQ_scores = write_haplotypes(
         part,
@@ -416,7 +420,8 @@ pub fn write_outputs(
         snp_range_parts_vec,
         &out_bam_part_dir,
         extend_read_clipping,
-        &hapQ_scores
+        &hapQ_scores,
+        gzip,
     );
 }
 
@@ -645,7 +650,13 @@ fn write_fragset_haplotypes(
         if snp_pos_to_genome_pos.len() == 0 {
             write!(file, "{}:NA\t", pos).unwrap();
         } else {
-            write!(file, "{}:{}\t", pos, snp_pos_to_genome_pos[(pos - 1) as usize]).unwrap();
+            write!(
+                file,
+                "{}:{}\t",
+                pos,
+                snp_pos_to_genome_pos[(pos - 1) as usize]
+            )
+            .unwrap();
         }
         let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
         //If a block has no coverage at a position, we write -1.
@@ -816,11 +827,11 @@ where
                         filter_supplementary,
                     );
 
-//                    log::trace!(
-//                        "{},{:?}",
-//                        str::from_utf8(&record.qname()).unwrap(),
-//                        passed_check
-//                    );
+                    //                    log::trace!(
+                    //                        "{},{:?}",
+                    //                        str::from_utf8(&record.qname()).unwrap(),
+                    //                        passed_check
+                    //                    );
 
                     if passed_check.0 {
                         let rec_name: Vec<u8> = record.qname().iter().cloned().collect();
@@ -891,24 +902,24 @@ fn combine_frags(
         //        dbg!(&str::from_utf8(&_id), frags.len(), frags.iter().map(|x| x.0).collect::<Vec<u16>>());
         //paired
         if frags.len() == 2 && frags[0].1.is_paired && frags[1].1.is_paired {
-//            log::trace!(
-//                "{}, {},{},{},{}",
-//                frags[0].1.id,
-//                frags[0].0,
-//                frags[0].1.first_position,
-//                frags[1].0,
-//                frags[1].1.first_position
-//            );
+            //            log::trace!(
+            //                "{}, {},{},{},{}",
+            //                frags[0].1.id,
+            //                frags[0].0,
+            //                frags[0].1.first_position,
+            //                frags[1].0,
+            //                frags[1].1.first_position
+            //            );
             frags.sort();
             let first = std::mem::take(&mut frags[0]);
             let second = std::mem::take(&mut frags[1]);
-//            log::trace!(
-//                "{},{},{},{}",
-//                first.1.id,
-//                second.1.id,
-//                first.1.counter_id,
-//                second.1.counter_id
-//            );
+            //            log::trace!(
+            //                "{},{},{},{}",
+            //                first.1.id,
+            //                second.1.id,
+            //                first.1.counter_id,
+            //                second.1.counter_id
+            //            );
 
             let mut first_frag;
             let mut sec_frag;
@@ -930,7 +941,8 @@ fn combine_frags(
 
             first_frag.first_position =
                 SnpPosition::min(first_frag.first_position, sec_frag.first_position);
-            first_frag.last_position = SnpPosition::max(first_frag.last_position, sec_frag.last_position);
+            first_frag.last_position =
+                SnpPosition::max(first_frag.last_position, sec_frag.last_position);
 
             let mut temp = DnaString::new();
             std::mem::swap(&mut sec_frag.seq_string[0], &mut temp);
@@ -972,7 +984,8 @@ fn combine_frags(
             let snp_to_gn = &vcf_profile.vcf_snp_pos_to_gn_pos_map[contig];
             let mut take_primary_only = false;
             for i in 0..supp_intervals.len() - 1 {
-                if snp_to_gn[&supp_intervals[i + 1].0] as i64 - snp_to_gn[&supp_intervals[i].1] as i64
+                if snp_to_gn[&supp_intervals[i + 1].0] as i64
+                    - snp_to_gn[&supp_intervals[i].1] as i64
                     > supp_aln_dist_cutoff
                 {
                     take_primary_only = true;
@@ -1097,7 +1110,11 @@ fn frag_from_record(
     }
 
     frag.seq_string[0] = DnaString::from_acgt_bytes(&record.seq().as_bytes());
-    frag.positions = frag.seq_dict.keys().map(|x| *x).collect::<FxHashSet<SnpPosition>>();
+    frag.positions = frag
+        .seq_dict
+        .keys()
+        .map(|x| *x)
+        .collect::<FxHashSet<SnpPosition>>();
     frag.qual_string[0] = record.qual().iter().map(|x| x + 33).collect();
     return frag;
 }
@@ -1115,7 +1132,9 @@ pub fn get_contigs_to_phase(bam_file: &str) -> Vec<String> {
 #[allow(non_snake_case)]
 fn hapQ_score(error_rate: f64, epsilon: f64, cov: f64, read_ratio: f64) -> u8 {
     let constant = 0.05_f64.ln() / 20.;
-    let score = (-10. * error_rate / epsilon) - 120.*(constant * cov).exp() + 140. + 10. * read_ratio.ln();
+    let score = (-10. * error_rate / epsilon) - 120. * (constant * cov).exp()
+        + 140.
+        + 10. * read_ratio.ln();
     if score < 0. {
         return 0;
     } else if score > 60. {
@@ -1133,7 +1152,7 @@ fn write_haplotypes(
     out_bam_part_dir: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
     epsilon: f64,
-) -> FxHashMap<usize,u8> {
+) -> FxHashMap<usize, u8> {
     let haplotig_file = format!("{}/haplotigs.fa", out_bam_part_dir);
     let ploidy_file = format!("{}/ploidy_info.txt", out_bam_part_dir);
     let mut longest_haplotig_bases = 0;
@@ -1141,14 +1160,16 @@ fn write_haplotypes(
     let mut coverage_count = vec![0.; snp_pos_to_genome_pos.len()];
     let mut hapQ_scores = FxHashMap::default();
     let mut total_bases_covered = 0;
-//    let mut hapQ_scores = vec![];
+    //    let mut hapQ_scores = vec![];
     let mut haplotig_file = OpenOptions::new()
         .write(true)
         .create(true)
         .append(true)
         .open(haplotig_file)
         .unwrap();
-    let max = snp_range_parts_vec.iter().max_by(|x, y| (x.1 - x.0).cmp(&(y.1 - y.0)));
+    let max = snp_range_parts_vec
+        .iter()
+        .max_by(|x, y| (x.1 - x.0).cmp(&(y.1 - y.0)));
     let num_max_interval;
     if max.is_none() {
         num_max_interval = 0;
@@ -1192,14 +1213,14 @@ fn write_haplotypes(
                 cov,
                 (right_snp_pos - left_snp_pos) as f64 / num_max_interval as f64,
             );
-            if hap_Q >= constants::HAPQ_CUTOFF{
+            if hap_Q >= constants::HAPQ_CUTOFF {
                 for i in left_snp_pos..right_snp_pos + 1 {
                     snp_covered_count[(i - 1) as usize] += 1.;
                     coverage_count[(i - 1) as usize] += cov
                 }
             }
 
-            hapQ_scores.insert(i,hap_Q);
+            hapQ_scores.insert(i, hap_Q);
 
             write!(
                 haplotig_file,
@@ -1245,23 +1266,23 @@ fn write_haplotypes(
         .open(ploidy_file)
         .unwrap();
 
-        let num_nonzero = snp_covered_count
-            .iter()
-            .filter(|x| **x > 0.)
-            .collect::<Vec<_>>()
-            .len();
-        let avg_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
-        let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
-        write!(
-            ploidy_file,
-            "{}\t{}\t{}\t{}\n",
-            contig,
-            avg_ploidy,
-            rough_cvg,
-            total_bases_covered as f64 / avg_ploidy
-        )
-        .unwrap();
-    
+    let num_nonzero = snp_covered_count
+        .iter()
+        .filter(|x| **x > 0.)
+        .collect::<Vec<_>>()
+        .len();
+    let avg_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
+    let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
+    write!(
+        ploidy_file,
+        "{}\t{}\t{}\t{}\n",
+        contig,
+        avg_ploidy,
+        rough_cvg,
+        total_bases_covered as f64 / avg_ploidy
+    )
+    .unwrap();
+
     return hapQ_scores;
 }
 
@@ -1271,7 +1292,7 @@ fn write_all_parts_file(
     out_bam_part_dir: &String,
     prefix: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
-    hapQ_scores: &FxHashMap<usize,u8>
+    hapQ_scores: &FxHashMap<usize, u8>,
 ) {
     let part_path = &format!("{}/{}_part.txt", out_bam_part_dir, prefix);
     let file = File::create(part_path).expect("Can't create file");
@@ -1340,7 +1361,8 @@ fn write_reads(
     snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     extend_read_clipping: bool,
-    hapQ_scores: &FxHashMap<usize,u8>
+    hapQ_scores: &FxHashMap<usize, u8>,
+    gzip: bool,
 ) {
     for (i, set) in part.iter().enumerate() {
         if set.is_empty() {
@@ -1349,7 +1371,7 @@ fn write_reads(
         if snp_range_parts_vec.is_empty() {
             continue;
         }
-        if hapQ_scores[&i] < constants::HAPQ_CUTOFF{
+        if hapQ_scores[&i] < constants::HAPQ_CUTOFF {
             continue;
         }
         let left_snp_pos = snp_range_parts_vec[i].0;
@@ -1358,21 +1380,44 @@ fn write_reads(
         let mut vec_part: Vec<&Frag> = set.into_iter().cloned().collect();
         vec_part.sort();
         //Non-empty means that we're writing the final partition after path collection
-        let part_fastq_reads = format!("{}/long_reads/{}_part.fastq", out_bam_part_dir, i);
-        let part_fastq_reads_paired1 =
-            format!("{}/short_reads/{}_part_paired1.fastq", out_bam_part_dir, i);
-        let part_fastq_reads_paired2 =
-            format!("{}/short_reads/{}_part_paired2.fastq", out_bam_part_dir, i);
+        let gz =  if gzip {".gz"} else {""};
+        let part_fastq_reads = format!("{}/long_reads/{}_part.fastq{}", out_bam_part_dir, i, gz);
+        let part_fastq_reads_paired1 = format!(
+            "{}/short_reads/{}_part_paired1.fastq{}",
+            out_bam_part_dir, i, gz
+        );
+        let part_fastq_reads_paired2 = format!(
+            "{}/short_reads/{}_part_paired2.fastq{}",
+            out_bam_part_dir, i, gz
+        );
 
         let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
         let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
         let fastq_file2 = File::create(part_fastq_reads_paired2).expect("Can't create file");
+        let mut fastq_writer;
+        let mut fastq_writer_paired1;
+        let mut fastq_writer_paired2;
 
-        let mut fastq_writer = fastq::Writer::new(fastq_file);
-        let mut fastq_writer_paired1 = fastq::Writer::new(fastq_file1);
-        let mut fastq_writer_paired2 = fastq::Writer::new(fastq_file2);
+        if gzip {
+            let gz_encoder : Box<dyn Write> = Box::new(GzEncoder::new(fastq_file, Compression::default()));
+            let gz_encoder1 : Box<dyn Write> = Box::new(GzEncoder::new(fastq_file1, Compression::default()));
+            let gz_encoder2 : Box<dyn Write> = Box::new(GzEncoder::new(fastq_file2, Compression::default()));
 
-        //1-indexing for snp position already accounted for
+            fastq_writer = fastq::Writer::new(gz_encoder);
+            fastq_writer_paired1 = fastq::Writer::new(gz_encoder1);
+            fastq_writer_paired2 = fastq::Writer::new(gz_encoder2);
+        } else {
+            let enc : Box<dyn Write> = Box::new(fastq_file);
+            let enc1 : Box<dyn Write> = Box::new(fastq_file1);
+            let enc2 : Box<dyn Write> = Box::new(fastq_file2);
+            fastq_writer = fastq::Writer::new(enc);
+            fastq_writer_paired1 = fastq::Writer::new(enc1);
+            fastq_writer_paired2 = fastq::Writer::new(enc2);
+        }
+
+        //        let mut fastq_writer = fastq::Writer::new(fastq_file);
+        //        let mut fastq_writer_paired1 = fastq::Writer::new(fastq_file1);
+        //        let mut fastq_writer_paired2 = fastq::Writer::new(fastq_file2);
         let extension = 25;
         for frag in vec_part.iter() {
             let mut found_primary = false;

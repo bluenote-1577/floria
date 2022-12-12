@@ -210,7 +210,8 @@ fn main() {
         &String::new(),
         &snp_to_genome_pos,
         false,
-        0.
+        0.,
+        false,
     );
 
     file_reader::write_blocks_to_file(

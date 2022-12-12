@@ -50,12 +50,6 @@ fn main() {
                               .help("RECOMMENDED: Improve calls by realigning onto a reference with alternate alleles.")
                               .help_heading(input_options)
                               .display_order(1))
-                          .arg(Arg::new("ploidy") //Useful for testing. 
-                              .short('p')
-                              .help("Ploidy of organism. If not given, glopp will estimate the ploidy.")
-                              .value_name("INT")
-                              .takes_value(true)
-                              .hide(true))
                           .arg(Arg::new("threads")
                               .short('t')
                               .help("Number of threads to use. (default: 10).")
@@ -80,6 +74,12 @@ fn main() {
                               .takes_value(true)
                               .value_name("INT")
                               .help("Maximum number of solutions for beam search. Increasing may improve accuracy slightly. (default: 10)")
+                              .help_heading(alg_options))
+                          .arg(Arg::new("max_ploidy")
+                              .short('p')
+                              .takes_value(true)
+                              .value_name("INT")
+                              .help("Maximum ploidy to try to phase up to. (default: 5)")
                               .help_heading(alg_options))
                           .arg(Arg::new("num_iters_ploidy_est")
                               .short('q')
@@ -118,6 +118,10 @@ fn main() {
                               .help("RECOMMENDED: Use short aligned short reads to polish long-read SNPs.")
                               .help_heading(input_options)
                               .display_order(1))
+                            .arg(Arg::new("gzip-reads")
+                              .long("gzip-reads")
+                              .help("output gzipped reads. ")
+                              .help_heading(output_options))
                           .arg(Arg::new("reassign_short")
                               .long("reassign-short")
                               .help("Reassign short reads when using the -H option to the best haplotigs. (Default: no reassignment)")
@@ -153,6 +157,7 @@ fn main() {
         Err(_) => panic!("Number of threads must be positive integer"),
     };
 
+    let max_ploidy = matches.value_of("max_ploidy").unwrap_or("5").parse::<usize>().unwrap();
     let hybrid = matches.is_present("hybrid");
     let reassign_short = matches.is_present("reassign_short");
     let do_binning = matches.is_present("do_binning");
@@ -172,6 +177,7 @@ fn main() {
     let filter_supplementary = true;
     let use_supplementary = matches.is_present("use_supplementary");
     let use_gaps = matches.is_present("use_gaps");
+    let gzip = matches.is_present("gzip-reads");
 
     // Set up our logger if the user passed the debug flag
     if matches.is_present("verbose") {
@@ -311,7 +317,6 @@ fn main() {
 
         println!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
-        let start_t = Instant::now();
         if snp_to_genome_pos_map.contains_key(contig) || bam == false {
             let contig_out_dir = format!("{}/{}", part_out_dir, contig);
             fs::create_dir_all(&contig_out_dir).unwrap();
@@ -381,6 +386,7 @@ fn main() {
                 block_length,
                 contig_out_dir.to_string(),
                 snp_density,
+                max_ploidy
             );
             let flow_up_vec =
                 graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
@@ -412,7 +418,8 @@ fn main() {
                 &contig, 
                 &snp_to_genome_pos,
                 extend_read_clipping,
-                epsilon
+                epsilon,
+                gzip
             );
         }
 

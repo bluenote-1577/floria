@@ -12,3 +12,4 @@ pub const DIST_COV_CUTOFF: GenotypeCount = OrderedFloat(5.);
 pub const USE_QUAL_SCORES: bool = true;
 pub const MERGE_SIMILAR_HAPLOGROUPS: bool = true;
 pub const SEPARATE_BROKEN_HAPLOGROUPS: bool = true;
+pub const WEIRD_SPLIT: bool = false;
