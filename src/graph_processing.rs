@@ -296,20 +296,20 @@ fn get_local_hap_blocks<'a>(
     _block_length: usize,
     glopp_out_dir: &str,
     j: usize,
-    random_vec: &Vec<(SnpPosition, SnpPosition)>,
+    snp_range_vec: &Vec<(SnpPosition, SnpPosition)>,
+    max_ploidy: usize,
 ) -> Option<Vec<Vec<HapNode<'a>>>> {
     let ploidy_start = 1;
-    let ploidy_end = 6;
+    let ploidy_end = max_ploidy + 1;
     let error_rate = epsilon;
     let num_ploidies = ploidy_end - ploidy_start;
     let mut mec_vector = vec![0.; num_ploidies];
     let mut parts_vector = vec![];
     let mut expected_errors_ref = vec![];
     let mut endpoints_vector = vec![];
-    // NOTE THE 1 INDEXING!
     let reads = local_clustering::find_reads_in_interval(
-        random_vec[j].0 + 1,
-        random_vec[j].1 + 1,
+        snp_range_vec[j].0,
+        snp_range_vec[j].1,
         all_frags,
         usize::MAX,
     );
@@ -342,26 +342,31 @@ fn get_local_hap_blocks<'a>(
         let (_new_score, optimized_part, _block) =
             local_clustering::optimize_clustering(part, epsilon, constants::NUM_ITER_OPTIMIZE);
 
-        let split_part =
-            utils_frags::split_part_using_breaks(&break_pos, &optimized_part, &all_frags);
-        let endpoints;
-        if j != 0 {
-            endpoints = (random_vec[j].0 + 1, random_vec[j].1 + 1);
-        } else {
-            endpoints = (random_vec[j].0 + 1, random_vec[j].1 + 1);
-        }
-        let (split_part_merge, split_part_endpoints) =
-            merge_split_parts(split_part, break_pos, endpoints);
-
-
-        //TESTING
-        
-        let binom_vec =
-            local_clustering::get_mec_stats_epsilon_no_phred(&optimized_part, epsilon);
+        let binom_vec = local_clustering::get_mec_stats_epsilon_no_phred(&optimized_part, epsilon);
         for (good, bad) in binom_vec {
             mec_vector[ploidy - ploidy_start] += bad;
             num_alleles += good;
             num_alleles += bad;
+        }
+
+        let split_part_merge;
+        let split_part_endpoints;
+        if constants::WEIRD_SPLIT{
+            let split_part =
+                utils_frags::split_part_using_breaks(&break_pos, &optimized_part, &all_frags);
+            let endpoints;
+            if j != 0 {
+                endpoints = (snp_range_vec[j].0, snp_range_vec[j].1);
+            } else {
+                endpoints = (snp_range_vec[j].0, snp_range_vec[j].1);
+            }
+            let merge_result = merge_split_parts(split_part, break_pos, endpoints);
+            split_part_merge = merge_result.0;
+            split_part_endpoints = merge_result.1;
+        }
+        else{
+            split_part_merge = vec![optimized_part];
+            split_part_endpoints = vec![snp_range_vec[j]];
         }
 
         let mut ind_parts = vec![];
@@ -379,12 +384,12 @@ fn get_local_hap_blocks<'a>(
         expected_errors_ref.push(num_alleles as f64 * error_rate);
 
         if ploidy > ploidy_start {
-//            let mec_threshold = 1.0 / (1.0 - error_rate) / (1.0 + 1.0 / (ploidy + 1) as f64);
-//            log::trace!(
-//                "MEC vector {:?}, error_thresh {:?}",
-//                &mec_vector,
-//                expected_errors_ref
-//            );
+            //            let mec_threshold = 1.0 / (1.0 - error_rate) / (1.0 + 1.0 / (ploidy + 1) as f64);
+            //            log::trace!(
+            //                "MEC vector {:?}, error_thresh {:?}",
+            //                &mec_vector,
+            //                expected_errors_ref
+            //            );
             let mec_threshold =
                 1.0 / (1.0 - error_rate) / (1.0 + 1.0 / ((ploidy as f64).powf(0.75) + 1.32) as f64);
             log::trace!(
@@ -414,14 +419,18 @@ fn get_local_hap_blocks<'a>(
         }
     }
 
+    if best_ploidy == max_ploidy{
+        log::debug!("Max ploidy {} reached at SNPs {:?} . Consider increasing the maximum ploidy (-p option)",max_ploidy, &snp_range_vec[j]);
+    }
+
     log::trace!("DIFF\t{}\t{}", mec_vector[0], mec_vector[1]);
 
     log::trace!(
         "MEC vector {:?}, error_thresh {:?}, SNPs interval  {} {}",
         &mec_vector,
         expected_errors_ref,
-        random_vec[j].0 + 1,
-        random_vec[j].1 + 1,
+        snp_range_vec[j].0,
+        snp_range_vec[j].1,
     );
 
     let best_parts = mem::take(&mut parts_vector[best_ploidy - ploidy_start]);
@@ -449,11 +458,12 @@ fn get_local_hap_blocks<'a>(
             &frag_best_part,
             &vec![],
             local_part_dir.clone(),
-            &format!("{}-{}-{}-{}", j, l, random_vec[j].0, best_ploidy),
+            &format!("{}-{}-{}-{}", j, l, snp_range_vec[j].0, best_ploidy),
             &String::new(),
             &snp_to_genome_pos,
             false,
             0.,
+            false
         );
     }
 
@@ -489,6 +499,7 @@ pub fn generate_hap_graph<'a>(
     block_length: usize,
     glopp_out_dir: String,
     minimal_density: f64,
+    max_ploidy: usize
 ) -> Vec<Vec<HapNode<'a>>> {
     let using_bam;
     //Using frags instead of bam
@@ -516,7 +527,7 @@ pub fn generate_hap_graph<'a>(
         );
     }
 
-    let interval_vec = iter_vec[0..iter_vec.len()].to_vec();
+    let interval_vec = iter_vec.to_vec();
     log::trace!("SNP Endpoints {:?}", &interval_vec);
 
     let block_chunks: Mutex<Vec<_>> = Mutex::new(vec![]);
@@ -533,6 +544,7 @@ pub fn generate_hap_graph<'a>(
                 &glopp_out_dir,
                 j,
                 &interval_vec,
+                max_ploidy,
             );
             //If the ploidy is 1, we return nothing.
             if !block_chunk.is_none() {

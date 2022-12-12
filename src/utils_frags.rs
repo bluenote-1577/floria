@@ -474,8 +474,8 @@ pub fn get_range_with_lengths(
     let mut hit_new_left = false;
 
     for (i, pos) in snp_to_genome_pos.iter().enumerate() {
-        let i = i as SnpPosition;
-        if i == snp_to_genome_pos.len() as SnpPosition - 1 {
+        let i = i as SnpPosition; //1-indexed
+        if i == (snp_to_genome_pos.len() - 1) as SnpPosition {
             return_vec.push((left_endpoint, i));
             break;
         }
@@ -511,6 +511,7 @@ pub fn get_range_with_lengths(
         }
     }
 
+    return_vec = return_vec.into_iter().map(|x| (x.0 + 1, x.1 + 1)).collect();
     return return_vec;
 }
 
