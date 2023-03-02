@@ -931,7 +931,7 @@ fn combine_frags(
                 first_frag = second.1;
                 sec_frag = first.1
             } else {
-                println!("Read {} is not paired and has more than one primary alignment; something went wrong.", first.1.id);
+                log::warn!("Read {} is not paired and has more than one primary alignment; something went wrong.", first.1.id);
                 continue;
             }
 
@@ -997,7 +997,7 @@ fn combine_frags(
             for (i, frag) in frags.iter().enumerate() {
                 if frag.0 & supplementary_mask != supplementary_mask {
                     if !primary_alignment_index.is_none() {
-                        println!("More than one primary alignment for read {}. Only one primary alignment allowed
+                        log::warn!("More than one primary alignment for read {}. Only one primary alignment allowed
                             per read unless paired.", frag.1.id);
                     }
                     primary_alignment_index = Some(i);
@@ -1132,7 +1132,7 @@ pub fn get_contigs_to_phase(bam_file: &str) -> Vec<String> {
 #[allow(non_snake_case)]
 fn hapQ_score(error_rate: f64, epsilon: f64, cov: f64, read_ratio: f64) -> u8 {
     let constant = 0.05_f64.ln() / 20.;
-    let score = (-10. * error_rate / epsilon) - 120. * (constant * cov).exp()
+    let score = (-20. * error_rate / epsilon) - 100. * (constant * cov).exp()
         + 140.
         + 10. * read_ratio.ln();
     if score < 0. {
@@ -1275,6 +1275,12 @@ fn write_haplotypes(
     let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
     write!(
         ploidy_file,
+        "contig\taverage_ploidy\tapproximate_coverage_ignoring_indels\ttotal_bases_covered_per_ploidy\n",
+    )
+    .unwrap();
+
+    write!(
+        ploidy_file,
         "{}\t{}\t{}\t{}\n",
         contig,
         avg_ploidy,
@@ -1349,7 +1355,7 @@ fn write_all_parts_file(
         }
     }
     if !snp_range_parts_vec.is_empty() {
-        println!(
+        log::info!(
             "Final SNP error rate for all haplogroups is {}",
             total_err_all / total_cov_all
         );
