@@ -284,7 +284,7 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> F
         flow_update_vec.push(((node1.column, node1.row), (node2.column, node2.row), flow));
     }
 
-    println!("Linear program finished.");
+    log::info!("Linear program finished.");
     return flow_update_vec;
 }
 
@@ -555,7 +555,7 @@ pub fn generate_hap_graph<'a>(
 
     let block_chunks = block_chunks.into_inner().unwrap();
     let mut hap_node_blocks = process_chunks(block_chunks);
-    println!("Phasing done");
+    log::info!("Phasing done");
     if hap_node_blocks.is_empty() {
         return vec![];
     } else {
@@ -910,7 +910,7 @@ pub fn get_disjoint_paths_rewrite<'a>(
         cov_of_haplogroups.push(haplogroup_flow);
     }
 
-    println!("Number of haplogroups/disjoint paths: {}", best_paths.len());
+    log::info!("Number of haplogroups/disjoint paths: {}", best_paths.len());
     let glopp_out_dir_copy = glopp_out_dir.clone();
     let mut path_debug_file =
         File::create(format!("{}/debug_paths.txt", glopp_out_dir_copy)).expect("Can't create file");

@@ -301,7 +301,7 @@ pub fn process_reads_for_final_parts<'a>(
             }
         }
 
-        println!("Time taken for reassign {:?}", Instant::now() - start_t);
+        log::info!("Time taken for reassign {:?}", Instant::now() - start_t);
     }
 }
 

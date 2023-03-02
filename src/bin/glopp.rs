@@ -187,7 +187,7 @@ fn main() {
             .unwrap();
     } else {
         simple_logger::SimpleLogger::new()
-            .with_level(log::LevelFilter::Debug)
+            .with_level(log::LevelFilter::Info)
             .init()
             .unwrap();
     }
@@ -256,7 +256,7 @@ fn main() {
         .unwrap();
 
     let start_t_initial = Instant::now();
-    println!("Preprocessing inputs");
+    log::info!("Preprocessing inputs");
     let start_t = Instant::now();
     let contigs_to_phase;
     if bam {
@@ -264,19 +264,19 @@ fn main() {
     } else {
         contigs_to_phase = vec!["frag_contig".to_string()];
     }
-    println!("Read BAM header successfully.");
+    log::info!("Read BAM header successfully.");
 
     let mut chrom_seqs = FxHashMap::default();
     let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
         file_reader::get_genotypes_from_vcf_hts(vcf_file);
     let snp_to_genome_pos_map = snp_to_genome_pos_t;
     let vcf_profile = file_reader::get_vcf_profile(&vcf_file, &contigs_to_phase);
-    println!("Read VCF successfully.");
+    log::info!("Read VCF successfully.");
     if reference_fasta != "" {
         chrom_seqs = file_reader::get_fasta_seqs(&reference_fasta);
-        println!("Read reference fasta successfully.");
+        log::info!("Read reference fasta successfully.");
     }
-    println!("Finished preprocessing in {:?}", Instant::now() - start_t);
+    log::info!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
     for contig in contigs_to_phase.iter() {
         if !list_to_phase.contains(&&contig[..]) && !list_to_phase.is_empty() {
@@ -284,16 +284,16 @@ fn main() {
         } else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
             || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 100
         {
-            log::trace!(
-                "Contig {} not present or has < 500 variants. Continuing",
+            log::warn!(
+                "Contig '{}' not present or has < 100 variants. Continuing",
                 contig
             );
             continue;
         }
 
         let start_t = Instant::now();
-        println!("-----{}-----", contig);
-        println!("Reading inputs for contig {} (BAM/VCF/frags).", contig);
+        //log::info!("-----{}-----", contig);
+        log::info!("Reading inputs for contig {} (BAM/VCF/frags).", contig);
         let mut all_frags;
         if frag {
             let mut all_frags_map = file_reader::get_frags_container(frag_file);
@@ -311,11 +311,11 @@ fn main() {
             );
         }
         if all_frags.len() == 0 {
-            println!("Contig {} has no fragments", contig);
+            log::warn!("Contig {} has no fragments", contig);
             continue;
         }
 
-        println!("Time taken reading inputs {:?}", Instant::now() - start_t);
+        log::info!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
         if snp_to_genome_pos_map.contains_key(contig) || bam == false {
             let contig_out_dir = format!("{}/{}", part_out_dir, contig);
@@ -338,7 +338,7 @@ fn main() {
 
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
-            println!("Length of genome is {} SNPs", length_gn);
+            log::info!("Contig {} has {} SNPs", length_gn, contig);
             let mut epsilon = 0.04;
             if hybrid {
                 epsilon = 0.02;
@@ -361,9 +361,9 @@ fn main() {
             }
 
             let avg_read_length = utils_frags::get_avg_length(&final_frags, 0.5);
-            println!("Median read length is {} SNPs", avg_read_length);
+            log::info!("Median number of SNPs in a read is {}", avg_read_length);
 
-            println!("Number of fragments {}", final_frags.len());
+            log::debug!("Number of fragments {}", final_frags.len());
 
             match matches.value_of("epsilon") {
                 None => {}
@@ -372,7 +372,7 @@ fn main() {
                 }
             };
 
-            println!("Epsilon is {}", epsilon);
+            log::info!("Epsilon is {}", epsilon);
 
             let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
             let num_locs = num_locs_string.parse::<usize>().unwrap();
@@ -423,6 +423,6 @@ fn main() {
             );
         }
 
-        println!("Total time taken is {:?}", Instant::now() - start_t_initial);
+        log::info!("Total time taken is {:?}", Instant::now() - start_t_initial);
     }
 }
