@@ -2,7 +2,6 @@ use ordered_float::*;
 use debruijn::dna_string::DnaString;
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
-use std::collections::hash_map::Keys;
 use rust_htslib::bam::Record;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
@@ -14,6 +13,33 @@ pub type Genotype = u8;
 pub type GenotypeCount = OrderedFloat<f64>;
 pub type Haplotype = FxHashMap<SnpPosition, FxHashMap<Genotype, GenotypeCount>>;
 pub static GAP_CHAR: Genotype = 9;
+
+#[derive(Default, Debug, Clone)]
+pub struct Options{
+    pub bam_file: String,
+    pub vcf_file: String,
+    pub use_qual_scores: bool,
+    pub gzip: bool,
+    pub output_reads: bool,
+    pub mapq_cutoff: u8,
+    pub epsilon: f64,
+    pub use_supp_aln: bool,
+    pub reassign_short: bool,
+    pub do_binning: bool,
+    pub max_number_solns: usize,
+    pub snp_density: f64,
+    pub max_ploidy: usize,
+    pub out_dir: String,
+    pub hybrid: bool,
+    pub list_to_phase: Vec<String>,
+    pub block_length: usize,
+    pub reference_fasta: String,
+    pub extend_read_clipping: bool,
+    pub short_bam_file: String,
+    pub snp_count_filter: usize,
+    pub verbose: bool,
+    pub stopping_heuristic: bool
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct VcfProfile<'a> {
@@ -31,7 +57,6 @@ pub struct TraceBackNode {
 }
 //Positions are inclusive
 #[derive(Eq, Debug, Clone, Default)]
-                //Circularity weirdness. Throw away these reads, unfortunately, for now.
 pub struct Frag {
     pub id: String,
     pub counter_id: usize,

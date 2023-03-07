@@ -111,60 +111,6 @@ pub fn distance_read_haplo(
     (same.round() as usize, diff.round() as usize)
 }
 
-pub fn distance_read_haplo_ref_wild(
-    r1: &Frag,
-    hap: &Haplotype
-) -> ((usize, usize), (usize, usize)) {
-    let mut diff_ref = 0;
-    let mut same_ref = 0;
-    let mut diff_alt = 0;
-    let mut same_alt = 0;
-    let mut is_ref_allele = true;
-    for pos in r1.positions.iter() {
-        if !hap.contains_key(pos) {
-            continue;
-        }
-
-        let frag_var = r1.seq_dict.get(pos).unwrap();
-        let consensus_var = hap
-            .get(pos)
-            .unwrap()
-            .iter()
-            .max_by_key(|entry| entry.1)
-            .unwrap()
-            .0;
-        if *consensus_var != 0 {
-            is_ref_allele = false;
-        }
-        if *frag_var == *consensus_var {
-            if is_ref_allele {
-                same_ref += 1;
-            } else {
-                same_alt += 1;
-            }
-        } else {
-            let frag_var_count = hap.get(pos).unwrap().get(frag_var);
-            if let Some(count) = frag_var_count {
-                if count == hap.get(pos).unwrap().get(consensus_var).unwrap() {
-                    if is_ref_allele {
-                        same_ref += 1;
-                    } else {
-                        same_alt += 1;
-                    }
-                    continue;
-                }
-            }
-            if is_ref_allele {
-                diff_ref += 1;
-            } else {
-                diff_alt += 1;
-            }
-        }
-    }
-
-    ((same_ref, diff_ref), (same_alt, diff_alt))
-}
-
 //Index each position by the set of fragments which overlap that position
 pub fn get_all_overlaps(frags: &Vec<Frag>) -> FxHashMap<SnpPosition, FxHashSet<&Frag>> {
     let mut overlaps = FxHashMap::default();
