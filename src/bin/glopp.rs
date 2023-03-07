@@ -1,16 +1,13 @@
 extern crate time;
 use clap::{AppSettings, Arg, Command};
 use fxhash::FxHashMap;
-use sheaf::file_reader;
-use sheaf::graph_processing;
-use sheaf::part_block_manip;
-use sheaf::utils_frags;
-use std::env;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
-use std::time::Instant;
+use glopp::file_reader;
+use glopp::parse_cmd_line;
+use glopp::graph_processing;
+use glopp::part_block_manip;
+use glopp::utils_frags;
 use std::fs;
+use std::time::Instant;
 
 #[allow(deprecated)]
 fn main() {
@@ -22,12 +19,6 @@ fn main() {
                           .version("0.1.0")
                           .setting(AppSettings::ArgRequiredElseHelp)
                           .about("glopp - polyploid phasing from read sequencing.\n\nExample usage :\nglopp -b bamfile.bam -c vcffile.vcf -o results \n")
-                          .arg(Arg::new("frag")
-                               .short('f')
-                               .value_name("FILE")
-                               .help("Input a fragment file.")
-                               .hide(true)
-                               .takes_value(true))
                           .arg(Arg::new("bam")
                               .short('b')
                               .value_name("BAM FILE")
@@ -56,7 +47,7 @@ fn main() {
                               .value_name("INT")
                               .takes_value(true)
                               )
-                          .arg(Arg::new("partition output")
+                          .arg(Arg::new("output dir")
                               .short('o')
                               .help("Output folder. (default: glopp_out_dir)")
                               .value_name("STRING")
@@ -73,7 +64,7 @@ fn main() {
                               .short('n')
                               .takes_value(true)
                               .value_name("INT")
-                              .help("Maximum number of solutions for beam search. Increasing may improve accuracy slightly. (default: 10)")
+                              .help("Maximum number of solutions for beam search. Increasing may improve accuracy slightly. (default: 15)")
                               .help_heading(alg_options))
                           .arg(Arg::new("max_ploidy")
                               .short('p')
@@ -81,12 +72,6 @@ fn main() {
                               .value_name("INT")
                               .help("Maximum ploidy to try to phase up to. (default: 5)")
                               .help_heading(alg_options))
-                          .arg(Arg::new("num_iters_ploidy_est")
-                              .short('q')
-                              .takes_value(true)
-                              .value_name("NUMBER BLOCKS")
-                              .hide(true)
-                              .help("The number of blocks for flow graph construction when using fragments. (default 10)"))
                           .arg(Arg::new("bam_block_length")
                               .short('l')
                               .takes_value(true)
@@ -94,11 +79,7 @@ fn main() {
                               .help("Length of blocks (in nucleotides) for flow graph construction when using bam file. (default: 15000)")
                               .help_heading(alg_options)
                               .display_order(1))
-                          .arg(Arg::new("dont_use_mec")
-                              .short('u')
-                              .help("")
-                              .hide(true))
-                          .arg(Arg::new("verbose")
+                        .arg(Arg::new("verbose")
                               .short('r')
                               .help("Verbose output."))
                           .arg(Arg::new("snp_density")
@@ -107,6 +88,23 @@ fn main() {
                               .value_name("FLOAT")
                               .help("Minimum SNP density to phase. Blocks with SNP density less than this value will not be phased. (Default: 0.001 i.e. 1 SNP per 1000 bases)")
                               .help_heading(alg_options))
+                          //Always use qual scores right now.. hidden option
+                          .arg(Arg::new("use_qual_scores")
+                              .short('q')
+                              .takes_value(false)
+                              .hidden(true)
+                              .help("Use quality scores for reads in MEC optimization. (Default: do not use quality scores)")
+                              .help_heading(alg_options))
+                            .arg(Arg::new("no stop heuristic")
+                              .long("no-stop-heuristic")
+                              .takes_value(false)
+                              .help("Do not use stopping heuristic for local ploidy computation, only epsilon stopping criterion. (Default: use stopping heuristic)")
+                              .help_heading(alg_options))
+                          .arg(Arg::new("snp_count_filter")
+                              .long("snp-count-filter") 
+                              .takes_value(true)
+                              .help("Skip contigs with less than --snp-count-filter SNPs (Default: 100)")
+                              .help_heading(input_options))
                           .arg(Arg::new("use_supplementary")
                               .short('X')
                               .help("Use supplementary alignments (default: don't use).")
@@ -122,6 +120,10 @@ fn main() {
                               .long("gzip-reads")
                               .help("output gzipped reads. ")
                               .help_heading(output_options))
+                            .arg(Arg::new("no output reads")
+                              .long("no-output-reads")
+                              .help("do not output reads in fastq format. (default: reads are output)")
+                              .help_heading(output_options))
                           .arg(Arg::new("reassign_short")
                               .long("reassign-short")
                               .help("Reassign short reads when using the -H option to the best haplotigs. (Default: no reassignment)")
@@ -135,10 +137,6 @@ fn main() {
                               .long("extend-trimming")
                               .help("Trim less carefully against the reference for supplementary reads. May allow downstream assembly of sequences absent from reference with tradeoff for assembly quality. (testing in progress).")
                               .help_heading(output_options))
-                          .arg(Arg::new("use_gaps")
-                              .hide(true)
-                              .long("use-gaps")
-                              .help("Use gap information between SNPs while phasing (testing in progress)."))
                           .arg(Arg::new("list_to_phase")
                               .short('G')
                               .multiple(true)
@@ -146,170 +144,59 @@ fn main() {
                               .takes_value(true)
                               .help("Phase only contigs in this argument. Usage: -G contig1 contig2 contig3 ...")
                               .help_heading(input_options))
+                            .arg(Arg::new("mapq_cutoff")
+                              .short('m')
+                              .takes_value(true)
+                              .value_name("INT")
+                              .help("MAPQ cutoff. (default: 15)")
+                              .help_heading(alg_options))
                           .get_matches();
 
-    //Parse command line args.
-    let max_number_solns_str = matches.value_of("max_number_solns").unwrap_or("10");
-    let max_number_solns = max_number_solns_str.parse::<usize>().unwrap();
-    let num_t_str = matches.value_of("threads").unwrap_or("10");
-    let num_t = match num_t_str.parse::<usize>() {
-        Ok(num_t) => num_t,
-        Err(_) => panic!("Number of threads must be positive integer"),
-    };
-
-    let max_ploidy = matches.value_of("max_ploidy").unwrap_or("5").parse::<usize>().unwrap();
-    let hybrid = matches.is_present("hybrid");
-    let reassign_short = matches.is_present("reassign_short");
-    let do_binning = matches.is_present("do_binning");
-    let extend_read_clipping = matches.is_present("extend_read_clipping");
-    let short_bam_file = matches.value_of("hybrid").unwrap_or("");
-    let list_to_phase: Vec<&str>;
-    if let Some(values) = matches.values_of("list_to_phase") {
-        list_to_phase = values.collect();
-    } else {
-        list_to_phase = vec![];
-    }
-
-    let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
-    let block_length = block_length.parse::<usize>().unwrap();
-    //    let use_mec = matches.is_present("use_mec");
-    let reference_fasta = matches.value_of("reference_fasta").unwrap_or("");
-    let filter_supplementary = true;
-    let use_supplementary = matches.is_present("use_supplementary");
-    let use_gaps = matches.is_present("use_gaps");
-    let gzip = matches.is_present("gzip-reads");
-
-    // Set up our logger if the user passed the debug flag
-    if matches.is_present("verbose") {
-        simple_logger::SimpleLogger::new()
-            .with_level(log::LevelFilter::Trace)
-            .init()
-            .unwrap();
-    } else {
-        simple_logger::SimpleLogger::new()
-            .with_level(log::LevelFilter::Info)
-            .init()
-            .unwrap();
-    }
-
-    //If the user is splitting the bam file according to the output partition.
-    let part_out_dir = matches
-        .value_of("partition output")
-        .unwrap_or("glopp_out_dir")
-        .to_string();
-    let snp_density = matches
-        .value_of("snp_density")
-        .unwrap_or("0.001")
-        .parse::<f64>()
-        .unwrap();
-
-    if Path::new(&part_out_dir).exists() {
-        panic!("Output directory exists; output directory must not be an existing directory");
-    }
-
-    std::fs::create_dir_all(&part_out_dir).unwrap();
-    let mut cmd_file =
-        File::create(format!("{}/cmd.log", part_out_dir)).expect("Can't create file");
-    for arg in env::args() {
-        write!(cmd_file, "{} ", arg).unwrap();
-    }
-
-    //If the user is getting frag files from BAM and VCF.
-    let bam;
-    let bam_file = match matches.value_of("bam") {
-        None => {
-            bam = false;
-            "_"
-        }
-        Some(bam_file) => {
-            bam = true;
-            bam_file
-        }
-    };
-
-    //If user is using a frag file.
-    let frag;
-    let frag_file = match matches.value_of("frag") {
-        None => {
-            frag = false;
-            "_"
-        }
-        Some(frag_file) => {
-            frag = true;
-            frag_file
-        }
-    };
-
-    let vcf_file = matches.value_of("vcf").unwrap();
-
-    if !bam && !frag {
-        panic!("Must input a BAM file.")
-    }
-
-    if bam && frag {
-        panic!("If using frag as input, BAM file should not be specified")
-    }
-
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_t)
-        .build_global()
-        .unwrap();
+    let options = parse_cmd_line::parse_cmd_line(matches);
 
     let start_t_initial = Instant::now();
     log::info!("Preprocessing inputs");
     let start_t = Instant::now();
     let contigs_to_phase;
-    if bam {
-        contigs_to_phase = file_reader::get_contigs_to_phase(&bam_file)
-    } else {
-        contigs_to_phase = vec!["frag_contig".to_string()];
-    }
+    contigs_to_phase = file_reader::get_contigs_to_phase(&options.bam_file);
     log::info!("Read BAM header successfully.");
 
     let mut chrom_seqs = FxHashMap::default();
     let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
-        file_reader::get_genotypes_from_vcf_hts(vcf_file);
+        file_reader::get_genotypes_from_vcf_hts(options.vcf_file.clone());
     let snp_to_genome_pos_map = snp_to_genome_pos_t;
-    let vcf_profile = file_reader::get_vcf_profile(&vcf_file, &contigs_to_phase);
+    let vcf_profile = file_reader::get_vcf_profile(&options.vcf_file, &contigs_to_phase);
     log::info!("Read VCF successfully.");
-    if reference_fasta != "" {
-        chrom_seqs = file_reader::get_fasta_seqs(&reference_fasta);
+    if options.reference_fasta != "" {
+        chrom_seqs = file_reader::get_fasta_seqs(&options.reference_fasta);
         log::info!("Read reference fasta successfully.");
     }
     log::info!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
     for contig in contigs_to_phase.iter() {
-        if !list_to_phase.contains(&&contig[..]) && !list_to_phase.is_empty() {
+        if !options.list_to_phase.contains(&contig.to_string()) && !options.list_to_phase.is_empty() {
             continue;
         } else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
-            || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < 100
+            || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < options.snp_count_filter
         {
             log::warn!(
-                "Contig '{}' not present or has < 100 variants. Continuing",
-                contig
+                "Contig '{}' not present or has < {} variants. Continuing (change --snp-count-filter to phase small contigs)",
+                contig,
+                options.snp_count_filter,
             );
             continue;
         }
 
         let start_t = Instant::now();
         //log::info!("-----{}-----", contig);
-        log::info!("Reading inputs for contig {} (BAM/VCF/frags).", contig);
+        log::info!("Reading inputs for contig {} (BAM/VCF).", contig);
         let mut all_frags;
-        if frag {
-            let mut all_frags_map = file_reader::get_frags_container(frag_file);
-            all_frags = all_frags_map.remove(contig).unwrap();
-        } else {
-            all_frags = file_reader::get_frags_from_bamvcf_rewrite(
-                &vcf_profile,
-                bam_file,
-                short_bam_file,
-                filter_supplementary,
-                use_supplementary,
-                &chrom_seqs,
-                &contig,
-                use_gaps,
-            );
-        }
+        all_frags = file_reader::get_frags_from_bamvcf_rewrite(
+            &vcf_profile,
+            &options,
+            &chrom_seqs,
+            &contig,
+        );
         if all_frags.len() == 0 {
             log::warn!("Contig {} has no fragments", contig);
             continue;
@@ -317,15 +204,12 @@ fn main() {
 
         log::info!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
-        if snp_to_genome_pos_map.contains_key(contig) || bam == false {
-            let contig_out_dir = format!("{}/{}", part_out_dir, contig);
+        if snp_to_genome_pos_map.contains_key(contig){
+            let contig_out_dir = format!("{}/{}", options.out_dir, contig);
             fs::create_dir_all(&contig_out_dir).unwrap();
 
-            let mut snp_to_genome_pos: &Vec<usize> = &Vec::new();
-
-            if bam == true {
-                snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
-            }
+            let snp_to_genome_pos: &Vec<usize>;
+            snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
 
             //We need frags sorted by first position to make indexing easier. We want the
             //counter_id to reflect the position in the vector.
@@ -335,19 +219,14 @@ fn main() {
                 frag.counter_id = i;
             }
 
-
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
-            log::info!("Contig {} has {} SNPs", length_gn, contig);
-            let mut epsilon = 0.04;
-            if hybrid {
-                epsilon = 0.02;
-            }
+            log::info!("Contig {} has {} SNPs", contig, length_gn);
 
             //Do hybrid error correction
             let mut final_frags;
             let mut short_frags = vec![];
-            if hybrid {
+            if options.hybrid {
                 let ff_sf = utils_frags::hybrid_correction(all_frags);
                 final_frags = ff_sf.0;
                 short_frags = ff_sf.1;
@@ -362,64 +241,43 @@ fn main() {
 
             let avg_read_length = utils_frags::get_avg_length(&final_frags, 0.5);
             log::info!("Median number of SNPs in a read is {}", avg_read_length);
-
             log::debug!("Number of fragments {}", final_frags.len());
+            log::info!("Epsilon is {}", options.epsilon);
 
-            match matches.value_of("epsilon") {
-                None => {}
-                Some(value) => {
-                    epsilon = value.parse::<f64>().unwrap();
-                }
-            };
-
-            log::info!("Epsilon is {}", epsilon);
-
-            let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
-            let num_locs = num_locs_string.parse::<usize>().unwrap();
             let mut hap_graph = graph_processing::generate_hap_graph(
-                length_gn,
-                num_locs,
                 &final_frags,
-                epsilon,
                 &snp_to_genome_pos,
-                max_number_solns,
-                block_length,
                 contig_out_dir.to_string(),
-                snp_density,
-                max_ploidy
+                &options
             );
             let flow_up_vec =
                 graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
-            let (mut all_path_parts, mut path_parts_snp_endpoints) =
+            let (all_path_parts, path_parts_snp_endpoints) =
                 graph_processing::get_disjoint_paths_rewrite(
                     &mut hap_graph,
                     flow_up_vec,
                     contig_out_dir.to_string(),
                     &vcf_profile,
                     contig,
-                    block_length,
-                    do_binning,
+                    &options,
                 );
 
-            part_block_manip::process_reads_for_final_parts(
-                &mut all_path_parts,
-                epsilon,
+            let (sorted_path_parts, sorted_snp_endpoints) = part_block_manip::process_reads_for_final_parts(
+                all_path_parts,
                 &short_frags,
-                &mut path_parts_snp_endpoints,
-                reassign_short,
+                path_parts_snp_endpoints,
+                &options,
                 &snp_to_genome_pos,
             );
 
             file_reader::write_outputs(
-                &all_path_parts,
-                &path_parts_snp_endpoints,
+                &sorted_path_parts,
+                &sorted_snp_endpoints,
                 contig_out_dir.to_string(),
                 &format!("all"),
-                &contig, 
+                &contig,
                 &snp_to_genome_pos,
-                extend_read_clipping,
-                epsilon,
-                gzip
+                &options,
             );
         }
 

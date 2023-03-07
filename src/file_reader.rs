@@ -1,9 +1,10 @@
 use crate::alignment;
 use crate::constants;
 use crate::types_structs::{
-    build_frag, Frag, Genotype, GnPosition, HapBlock, SnpPosition, VcfProfile,
+    build_frag, Frag, Genotype, GnPosition, HapBlock, SnpPosition, VcfProfile, Options
 };
 use crate::utils_frags;
+use crate::part_block_manip;
 use bio::alphabets::dna::revcomp;
 use bio::io::fasta;
 use bio::io::fastq;
@@ -26,7 +27,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::LineWriter;
 use std::io::Write;
-use std::io::{self, BufRead, BufWriter};
+use std::io::{self, BufRead};
 use std::path::Path;
 use std::str;
 use std::sync::Mutex;
@@ -386,10 +387,10 @@ pub fn write_outputs(
     prefix: &String,
     contig: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
-    extend_read_clipping: bool,
-    epsilon: f64,
-    gzip: bool,
+    options: &Options,
 ) {
+    let extend_read_clipping = options.extend_read_clipping;
+    let gzip = options.gzip;
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
     if !snp_range_parts_vec.is_empty() {
@@ -399,13 +400,14 @@ pub fn write_outputs(
         fs::create_dir_all(&format!("{}/haplotypes", out_bam_part_dir)).unwrap();
     }
 
-    let hapQ_scores = write_haplotypes(
+    let hapqs = part_block_manip::get_hapq(&part, snp_pos_to_genome_pos, options);
+    write_haplotypes(
         part,
         contig,
         snp_range_parts_vec,
         &out_bam_part_dir,
         snp_pos_to_genome_pos,
-        epsilon,
+        &hapqs,
     );
     write_all_parts_file(
         part,
@@ -413,16 +415,18 @@ pub fn write_outputs(
         &out_bam_part_dir,
         prefix,
         snp_pos_to_genome_pos,
-        &hapQ_scores,
+        &hapqs,
     );
-    write_reads(
-        part,
-        snp_range_parts_vec,
-        &out_bam_part_dir,
-        extend_read_clipping,
-        &hapQ_scores,
-        gzip,
-    );
+    if options.output_reads{
+        write_reads(
+            part,
+            snp_range_parts_vec,
+            &out_bam_part_dir,
+            extend_read_clipping,
+            &hapqs,
+            gzip,
+        );
+    }
 }
 
 fn write_paired_reads_no_trim<W: Write>(
@@ -569,17 +573,18 @@ fn _write_paired_reads<W: Write>(
     }
 }
 
-pub fn alignment_passed_check(
+fn alignment_passed_check(
     flags: u16,
     mapq: u8,
     use_supplementary: bool,
     filter_supplementary: bool,
+    mapq_cutoff: u8
 ) -> (bool, bool) {
     let errors_mask = 1796;
     let secondary_mask = 256;
     let supplementary_mask = 2048;
     let mapq_supp_cutoff = 60;
-    let mapq_normal_cutoff = 15;
+    let mapq_normal_cutoff = mapq_cutoff;
     let first_in_pair_mask = 64;
     let second_in_pair_mask = 128;
 
@@ -763,16 +768,16 @@ pub fn get_vcf_profile<'a>(vcf_file: &str, ref_chroms: &'a Vec<String>) -> VcfPr
 
 pub fn get_frags_from_bamvcf_rewrite(
     vcf_profile: &VcfProfile,
-    long_bam_file: &str,
-    short_bam_file: &str,
-    filter_supplementary: bool,
-    use_supplementary: bool,
+    options: &Options,
     chrom_seqs: &FxHashMap<String, Vec<u8>>,
     contig: &str,
-    _use_gaps: bool,
 ) -> Vec<Frag>
-where
 {
+
+    let filter_supplementary = true;
+    let use_supplementary = options.use_supp_aln;
+    let long_bam_file = &options.bam_file;
+    let short_bam_file = &options.short_bam_file;
     let vcf_pos_allele_map = &vcf_profile.vcf_pos_allele_map;
     let vcf_pos_to_snp_counter_map = &vcf_profile.vcf_pos_to_snp_counter_map;
     let vcf_snp_pos_to_gn_pos_map = &vcf_profile.vcf_snp_pos_to_gn_pos_map;
@@ -825,6 +830,7 @@ where
                         record.mapq(),
                         use_supplementary,
                         filter_supplementary,
+                        options.mapq_cutoff
                     );
 
                     //                    log::trace!(
@@ -1130,28 +1136,13 @@ pub fn get_contigs_to_phase(bam_file: &str) -> Vec<String> {
 }
 
 #[allow(non_snake_case)]
-fn hapQ_score(error_rate: f64, epsilon: f64, cov: f64, read_ratio: f64) -> u8 {
-    let constant = 0.05_f64.ln() / 20.;
-    let score = (-20. * error_rate / epsilon) - 100. * (constant * cov).exp()
-        + 140.
-        + 10. * read_ratio.ln();
-    if score < 0. {
-        return 0;
-    } else if score > 60. {
-        return 60;
-    } else {
-        return score as u8;
-    }
-}
-
-#[allow(non_snake_case)]
 fn write_haplotypes(
     part: &Vec<FxHashSet<&Frag>>,
     contig: &String,
     snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
-    epsilon: f64,
+    hapqs: &Vec<u8>
 ) -> FxHashMap<usize, u8> {
     let haplotig_file = format!("{}/haplotigs.fa", out_bam_part_dir);
     let ploidy_file = format!("{}/ploidy_info.txt", out_bam_part_dir);
@@ -1206,26 +1197,21 @@ fn write_haplotypes(
 
             let (cov, err, _total_err, _total_cov) =
                 utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
+            let hap_q = hapqs[i];
 
-            let hap_Q = hapQ_score(
-                err,
-                epsilon,
-                cov,
-                (right_snp_pos - left_snp_pos) as f64 / num_max_interval as f64,
-            );
-            if hap_Q >= constants::HAPQ_CUTOFF {
+            if hap_q >= constants::HAPQ_CUTOFF {
                 for i in left_snp_pos..right_snp_pos + 1 {
                     snp_covered_count[(i - 1) as usize] += 1.;
                     coverage_count[(i - 1) as usize] += cov
                 }
             }
 
-            hapQ_scores.insert(i, hap_Q);
+            hapQ_scores.insert(i, hap_q);
 
             write!(
                 haplotig_file,
                 ">{}_HAP{} SNPRANGE:{}-{} BASERANGE:{}-{} COV:{} ERR:{} HAPQ:{}\n",
-                contig,
+                out_bam_part_dir,
                 i,
                 left_snp_pos,
                 right_snp_pos,
@@ -1233,7 +1219,7 @@ fn write_haplotypes(
                 right_gn_pos + 1,
                 cov,
                 err,
-                hap_Q,
+                hap_q,
             )
             .unwrap();
             let vec_of_alleles = write_fragset_haplotypes(
@@ -1292,14 +1278,15 @@ fn write_haplotypes(
     return hapQ_scores;
 }
 
-fn write_all_parts_file(
+pub fn write_all_parts_file(
     part: &Vec<FxHashSet<&Frag>>,
     snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     prefix: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
-    hapQ_scores: &FxHashMap<usize, u8>,
+    hapqs: &Vec<u8>,
 ) {
+    fs::create_dir_all(&out_bam_part_dir).unwrap();
     let part_path = &format!("{}/{}_part.txt", out_bam_part_dir, prefix);
     let file = File::create(part_path).expect("Can't create file");
 
@@ -1333,7 +1320,7 @@ fn write_all_parts_file(
                 snp_pos_to_genome_pos[(right_snp_pos - 1) as usize] + 1,
                 cov,
                 err,
-                hapQ_scores[&i],
+                hapqs[i],
             )
             .unwrap();
             total_cov_all += total_cov;
@@ -1367,7 +1354,7 @@ fn write_reads(
     snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     extend_read_clipping: bool,
-    hapQ_scores: &FxHashMap<usize, u8>,
+    hapqs: &Vec<u8>,
     gzip: bool,
 ) {
     for (i, set) in part.iter().enumerate() {
@@ -1377,7 +1364,7 @@ fn write_reads(
         if snp_range_parts_vec.is_empty() {
             continue;
         }
-        if hapQ_scores[&i] < constants::HAPQ_CUTOFF {
+        if hapqs[i] < constants::HAPQ_CUTOFF {
             continue;
         }
         let left_snp_pos = snp_range_parts_vec[i].0;

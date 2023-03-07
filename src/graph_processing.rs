@@ -3,7 +3,7 @@ use crate::file_reader;
 use crate::global_clustering;
 use crate::local_clustering;
 use crate::part_block_manip;
-use crate::types_structs::{Frag, GnPosition, HapNode, SnpPosition, TraceBackNode, VcfProfile};
+use crate::types_structs::{Frag, GnPosition, HapNode, SnpPosition, TraceBackNode, VcfProfile, Options};
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
 use highs::{RowProblem, Sense};
@@ -101,7 +101,6 @@ fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
 }
 
 pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> FlowUpVec {
-    let flow_cutoff = constants::MIN_SHARED_READS_UNAMBIG;
     let mut ae = vec![];
 
     //LP values
@@ -239,7 +238,7 @@ pub fn solve_lp_graph(hap_graph: &Vec<Vec<HapNode>>, glopp_out_dir: String) -> F
 
     let mut file = File::create(format!("{}/graph.csv", glopp_out_dir)).expect("Can't create file");
     for i in 0..edge_to_nodes.len() {
-        if solution.columns()[i] < flow_cutoff {
+        if solution.columns()[i] < constants::FLOW_CUTOFF {
             continue;
         }
         writeln!(
@@ -298,6 +297,7 @@ fn get_local_hap_blocks<'a>(
     j: usize,
     snp_range_vec: &Vec<(SnpPosition, SnpPosition)>,
     max_ploidy: usize,
+    stopping_heuristic: bool,
 ) -> Option<Vec<Vec<HapNode<'a>>>> {
     let ploidy_start = 1;
     let ploidy_end = max_ploidy + 1;
@@ -402,10 +402,12 @@ fn get_local_hap_blocks<'a>(
                 / mec_vector[ploidy - ploidy_start - 1] as f64)
                 < mec_threshold
             {
-            } else {
-                log::trace!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
-                best_ploidy -= 1;
-                break;
+            } else{
+                if stopping_heuristic{
+                    log::trace!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
+                    best_ploidy -= 1;
+                    break;
+                }
             }
             if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
                 log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
@@ -454,16 +456,13 @@ fn get_local_hap_blocks<'a>(
         }
         hap_node_blocks.push(hap_node_block);
 
-        file_reader::write_outputs(
+        file_reader::write_all_parts_file(
             &frag_best_part,
             &vec![],
-            local_part_dir.clone(),
+            &local_part_dir,
             &format!("{}-{}-{}-{}", j, l, snp_range_vec[j].0, best_ploidy),
-            &String::new(),
             &snp_to_genome_pos,
-            false,
-            0.,
-            false
+            &vec![],
         );
     }
 
@@ -490,42 +489,23 @@ fn process_chunks(mut chunks: Vec<(usize, Vec<Vec<HapNode>>)>) -> Vec<Vec<HapNod
 }
 
 pub fn generate_hap_graph<'a>(
-    length_gn: SnpPosition,
-    num_iters: usize,
     all_frags: &'a Vec<Frag>,
-    epsilon: f64,
     snp_to_genome_pos: &'a Vec<usize>,
-    max_number_solns: usize,
-    block_length: usize,
     glopp_out_dir: String,
-    minimal_density: f64,
-    max_ploidy: usize
+    options: &Options,
 ) -> Vec<Vec<HapNode<'a>>> {
-    let using_bam;
-    //Using frags instead of bam
-    if snp_to_genome_pos.len() == 0 {
-        using_bam = false;
-    } else {
-        using_bam = true;
-    }
+    let max_number_solns = options.max_number_solns;
+    let block_length = options.block_length;
+    let minimal_density = options.snp_density;
+    let max_ploidy = options.max_ploidy;
+    let epsilon = options.epsilon;
 
-    let mut iter_vec: Vec<(SnpPosition, SnpPosition)> = vec![];
-    if using_bam == false {
-        let temp_iter_vec: Vec<SnpPosition> = (0..length_gn)
-            .step_by(length_gn as usize / num_iters)
-            .collect();
-        for i in 0..temp_iter_vec.len() - 1 {
-            iter_vec.push((temp_iter_vec[i], temp_iter_vec[i + 1]));
-        }
-    } else {
-        //        iter_vec = (0..num_blocks).step_by(num_blocks / num_iters).collect();
-        iter_vec = utils_frags::get_range_with_lengths(
-            snp_to_genome_pos,
-            block_length,
-            block_length / 3,
-            minimal_density,
-        );
-    }
+    let iter_vec: Vec<(SnpPosition, SnpPosition)> = utils_frags::get_range_with_lengths(
+        snp_to_genome_pos,
+        block_length,
+        block_length / 3,
+        minimal_density,
+    );
 
     let interval_vec = iter_vec.to_vec();
     log::trace!("SNP Endpoints {:?}", &interval_vec);
@@ -545,6 +525,7 @@ pub fn generate_hap_graph<'a>(
                 j,
                 &interval_vec,
                 max_ploidy,
+                options.stopping_heuristic
             );
             //If the ploidy is 1, we return nothing.
             if !block_chunk.is_none() {
@@ -658,14 +639,14 @@ pub fn get_disjoint_paths_rewrite<'a>(
     glopp_out_dir: String,
     vcf_profile: &VcfProfile,
     contig: &str,
-    block_len: usize,
-    do_binning: bool,
+    options: &Options,
 ) -> (Vec<FxHashSet<&'a Frag>>, Vec<(SnpPosition, SnpPosition)>) {
-    let flow_cutoff = 3.0;
+    let block_len = options.block_length;
+    let do_binning = options.do_binning;
     let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
     //Update the graph to include flows.
     for (n1_inf, n2_inf, flow) in flow_update_vec {
-        if flow < flow_cutoff {
+        if flow < constants::FLOW_CUTOFF {
             continue;
         }
         hap_graph[n1_inf.0][n1_inf.1]
