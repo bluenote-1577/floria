@@ -13,11 +13,14 @@ Given
 
 ### Requirements 
 
-1. [rust](https://www.rust-lang.org/tools/install) and associated tools such as cargo are required and assumed to be in PATH.
-2. [cmake](https://cmake.org/download/) version > 3.12 is required. It's sufficient to download the binary from the link and do `PATH="/path/to/cmake-3.xx.x-linux-x86_64/bin/:$PATH"` before installation. 
+A relatively recent toolchain is needed, but no other dependencies. 
+
+1. [rust](https://www.rust-lang.org/tools/install) *version > 1.63.0* and associated tools such as cargo are required and assumed to be in PATH.
+2. [cmake](https://cmake.org/download/) *version > 3.12* is required. It's sufficient to download the binary from the link and do `PATH="/path/to/cmake-3.xx.x-linux-x86_64/bin/:$PATH"` before installation. 
 3. make 
 4. GCC (tested with version > 7)
 5. clang (works with version > 7)
+
 ### Install
 
 ```
