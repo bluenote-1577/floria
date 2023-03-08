@@ -1158,15 +1158,7 @@ fn write_haplotypes(
         .append(true)
         .open(haplotig_file)
         .unwrap();
-    let max = snp_range_parts_vec
-        .iter()
-        .max_by(|x, y| (x.1 - x.0).cmp(&(y.1 - y.0)));
-    let num_max_interval;
-    if max.is_none() {
-        num_max_interval = 0;
-    } else {
-        num_max_interval = max.unwrap().1 - max.unwrap().0;
-    }
+    
     for (i, set) in part.iter().enumerate() {
         if set.is_empty() {
             continue;

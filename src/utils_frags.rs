@@ -47,6 +47,8 @@ pub fn distance_read_haplo_epsilon_empty(r: &Frag, hap: &Haplotype, epsilon: f64
             continue;
         }
 
+        //Can speed this up by storing the consensus var in Haplotype
+        //without need to recompute everytime. 
         let frag_var = r.seq_dict.get(pos).unwrap();
         let consensus_var = hap
             .get(pos)
@@ -684,6 +686,7 @@ pub fn distance_between_haplotypes(
     return (same, diff);
 }
 
+#[inline]
 pub fn phred_scale(frag: &Frag, pos: &SnpPosition) -> GenotypeCount {
     if constants::USE_QUAL_SCORES {
         let qual_score = frag.qual_dict.get(&pos).unwrap();

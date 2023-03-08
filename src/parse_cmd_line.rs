@@ -10,8 +10,8 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     let max_number_solns_str = matches.value_of("max_number_solns").unwrap_or("10");
     let max_number_solns = max_number_solns_str.parse::<usize>().unwrap();
     let num_t_str = matches.value_of("threads").unwrap_or("10");
-    let num_t = match num_t_str.parse::<usize>() {
-        Ok(num_t) => num_t,
+    let num_threads = match num_t_str.parse::<usize>() {
+        Ok(num_threads) => num_threads,
         Err(_) => panic!("Number of threads must be positive integer"),
     };
 
@@ -36,12 +36,18 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     let gzip = matches.is_present("gzip-reads");
 
     // Set up our logger if the user passed the debug flag
-    if matches.is_present("verbose") {
+    if matches.is_present("trace") {
         simple_logger::SimpleLogger::new()
             .with_level(log::LevelFilter::Trace)
             .init()
             .unwrap();
-    } else {
+    } else if matches.is_present("debug"){
+        simple_logger::SimpleLogger::new()
+            .with_level(log::LevelFilter::Debug)
+            .init()
+            .unwrap();
+    }
+    else{
         simple_logger::SimpleLogger::new()
             .with_level(log::LevelFilter::Info)
             .init()
@@ -103,11 +109,10 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     }
 
     rayon::ThreadPoolBuilder::new()
-        .num_threads(num_t)
+        .num_threads(num_threads)
         .build_global()
         .unwrap();
 
-    let verbose = matches.is_present("verbose");
     let stopping_heuristic = !matches.is_present("no stop heuristic");
     let use_monomorphic = matches.is_present("use monomorphic");
 
@@ -133,9 +138,9 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         extend_read_clipping,
         short_bam_file,
         snp_count_filter,
-        verbose,
         stopping_heuristic,
-        use_monomorphic
+        use_monomorphic,
+        num_threads
     };
     opt
 }

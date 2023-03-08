@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-time = "*"
+time = "=0.3.10"
 fxhash="*"
 statrs="*"
 rayon="*"
@@ -16,10 +16,10 @@ rand_core="*"
 rust-htslib="*"
 clap = "3"
 debruijn = "*"
-simple_logger="4"
+simple_logger="3"
 log="*"
 itertools = "*"
-highs = "*"
+highs = { version = "*", optional = true }
 block-aligner = { version = "^0.2.0", features = ["simd_avx2"] }
 petgraph = "*"
 bio = "*"
@@ -28,9 +28,14 @@ rust-lapper = "*"
 disjoint-sets = "0.4.2"
 ordered-float = "2.0"
 flate2 = "*"
+minilp = "*"
+
+[target.'cfg(target_env = "musl")'.dependencies]
+tikv-jemallocator = "0"
+
 
 [dev-dependencies]
-assert_cmd = "1.0.1"
+assert_cmd = "1"
 predicates = "1"
 
 [profile.release]

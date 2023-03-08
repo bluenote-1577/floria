@@ -14,6 +14,8 @@ pub type GenotypeCount = OrderedFloat<f64>;
 pub type Haplotype = FxHashMap<SnpPosition, FxHashMap<Genotype, GenotypeCount>>;
 pub static GAP_CHAR: Genotype = 9;
 
+pub type FlowUpVec = Vec<((usize, usize), (usize, usize), f64)>;
+
 #[derive(Default, Debug, Clone)]
 pub struct Options{
     pub bam_file: String,
@@ -37,9 +39,9 @@ pub struct Options{
     pub extend_read_clipping: bool,
     pub short_bam_file: String,
     pub snp_count_filter: usize,
-    pub verbose: bool,
     pub stopping_heuristic: bool,
-    pub use_monomorphic: bool
+    pub use_monomorphic: bool,
+    pub num_threads: usize
 }
 
 #[derive(Debug, Clone, Default)]
@@ -309,6 +311,7 @@ pub fn update_frag(
     }
 }
 
+#[inline]
 pub fn build_truncated_hap_block(
     block: &HapBlock,
     frag: &Frag,
@@ -324,16 +327,18 @@ pub fn build_truncated_hap_block(
     //this hack needs to be done to circumvent cirular contigs, where weird stuff can happen.
     let mut num_after = vec![0; ploidy];
     let mut num_before = vec![0; ploidy];
+    let boundary_end = current_startpos + 50;
 
     //Add the +50 restriciton for circularity to avoid the case where a fragment covers snps
     //1,2,3,... and n,n-1,n-2,... where n is the number of snps.
     for i in 0..ploidy {
         for pos in block.blocks[i].keys() {
-            if *pos >= current_startpos && *pos < current_startpos + 50 {
+            let boundary_start = *pos + 50;
+            if *pos >= current_startpos && *pos < boundary_end {
                 num_after[i] += 1;
             }
 
-            if *pos < current_startpos && *pos + 50 > current_startpos {
+            if *pos < current_startpos && boundary_start > current_startpos {
                 num_before[i] += 1;
             }
             if *pos < current_startpos {

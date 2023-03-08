@@ -1,5 +1,5 @@
 use crate::constants;
-use crate::types_structs::{SnpPosition, GnPosition, Options, HapBlock};
+use crate::types_structs::{SnpPosition, Options};
 use crate::types_structs::{Frag, VcfProfile};
 use crate::utils_frags;
 use disjoint_sets::UnionFind;

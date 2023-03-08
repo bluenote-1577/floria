@@ -13,5 +13,5 @@ pub const USE_QUAL_SCORES: bool = true;
 pub const MERGE_SIMILAR_HAPLOGROUPS: bool = true;
 pub const SEPARATE_BROKEN_HAPLOGROUPS: bool = true;
 pub const WEIRD_SPLIT: bool = false;
-pub const FLOW_CUTOFF: f64 = 2.0;
+pub const FLOW_CUTOFF_MULT: f64 = 100.;
 pub const HAPQ_CONSTANT: f64 = 40.;
