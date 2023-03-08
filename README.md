@@ -172,14 +172,10 @@ All haplotigs will be assembled in `results_dir/intermediate` and all assembled 
 ### VCF requires contig headers
 We found that some variant callers don't put contig headers in the VCF file. In this situation, run `python scripts/write_contig_headers_vcf.py (vcf_file)` to get a new VCF with contig headers.
 
-### Output BAM partition
-To get a set of BAM files which correspond to each haplotig, use
+### Haplotagging bams for visualization
 
-``python scripts/get_bam_partition.py results/contig/all_part.txt used_bam_file.bam prefix``
+To generate a new bam file that is tagged with the `HP:i` tag, we offer a python script called `haplotag_bam.py` in the `scripts` directory. 
 
-This will output a set of bams labelled `prefix1.bam`, `prefix2.bam` and so forth for each haplotig. This script requires pysam. 
+`python glopp/scripts/haplotag_bam.py glopp_out_dir/CONTIG/all_part.txt ORIGINAL_BAM_FILE.bam NEW_BAM_FILE.bam CONTIG`
 
-### Manually consensus for testing
-
-Suppose you already have a partitioning of reads. That is, you have bam files `bam_file1, bam_file2, bam_file3` and you want to use this partioning for the phasing. Use the `consensus` binary to get a phasing from the .bam files by `consensus -v (vcf_file) -b (bam_file1) (bam_file2) (bam_file3) -o (consensus_file.txt)`. This is useful if you have synthetic data. 
-
+For a single contig CONTIG, this generates a new bam file with `HP:i` tags called NEW_BAM_FILE.bam. This new bam file contains all reads in the ORIGINAL_BAM_FILE.bam mapped to CONTIG. You can then index NEW_BAM_FILE.bam and visualize it with [igv](https://igv.org/).  
