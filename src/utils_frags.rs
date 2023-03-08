@@ -1,15 +1,16 @@
-use crate::types_structs::Frag;
-use ordered_float::OrderedFloat;
 use crate::constants;
+use crate::types_structs::Frag;
+use crate::types_structs::{Genotype, GenotypeCount, Haplotype, SnpPosition};
 use crate::types_structs::{HapBlock, GAP_CHAR};
 use fxhash::{FxHashMap, FxHashSet};
-use crate::types_structs::{Genotype, SnpPosition, Haplotype, GenotypeCount};
 use itertools::Itertools; // 0.8.2
+use ordered_float::OrderedFloat;
 use rayon::prelude::*;
 use statrs::distribution::ChiSquared;
 use statrs::distribution::ContinuousCDF;
 use std::sync::Mutex;
 use std::time::Instant;
+use std::mem;
 
 // Get the number # of different bases between the
 // two fragments
@@ -19,20 +20,16 @@ pub fn distance(r1: &Frag, r2: &Frag) -> (i32, i32) {
 
     for pos in r1.positions.intersection(&r2.positions) {
         if r1.seq_dict.get(pos) == r2.seq_dict.get(pos) {
-            same += (phred_scale(r1,pos) * phred_scale(r2,pos)).round() as i32; 
+            same += (phred_scale(r1, pos) * phred_scale(r2, pos)).round() as i32;
         } else {
-            diff += (phred_scale(r1,pos) * phred_scale(r2,pos)).round() as i32;
+            diff += (phred_scale(r1, pos) * phred_scale(r2, pos)).round() as i32;
         }
     }
 
     (same, diff)
 }
 
-pub fn distance_read_haplo_epsilon_empty(
-    r: &Frag,
-    hap: &Haplotype, 
-    epsilon: f64,
-) -> (f64, f64) {
+pub fn distance_read_haplo_epsilon_empty(r: &Frag, hap: &Haplotype, epsilon: f64) -> (f64, f64) {
     let mut diff = 0.0;
     let mut same = 0.0;
     for pos in r.positions.iter() {
@@ -59,26 +56,23 @@ pub fn distance_read_haplo_epsilon_empty(
             .unwrap()
             .0;
         if *frag_var == *consensus_var {
-            same += phred_scale(r,pos).into_inner();
+            same += phred_scale(r, pos).into_inner();
         } else {
             let frag_var_count = hap.get(pos).unwrap().get(frag_var);
             if let Some(count) = frag_var_count {
                 if count == hap.get(pos).unwrap().get(consensus_var).unwrap() {
-                    same += phred_scale(r,pos).into_inner();
+                    same += phred_scale(r, pos).into_inner();
                     continue;
                 }
             }
-            diff += phred_scale(r,pos).into_inner();
+            diff += phred_scale(r, pos).into_inner();
         }
     }
 
     (same, diff)
 }
 
-pub fn distance_read_haplo(
-    r1: &Frag,
-    hap: &Haplotype,
-) -> (usize, usize) {
+pub fn distance_read_haplo(r1: &Frag, hap: &Haplotype) -> (usize, usize) {
     let mut diff = 0.;
     let mut same = 0.;
     for pos in r1.positions.iter() {
@@ -95,16 +89,16 @@ pub fn distance_read_haplo(
             .unwrap()
             .0;
         if *frag_var == *consensus_var {
-            same += phred_scale(r1,pos).into_inner();
+            same += phred_scale(r1, pos).into_inner();
         } else {
             let frag_var_count = hap.get(pos).unwrap().get(frag_var);
             if let Some(count) = frag_var_count {
                 if count == hap.get(pos).unwrap().get(consensus_var).unwrap() {
-                    phred_scale(r1,pos).into_inner();
+                    phred_scale(r1, pos).into_inner();
                     continue;
                 }
             }
-            diff += phred_scale(r1,pos).into_inner();
+            diff += phred_scale(r1, pos).into_inner();
         }
     }
 
@@ -161,18 +155,17 @@ pub fn check_overlap(r1: &Frag, r2: &Frag) -> bool {
     }
 }
 
-pub fn set_to_seq_dict(frag_set: &FxHashSet<&Frag>, use_phred: bool) -> Haplotype{ 
+pub fn set_to_seq_dict(frag_set: &FxHashSet<&Frag>, use_phred: bool) -> Haplotype {
     let mut hap_map = FxHashMap::default();
     for frag in frag_set.iter() {
         for pos in frag.positions.iter() {
             let var_at_pos = frag.seq_dict.get(pos).unwrap();
             let sites = hap_map.entry(*pos).or_insert(FxHashMap::default());
             let site_counter = sites.entry(*var_at_pos).or_insert(OrderedFloat(0.));
-            if use_phred{
-            *site_counter += phred_scale(frag,pos);
-            }
-            else{
-            *site_counter += 1.;
+            if use_phred {
+                *site_counter += phred_scale(frag, pos);
+            } else {
+                *site_counter += 1.;
             }
         }
     }
@@ -446,7 +439,8 @@ pub fn get_range_with_lengths(
                 );
             }
             //left_endpoint = new_left_end;
-            if snp_to_genome_pos[new_left_end as usize] + block_length < snp_to_genome_pos[(new_left_end + 1) as usize]
+            if snp_to_genome_pos[new_left_end as usize] + block_length
+                < snp_to_genome_pos[(new_left_end + 1) as usize]
             {
                 left_endpoint = new_left_end;
             } else {
@@ -468,7 +462,7 @@ pub fn add_read_to_block(block: &mut HapBlock, frag: &Frag, part: usize) {
             .entry(*pos)
             .or_insert(FxHashMap::default());
         let site_counter = sites.entry(*var_at_pos).or_insert(OrderedFloat(0.));
-        *site_counter += phred_scale(frag,pos);
+        *site_counter += phred_scale(frag, pos);
     }
 }
 
@@ -480,9 +474,9 @@ pub fn remove_read_from_block(block: &mut HapBlock, frag: &Frag, part: usize) {
             .or_insert(FxHashMap::default());
         let site_counter = sites.entry(*var_at_pos).or_insert(OrderedFloat(0.));
         if *site_counter != 0. {
-            *site_counter -= phred_scale(frag,pos);
+            *site_counter -= phred_scale(frag, pos);
         }
-        if *site_counter <= OrderedFloat(0.){
+        if *site_counter <= OrderedFloat(0.) {
             sites.remove(var_at_pos);
         }
     }
@@ -572,10 +566,7 @@ pub fn hybrid_correction(frags: Vec<Frag>) -> (Vec<Frag>, Vec<Frag>) {
     return (final_frags.into_inner().unwrap(), short_frags);
 }
 
-fn correct_long_read(
-    short_frags_dict: &Haplotype, 
-    long_frag: &Frag,
-) -> Frag {
+fn correct_long_read(short_frags_dict: &Haplotype, long_frag: &Frag) -> Frag {
     let mut new_frag = long_frag.clone();
     for pos in new_frag.positions.iter() {
         if !short_frags_dict.contains_key(pos) {
@@ -602,7 +593,7 @@ pub fn get_errors_cov_from_frags(
 ) -> (f64, f64, f64, f64) {
     let mean = true;
     //don't use phred here while computing the SNP error rate
-    //for outputs. 
+    //for outputs.
     let hap_map = set_to_seq_dict(frags, false);
     let mut snp_counter_list = vec![];
     let emptydict = FxHashMap::default();
@@ -617,7 +608,7 @@ pub fn get_errors_cov_from_frags(
                 if *site == GAP_CHAR {
                     continue;
                 }
-                if *count > snp_support{
+                if *count > snp_support {
                     max_count_pos = *count;
                 }
                 snp_support += count;
@@ -660,10 +651,11 @@ pub fn distance_between_haplotypes(
     let mut diff = 0.;
     for pos in hap1.keys() {
         let cov_pos_1 = hap1[pos].iter().map(|x| *x.1).sum::<GenotypeCount>();
-            if hap2.contains_key(pos) {
-                let cov_pos_2 = hap2[pos].iter().map(|x| *x.1).sum::<GenotypeCount>();
-                if (cov_pos_1 > cov_cutoff && cov_pos_2 > cov_cutoff) || 
-                    *pos >= range.0 && *pos <= range.1 {
+        if hap2.contains_key(pos) {
+            let cov_pos_2 = hap2[pos].iter().map(|x| *x.1).sum::<GenotypeCount>();
+            if (cov_pos_1 > cov_cutoff && cov_pos_2 > cov_cutoff)
+                || *pos >= range.0 && *pos <= range.1
+            {
                 let consensus_var1 = hap1
                     .get(pos)
                     .unwrap()
@@ -692,13 +684,73 @@ pub fn distance_between_haplotypes(
     return (same, diff);
 }
 
-pub fn phred_scale(frag: &Frag, pos: &SnpPosition) -> GenotypeCount{
-    if constants::USE_QUAL_SCORES{
-    let qual_score = frag.qual_dict.get(&pos).unwrap();
-    let prob = 1. - 10_f32.powf((*qual_score) as f32 / -10.);
-    return OrderedFloat(prob.into());
+pub fn phred_scale(frag: &Frag, pos: &SnpPosition) -> GenotypeCount {
+    if constants::USE_QUAL_SCORES {
+        let qual_score = frag.qual_dict.get(&pos).unwrap();
+        let prob = 1. - 10_f32.powf((*qual_score) as f32 / -10.);
+        return OrderedFloat(prob.into());
+    } else {
+        return OrderedFloat(1.);
     }
-    else{
-        return OrderedFloat(1.)
+}
+
+pub fn remove_monomorphic_allele(mut frags: Vec<Frag>, error: f64) -> Vec<Frag> {
+    let mut allele_count_map: FxHashMap<SnpPosition, FxHashMap<Genotype, GenotypeCount>> =
+        FxHashMap::default();
+    let mut mono_alleles: FxHashSet<SnpPosition> = FxHashSet::default();
+    let mut new_frags = vec![];
+
+    for frag in frags.iter() {
+        for (snp_pos, geno) in frag.seq_dict.iter() {
+            let count_m = allele_count_map
+                .entry(*snp_pos)
+                .or_insert(FxHashMap::default());
+            let count = count_m.entry(*geno).or_insert(OrderedFloat(0.));
+            *count += phred_scale(frag, snp_pos);
+        }
     }
+
+    for (allele, map) in allele_count_map.iter() {
+        if map.len() == 1 {
+            mono_alleles.insert(*allele);
+            log::trace!("allele {} removed", allele);
+        } else {
+            let mut vals = map.values().collect::<Vec<&GenotypeCount>>();
+            vals.sort_by(|x, y| y.partial_cmp(&x).unwrap());
+            if vals[0].into_inner() * error > vals[1].into_inner() {
+                mono_alleles.insert(*allele);
+                log::trace!("allele {} removed, {:?}", allele, map);
+            }
+        }
+    }
+
+    for frag in frags.iter_mut() {
+        let mut to_rem = vec![];
+        for pos in frag.positions.iter() {
+            if mono_alleles.contains(pos) {
+                frag.seq_dict.remove(pos);
+                frag.qual_dict.remove(pos);
+                frag.snp_pos_to_seq_pos.remove(pos);
+                to_rem.push(*pos);
+            }
+        }
+        for pos in to_rem {
+            frag.positions.remove(&pos);
+        }
+        let mut positions_new = frag.positions.iter().collect::<Vec<&SnpPosition>>();
+        positions_new.sort();
+        if !positions_new.is_empty() {
+            frag.first_position = **positions_new.first().unwrap();
+            frag.last_position = **positions_new.last().unwrap();
+            new_frags.push(mem::take(frag));
+        }
+    }
+
+    new_frags.sort();
+    for (i, frag) in new_frags.iter_mut().enumerate() {
+        frag.counter_id = i;
+    }
+
+    return new_frags;
+
 }

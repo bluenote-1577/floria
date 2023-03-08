@@ -38,7 +38,8 @@ pub struct Options{
     pub short_bam_file: String,
     pub snp_count_filter: usize,
     pub verbose: bool,
-    pub stopping_heuristic: bool
+    pub stopping_heuristic: bool,
+    pub use_monomorphic: bool
 }
 
 #[derive(Debug, Clone, Default)]

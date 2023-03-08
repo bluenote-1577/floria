@@ -105,9 +105,13 @@ fn main() {
                               .takes_value(true)
                               .help("Skip contigs with less than --snp-count-filter SNPs (Default: 100)")
                               .help_heading(input_options))
+                          .arg(Arg::new("use monomorphic")
+                              .long("use-monomorphic") 
+                              .help("Use SNPs that have minor allele frequency less than epsilon (Default: ignore monomorphic SNPs)")
+                              .help_heading(input_options))
                           .arg(Arg::new("use_supplementary")
                               .short('X')
-                              .help("Use supplementary alignments (default: don't use).")
+                              .help("Use supplementary alignments (Default: don't use).")
                               .help_heading(input_options))
                           .arg(Arg::new("hybrid")
                               .short('H')
@@ -239,10 +243,14 @@ fn main() {
                 final_frags = all_frags;
             }
 
+            if !options.use_monomorphic{
+                final_frags = utils_frags::remove_monomorphic_allele(final_frags, options.epsilon);
+            }
+
             let avg_read_length = utils_frags::get_avg_length(&final_frags, 0.5);
-            log::info!("Median number of SNPs in a read is {}", avg_read_length);
+            log::debug!("Median number of SNPs in a read is {}", avg_read_length);
             log::debug!("Number of fragments {}", final_frags.len());
-            log::info!("Epsilon is {}", options.epsilon);
+            log::debug!("Epsilon is {}", options.epsilon);
 
             let mut hap_graph = graph_processing::generate_hap_graph(
                 &final_frags,

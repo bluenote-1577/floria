@@ -1257,21 +1257,23 @@ fn write_haplotypes(
         .filter(|x| **x > 0.)
         .collect::<Vec<_>>()
         .len();
-    let avg_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
+    let avg_local_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
+    let avg_global_ploidy = snp_covered_count.iter().sum::<f64>() / snp_covered_count.len() as f64;
     let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
     write!(
         ploidy_file,
-        "contig\taverage_ploidy\tapproximate_coverage_ignoring_indels\ttotal_bases_covered_per_ploidy\n",
+        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_bases_covered\n",
     )
     .unwrap();
 
     write!(
         ploidy_file,
-        "{}\t{}\t{}\t{}\n",
+        "{}\t{}\t{}\t{}\t{}\n",
         contig,
-        avg_ploidy,
+        avg_local_ploidy,
+        avg_global_ploidy,
         rough_cvg,
-        total_bases_covered as f64 / avg_ploidy
+        total_bases_covered
     )
     .unwrap();
 
