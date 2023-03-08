@@ -1,4 +1,4 @@
-# glopp (name to be decided) : polyploid phasing from read sequencing
+# glopp (name to be decided) 
 
 ## Introduction
 
@@ -26,7 +26,7 @@ A relatively recent toolchain is needed, but no other dependencies.
 ```
 git clone https://github.com/bluenote-1577/glopp
 cd glopp
-git checkout flow
+#git checkout flow <- development branch.
 cargo build --release
 ./target/release/glopp -h
 ```
