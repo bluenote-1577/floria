@@ -1,4 +1,4 @@
-# glopp (name to be decided) : polyploid phasing from read sequencing
+# glopp (name to be decided) 
 
 ## Introduction
 
