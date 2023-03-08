@@ -18,43 +18,49 @@ A relatively recent toolchain is needed, but no other dependencies.
 1. [rust](https://www.rust-lang.org/tools/install) *version > 1.63.0* and associated tools such as cargo are required and assumed to be in PATH.
 2. [cmake](https://cmake.org/download/) *version > 3.12* is required. It's sufficient to download the binary from the link and do `PATH="/path/to/cmake-3.xx.x-linux-x86_64/bin/:$PATH"` before installation. 
 3. make 
-4. GCC (tested with version > 7)
-5. clang (works with version > 7)
+4. GCC 
+
+Alternatively, we offer a statically compiled binary for linux if the above requirements can't be met. 
 
 ### Install
 
-```
+```sh
 git clone https://github.com/bluenote-1577/glopp
 cd glopp
-#git checkout flow <- development branch.
+
+# Option 1) If rust is installed with defaults
+cargo install --path . --root ~/.cargo 
+glopp -h # binary is available in PATH
+
+# Option 2) If for some reason the above doesn't work
 cargo build --release
-./target/release/glopp -h
+./target/release/glopp -h # binary built in ./target/release instead.
 ```
 
 `cargo build --release` builds the **glopp** binary, which is found in the ./target/release/ directory. 
 
 ## Using glopp
 
-```
-#long-read assuming ~10kb average length, 10% error rates
+``` sh
+# long-read assuming ~10kb average length, 10% error rates
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir 
 
-#short-read assuming 150x2 bp, SNP call error rate 0.5%
+# short-read assuming 150x2 bp, SNP call error rate 0.5%
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir -e 0.005 -l 500 
 
-#Realign reads onto reference with alternate alleles to improve accuracy
+# Realign reads onto reference with alternate alleles to improve accuracy
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir -R reference.fa 
 
-#Realign reads and polish with long-read phasing with short reads.
+# Realign reads and polish with long-read phasing with short reads.
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir -R reference.fa -H short_read_aln.bam  
 
-#Phase only contigs listed in the -G option
+# Phase only contigs listed in the -G option
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir -G contig_1 contig_2 contig_3
 
 ```
 For a quick test, we provide a VCF and BAM files in the tests folder. Run
 ```
- ./target/release/glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -o results
+ glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -o results
 ```
 to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
 
