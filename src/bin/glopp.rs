@@ -2,12 +2,19 @@ extern crate time;
 use clap::{AppSettings, Arg, Command};
 use fxhash::FxHashMap;
 use glopp::file_reader;
+use glopp::solve_flow;
 use glopp::parse_cmd_line;
 use glopp::graph_processing;
 use glopp::part_block_manip;
 use glopp::utils_frags;
 use std::fs;
 use std::time::Instant;
+
+//This makes statically compiled musl library
+//much much faster. Set to default for x86 systems...
+#[cfg(target_env="musl")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[allow(deprecated)]
 fn main() {
@@ -16,7 +23,7 @@ fn main() {
     let alg_options = "ALGORITHM";
     let mandatory_options = "REQUIRED";
     let matches = Command::new("glopp")
-                          .version("0.1.0")
+                          .version("0.0.1")
                           .setting(AppSettings::ArgRequiredElseHelp)
                           .about("glopp - polyploid phasing from read sequencing.\n\nExample usage :\nglopp -b bamfile.bam -c vcffile.vcf -o results \n")
                           .arg(Arg::new("bam")
@@ -64,7 +71,7 @@ fn main() {
                               .short('n')
                               .takes_value(true)
                               .value_name("INT")
-                              .help("Maximum number of solutions for beam search. Increasing may improve accuracy slightly. (default: 15)")
+                              .help("Maximum number of solutions for beam search. Increasing may improve accuracy slightly. (default: 10)")
                               .help_heading(alg_options))
                           .arg(Arg::new("max_ploidy")
                               .short('p')
@@ -79,9 +86,13 @@ fn main() {
                               .help("Length of blocks (in nucleotides) for flow graph construction when using bam file. (default: 15000)")
                               .help_heading(alg_options)
                               .display_order(1))
-                        .arg(Arg::new("verbose")
-                              .short('r')
-                              .help("Verbose output."))
+                        .arg(Arg::new("debug")
+                              .long("debug")
+                              .help("Debugging output."))
+                        .arg(Arg::new("trace")
+                              .long("trace")
+                              .help("Trace output."))
+
                           .arg(Arg::new("snp_density")
                               .short('d')
                               .takes_value(true)
@@ -159,18 +170,18 @@ fn main() {
     let options = parse_cmd_line::parse_cmd_line(matches);
 
     let start_t_initial = Instant::now();
-    log::info!("Preprocessing inputs");
+    log::info!("Preprocessing VCF/Reference");
     let start_t = Instant::now();
     let contigs_to_phase;
     contigs_to_phase = file_reader::get_contigs_to_phase(&options.bam_file);
-    log::info!("Read BAM header successfully.");
+    log::debug!("Read BAM header successfully.");
 
     let mut chrom_seqs = FxHashMap::default();
     let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
         file_reader::get_genotypes_from_vcf_hts(options.vcf_file.clone());
     let snp_to_genome_pos_map = snp_to_genome_pos_t;
     let vcf_profile = file_reader::get_vcf_profile(&options.vcf_file, &contigs_to_phase);
-    log::info!("Read VCF successfully.");
+    log::debug!("Read VCF successfully.");
     if options.reference_fasta != "" {
         chrom_seqs = file_reader::get_fasta_seqs(&options.reference_fasta);
         log::info!("Read reference fasta successfully.");
@@ -205,8 +216,6 @@ fn main() {
             log::warn!("Contig {} has no fragments", contig);
             continue;
         }
-
-        log::info!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
         if snp_to_genome_pos_map.contains_key(contig){
             let contig_out_dir = format!("{}/{}", options.out_dir, contig);
@@ -247,19 +256,34 @@ fn main() {
                 final_frags = utils_frags::remove_monomorphic_allele(final_frags, options.epsilon);
             }
 
+            log::info!("Time taken reading inputs {:?}", Instant::now() - start_t);
+
             let avg_read_length = utils_frags::get_avg_length(&final_frags, 0.5);
             log::debug!("Median number of SNPs in a read is {}", avg_read_length);
             log::debug!("Number of fragments {}", final_frags.len());
             log::debug!("Epsilon is {}", options.epsilon);
 
+            log::info!("Local phasing with {} threads...", options.num_threads);
+            let phasing_t= Instant::now();
             let mut hap_graph = graph_processing::generate_hap_graph(
                 &final_frags,
                 &snp_to_genome_pos,
                 contig_out_dir.to_string(),
                 &options
             );
+            log::info!("Phasing time taken {:?}", Instant::now() - phasing_t);
+
+            log::info!("Solving flow problem...");
+            let highs_t = Instant::now();
             let flow_up_vec =
-                graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
+                solve_flow::solve_lp_graph(&hap_graph);
+            log::info!("Flow solved in time {:?}", Instant::now() - highs_t);
+
+//            let minilp_t = Instant::now();
+//            let flow_up_vec =
+//                solve_flow::solve_lp_graph_minilp(&hap_graph, contig_out_dir.to_string());
+//            log::debug!("minilp time taken {:?}", Instant::now() - minilp_t);
+
             let (all_path_parts, path_parts_snp_endpoints) =
                 graph_processing::get_disjoint_paths_rewrite(
                     &mut hap_graph,

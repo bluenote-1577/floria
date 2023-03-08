@@ -6,14 +6,6 @@ extern crate time;
 use crate::utils_frags;
 use fxhash::{FxHashSet};
 
-#[cfg(not(debug_assertions))]
-macro_rules! debug {
-    ($x:expr) => {
-        std::convert::identity($x)
-    };
-}
-
-//use std::time::Instant;
 
 //Return the set of reads for which every read covers at least one position in the interval
 //(inclusive)
