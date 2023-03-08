@@ -1,408 +1,318 @@
 extern crate time;
-use clap::{App, AppSettings, Arg};
-use flopp::file_reader;
-use flopp::global_clustering;
-use flopp::graph_processing;
-use flopp::local_clustering;
-use flopp::types_structs::Frag;
-use flopp::utils_frags;
-use fxhash::{FxHashMap};
-use std::path::Path;
-use std::sync::Mutex;
+use clap::{AppSettings, Arg, Command};
+use fxhash::FxHashMap;
+use glopp::file_reader;
+use glopp::solve_flow;
+use glopp::parse_cmd_line;
+use glopp::graph_processing;
+use glopp::part_block_manip;
+use glopp::utils_frags;
+use std::fs;
 use std::time::Instant;
 
+//This makes statically compiled musl library
+//much much faster. Set to default for x86 systems...
+#[cfg(target_env="musl")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[allow(deprecated)]
 fn main() {
-    let matches = App::new("glopp")
-                          .version("0.1.0")
+    let input_options = "INPUT";
+    let output_options = "OUTPUT";
+    let alg_options = "ALGORITHM";
+    let mandatory_options = "REQUIRED";
+    let matches = Command::new("glopp")
+                          .version("0.0.1")
                           .setting(AppSettings::ArgRequiredElseHelp)
                           .about("glopp - polyploid phasing from read sequencing.\n\nExample usage :\nglopp -b bamfile.bam -c vcffile.vcf -o results \n")
-                          .arg(Arg::with_name("frag")
-                               .short("f")
-                               .value_name("FILE")
-                               .help("Input a fragment file.")
-                               .hidden(true)
-                               .takes_value(true))
-                          .arg(Arg::with_name("vcf no polish")
-                              .short("c")
-                              .value_name("FILE")
-                               .help("Input a VCF.")
-                                .takes_value(true))
-                          .arg(Arg::with_name("bam")
-                              .short("b")
-                              .value_name("FILE")
-                               .help("Input a bam file.")
-                                .takes_value(true))
-                          .arg(Arg::with_name("vcf")
-                               .short("v")
-                               .help("Input a VCF: Mandatory if using BAM file; Enables genotype polishing if using frag file.")
-                               .value_name("FILE")
-                               .takes_value(true)
-                               .hidden(true))
-                          .arg(Arg::with_name("ploidy") //Useful for testing. 
-                              .short("p")
-                              .help("Ploidy of organism. If not given, glopp will estimate the ploidy.")
+                          .arg(Arg::new("bam")
+                              .short('b')
+                              .value_name("BAM FILE")
+                              .required(true)
+                              .help("Indexed and sorted primary bam file.")
+                              .takes_value(true)
+                              .help_heading(mandatory_options)
+                              .display_order(1))
+                          .arg(Arg::new("vcf")
+                              .short('c')
+                              .value_name("VCF FILE")
+                              .required(true)
+                              .help("A VCF file; must have contig header information present. See README for generating a VCF file with such information.")
+                              .takes_value(true)
+                              .help_heading(mandatory_options))
+                          .arg(Arg::new("reference_fasta")
+                              .short('R')
+                              .takes_value(true)
+                              .value_name("FASTA FILE")
+                              .help("RECOMMENDED: Improve calls by realigning onto a reference with alternate alleles.")
+                              .help_heading(input_options)
+                              .display_order(1))
+                          .arg(Arg::new("threads")
+                              .short('t')
+                              .help("Number of threads to use. (default: 10).")
                               .value_name("INT")
                               .takes_value(true)
-                              .hidden(true))
-                          .arg(Arg::with_name("threads")
-                              .short("t")
-                              .help("Number of threads to use. Not implemented yet. (default: 10).")
-                              .value_name("INT")
-                              .takes_value(true))
-                          .arg(Arg::with_name("partition output")
-                              .short("o")
+                              )
+                          .arg(Arg::new("output dir")
+                              .short('o')
                               .help("Output folder. (default: glopp_out_dir)")
                               .value_name("STRING")
-                              .takes_value(true))
-                          .arg(Arg::with_name("epsilon")
-                              .short("e")
+                              .takes_value(true)
+                              .help_heading(output_options))
+                          .arg(Arg::new("epsilon")
+                              .short('e')
                               .takes_value(true)
                               .value_name("FLOAT")
-                              .help("Estimated allele call error rate. (default: 0.04. If using short reads, make sure to adjust this)"))
-                          .arg(Arg::with_name("max_number_solns")
-                              .short("n")
+                              .help("Estimated allele call error rate. (default: 0.04 without -H, 0.02 with -H. If using short reads, make sure to adjust this)")
+                              .help_heading(alg_options)
+                              .display_order(1))
+                          .arg(Arg::new("max_number_solns")
+                              .short('n')
                               .takes_value(true)
                               .value_name("INT")
-                              .help("Maximum number of solutions for beam search. (default: 10)"))
-                          .arg(Arg::with_name("num_iters_ploidy_est")
-                              .short("q")
-                              .takes_value(true)
-                              .value_name("NUMBER BLOCKS")
-                              .hidden(true)
-                              .help("The number of blocks for flow graph construction when using fragments. (default 10)"))
-                          .arg(Arg::with_name("bam_block_length")
-                              .short("l")
+                              .help("Maximum number of solutions for beam search. Increasing may improve accuracy slightly. (default: 10)")
+                              .help_heading(alg_options))
+                          .arg(Arg::new("max_ploidy")
+                              .short('p')
                               .takes_value(true)
                               .value_name("INT")
-                              .help("Length of blocks (in nucleotides) for flow graph construction when using bam file. (default: 15000)"))
-                          .arg(Arg::with_name("dont_use_mec")
-                              .short("u")
-                              .help("")
-                              .hidden(true))
-                            .arg(Arg::with_name("use_ref_bias")
-                              .short("R")
+                              .help("Maximum ploidy to try to phase up to. (default: 5)")
+                              .help_heading(alg_options))
+                          .arg(Arg::new("bam_block_length")
+                              .short('l')
+                              .takes_value(true)
+                              .value_name("INT")
+                              .help("Length of blocks (in nucleotides) for flow graph construction when using bam file. (default: 15000)")
+                              .help_heading(alg_options)
+                              .display_order(1))
+                        .arg(Arg::new("debug")
+                              .long("debug")
+                              .help("Debugging output."))
+                        .arg(Arg::new("trace")
+                              .long("trace")
+                              .help("Trace output."))
+
+                          .arg(Arg::new("snp_density")
+                              .short('d')
+                              .takes_value(true)
+                              .value_name("FLOAT")
+                              .help("Minimum SNP density to phase. Blocks with SNP density less than this value will not be phased. (Default: 0.001 i.e. 1 SNP per 1000 bases)")
+                              .help_heading(alg_options))
+                          //Always use qual scores right now.. hidden option
+                          .arg(Arg::new("use_qual_scores")
+                              .short('q')
+                              .takes_value(false)
                               .hidden(true)
-                              .help("Use reference bias adjustment (in progress)."))
-                          .arg(Arg::with_name("verbose")
-                              .short("r")
-                              .help("Verbose output."))
-                          .arg(Arg::with_name("dont_filter_supplementary")
-                              .short("S")
-                              .help("Use all supplementary alignments from the BAM file without filtering (filtering by default if using supp alignments)."))
-                          .arg(Arg::with_name("use_supplementary")
-                              .short("X")
-                              .help("Use supplementary alignments (default: don't use; have not tested fully yet)."))
+                              .help("Use quality scores for reads in MEC optimization. (Default: do not use quality scores)")
+                              .help_heading(alg_options))
+                            .arg(Arg::new("no stop heuristic")
+                              .long("no-stop-heuristic")
+                              .takes_value(false)
+                              .help("Do not use stopping heuristic for local ploidy computation, only epsilon stopping criterion. (Default: use stopping heuristic)")
+                              .help_heading(alg_options))
+                          .arg(Arg::new("snp_count_filter")
+                              .long("snp-count-filter") 
+                              .takes_value(true)
+                              .help("Skip contigs with less than --snp-count-filter SNPs (Default: 100)")
+                              .help_heading(input_options))
+                          .arg(Arg::new("use monomorphic")
+                              .long("use-monomorphic") 
+                              .help("Use SNPs that have minor allele frequency less than epsilon (Default: ignore monomorphic SNPs)")
+                              .help_heading(input_options))
+                          .arg(Arg::new("use_supplementary")
+                              .short('X')
+                              .help("Use supplementary alignments (Default: don't use).")
+                              .help_heading(input_options))
+                          .arg(Arg::new("hybrid")
+                              .short('H')
+                              .takes_value(true)
+                              .value_name("BAM FILE")
+                              .help("RECOMMENDED: Use short aligned short reads to polish long-read SNPs.")
+                              .help_heading(input_options)
+                              .display_order(1))
+                            .arg(Arg::new("gzip-reads")
+                              .long("gzip-reads")
+                              .help("output gzipped reads. ")
+                              .help_heading(output_options))
+                            .arg(Arg::new("no output reads")
+                              .long("no-output-reads")
+                              .help("do not output reads in fastq format. (default: reads are output)")
+                              .help_heading(output_options))
+                          .arg(Arg::new("reassign_short")
+                              .long("reassign-short")
+                              .help("Reassign short reads when using the -H option to the best haplotigs. (Default: no reassignment)")
+                              .help_heading(output_options))
+                          .arg(Arg::new("do_binning")
+                              .long("bin-by-cov")
+                              .help("Increase contiguity by binning haplogroups using coverage (testing in progress).")
+                              .help_heading(alg_options)
+                              .display_order(2))
+                          .arg(Arg::new("extend_read_clipping")
+                              .long("extend-trimming")
+                              .help("Trim less carefully against the reference for supplementary reads. May allow downstream assembly of sequences absent from reference with tradeoff for assembly quality. (testing in progress).")
+                              .help_heading(output_options))
+                          .arg(Arg::new("list_to_phase")
+                              .short('G')
+                              .multiple(true)
+                              .value_name("LIST OF CONTIGS")
+                              .takes_value(true)
+                              .help("Phase only contigs in this argument. Usage: -G contig1 contig2 contig3 ...")
+                              .help_heading(input_options))
+                            .arg(Arg::new("mapq_cutoff")
+                              .short('m')
+                              .takes_value(true)
+                              .value_name("INT")
+                              .help("MAPQ cutoff. (default: 15)")
+                              .help_heading(alg_options))
                           .get_matches();
 
-    //Parse command line args.
-    let max_number_solns_str = matches.value_of("max_number_solns").unwrap_or("10");
-    let max_number_solns = max_number_solns_str.parse::<usize>().unwrap();
-    let num_t_str = matches.value_of("threads").unwrap_or("10");
-    let num_t = match num_t_str.parse::<usize>() {
-        Ok(num_t) => num_t,
-        Err(_) => panic!("Number of threads must be positive integer"),
-    };
+    let options = parse_cmd_line::parse_cmd_line(matches);
 
-    let mut estimate_ploidy = false;
-    let large_numb = 300;
-    let ploidy = matches.value_of("ploidy").unwrap_or("300");
-    let ploidy = ploidy.parse::<usize>().unwrap();
-    if ploidy == large_numb {
-        estimate_ploidy = true;
-    }
-
-    let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
-    let block_length = block_length.parse::<usize>().unwrap();
-    //    let use_mec = matches.is_present("use_mec");
-    let use_mec = true;
-    let use_ref_bias = matches.is_present("use_ref_bias");
-    let filter_supplementary = !matches.is_present("dont_filter_supplementary");
-    let use_supplementary = matches.is_present("use_supplementary");
-
-    // Set up our logger if the user passed the debug flag
-    if matches.is_present("verbose") {
-        simple_logger::SimpleLogger::new()
-            .with_level(log::LevelFilter::Trace)
-            .init()
-            .unwrap();
-    } else {
-        simple_logger::SimpleLogger::new()
-            .with_level(log::LevelFilter::Debug)
-            .init()
-            .unwrap();
-    }
-
-    //If the user is splitting the bam file according to the output partition.
-    let part_out_dir = matches
-        .value_of("partition output")
-        .unwrap_or("glopp_out_dir").to_string();
-    if Path::new(&part_out_dir).exists(){
-        panic!("Output directory exists; output directory must not be an existing directory");
-    }
-
-    //If the user is getting frag files from BAM and VCF.
-    let bam;
-    let bam_file = match matches.value_of("bam") {
-        None => {
-            bam = false;
-            "_"
-        }
-        Some(bam_file) => {
-            bam = true;
-            bam_file
-        }
-    };
-
-    //If user is using a frag file.
-    let frag;
-    let frag_file = match matches.value_of("frag") {
-        None => {
-            frag = false;
-            "_"
-        }
-        Some(frag_file) => {
-            frag = true;
-            frag_file
-        }
-    };
-
-    //Whether or not we polish using genotyping information from VCF.
-    let vcf;
-    let mut vcf_file = match matches.value_of("vcf") {
-        None => {
-            vcf = false;
-            "_"
-        }
-        Some(_vcf_file) => {
-            panic!("Don't allow -v option for now.");
-            vcf = true;
-            _vcf_file
-        }
-    };
-
-    //Use a VCF without polishing.
-    let vcf_nopolish;
-    let vcf_file_nopolish = match matches.value_of("vcf no polish") {
-        None => {
-            vcf_nopolish = false;
-            "_"
-        }
-        Some(vcf_file_nopolish) => {
-            vcf_nopolish = true;
-            vcf_file_nopolish
-        }
-    };
-
-    if vcf_nopolish {
-        vcf_file = vcf_file_nopolish;
-    }
-
-    if vcf_nopolish && vcf {
-        panic!("Only use one of the VCF options. -c if diploid VCF or choosing to polish, -v otherwise.\n");
-    }
-
-    if !bam && !frag {
-        panic!("Must input a BAM file.")
-    }
-
-    //Only haplotype variants in a certain range : TODO not implemented yet
-    let _range;
-    let _range_string = match matches.value_of("range") {
-        None => {
-            _range = false;
-            "_"
-        }
-        Some(_range_string) => {
-            _range = true;
-            _range_string
-        }
-    };
-
-    if bam && frag {
-        panic!("If using frag as input, BAM file should not be specified")
-    }
-
-    if bam && (!vcf && !vcf_nopolish) {
-        panic!("Must input VCF file if using BAM file");
-    }
-
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_t)
-        .build_global()
-        .unwrap();
-
-    //Polishing is a relic from flopp... I won't remove for now because it may be useful for
-    //testing.
-    let polish = vcf;
-
-    println!("Reading inputs (BAM/VCF/frags).");
+    let start_t_initial = Instant::now();
+    log::info!("Preprocessing VCF/Reference");
     let start_t = Instant::now();
-    let mut all_frags_map;
-    if bam {
-        all_frags_map = file_reader::get_frags_from_bamvcf(
-            vcf_file,
-            bam_file,
-            filter_supplementary,
-            use_supplementary,
-        );
-    } else {
-        all_frags_map = file_reader::get_frags_container(frag_file);
+    let contigs_to_phase;
+    contigs_to_phase = file_reader::get_contigs_to_phase(&options.bam_file);
+    log::debug!("Read BAM header successfully.");
+
+    let mut chrom_seqs = FxHashMap::default();
+    let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
+        file_reader::get_genotypes_from_vcf_hts(options.vcf_file.clone());
+    let snp_to_genome_pos_map = snp_to_genome_pos_t;
+    let vcf_profile = file_reader::get_vcf_profile(&options.vcf_file, &contigs_to_phase);
+    log::debug!("Read VCF successfully.");
+    if options.reference_fasta != "" {
+        chrom_seqs = file_reader::get_fasta_seqs(&options.reference_fasta);
+        log::info!("Read reference fasta successfully.");
     }
-    println!("Time taken reading inputs {:?}", Instant::now() - start_t);
+    log::info!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
-    let mut snp_to_genome_pos_map: FxHashMap<String, Vec<usize>> = FxHashMap::default();
-    if vcf || vcf_nopolish {
-        let (snp_to_genome_pos_t, _genotype_dict_t, vcf_ploidy) =
-            file_reader::get_genotypes_from_vcf_hts(vcf_file);
-        snp_to_genome_pos_map = snp_to_genome_pos_t;
-
-        //If the VCF file is misformatted or has weird genotyping call we can catch that here.
-        if vcf_ploidy != ploidy {
-            if polish {
-                panic!("VCF File ploidy doesn't match input ploidy");
-            }
-        }
-    }
-
-    let first_iter = true;
-
-    for (contig, all_frags) in all_frags_map.iter_mut() {
-        if all_frags.len() == 0 {
-            println!("Contig {} has no fragments", contig);
+    for contig in contigs_to_phase.iter() {
+        if !options.list_to_phase.contains(&contig.to_string()) && !options.list_to_phase.is_empty() {
+            continue;
+        } else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
+            || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < options.snp_count_filter
+        {
+            log::warn!(
+                "Contig '{}' not present or has < {} variants. Continuing (change --snp-count-filter to phase small contigs)",
+                contig,
+                options.snp_count_filter,
+            );
             continue;
         }
 
-        println!("Number of fragments {}", all_frags.len());
-        if snp_to_genome_pos_map.contains_key(contig) || bam == false {
-            let contig_out_dir = format!("{}/{}", part_out_dir, contig);
-            let mut snp_to_genome_pos: &Vec<usize> = &Vec::new();
+        let start_t = Instant::now();
+        //log::info!("-----{}-----", contig);
+        log::info!("Reading inputs for contig {} (BAM/VCF).", contig);
+        let mut all_frags;
+        all_frags = file_reader::get_frags_from_bamvcf_rewrite(
+            &vcf_profile,
+            &options,
+            &chrom_seqs,
+            &contig,
+        );
+        if all_frags.len() == 0 {
+            log::warn!("Contig {} has no fragments", contig);
+            continue;
+        }
 
-            if bam == true {
-                snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
-            }
+        if snp_to_genome_pos_map.contains_key(contig){
+            let contig_out_dir = format!("{}/{}", options.out_dir, contig);
+            fs::create_dir_all(&contig_out_dir).unwrap();
+
+            let snp_to_genome_pos: &Vec<usize>;
+            snp_to_genome_pos = snp_to_genome_pos_map.get(contig).unwrap();
 
             //We need frags sorted by first position to make indexing easier. We want the
             //counter_id to reflect the position in the vector.
-            all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+            all_frags.sort();
+            //            all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
             for (i, frag) in all_frags.iter_mut().enumerate() {
                 frag.counter_id = i;
             }
 
-            //We use the median # bases spanned by fragments as the length of blocks.
-            let avg_read_length = utils_frags::get_avg_length(&all_frags, 0.5);
-            println!("Median read length is {} SNPs", avg_read_length);
-
-            let block_len_quant = 0.33;
-
-            //Final partitions
-            //let _parts: Mutex<Vec<(Vec<FxHashSet<&Frag>>, usize)>> = Mutex::new(vec![]);
-
-            //The length of each local haplotype block. This is currently useless because all haplotype
-            //blocks have the same fixed length, but we may change this in the future.
-            //let _lengths: Mutex<Vec<usize>> = Mutex::new(vec![]);
-
-            //UPEM scores for each block.
-            //let _scores: Mutex<Vec<(f64, usize)>> = Mutex::new(vec![]);
-            let _median_length_block = utils_frags::get_avg_length(&all_frags, block_len_quant);
-
-            //let cutoff_value = (1.0 / (ploidy + 1) as f64).ln();
-            let cutoff_value = f64::MIN;
-
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
-            println!("Length of genome is {} SNPs", length_gn);
-            println!("Length of each block is {} bases", block_length);
-            let mut epsilon = 0.04;
+            log::info!("Contig {} has {} SNPs", contig, length_gn);
 
-            if epsilon < 0.01 {
-                epsilon = 0.010;
+            //Do hybrid error correction
+            let mut final_frags;
+            let mut short_frags = vec![];
+            if options.hybrid {
+                let ff_sf = utils_frags::hybrid_correction(all_frags);
+                final_frags = ff_sf.0;
+                short_frags = ff_sf.1;
+                //                final_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
+                final_frags.sort();
+                for (i, frag) in final_frags.iter_mut().enumerate() {
+                    frag.counter_id = i;
+                }
+            } else {
+                final_frags = all_frags;
             }
 
-            match matches.value_of("epsilon") {
-                None => {}
-                Some(value) => {
-                    epsilon = value.parse::<f64>().unwrap();
-                }
-            };
+            if !options.use_monomorphic{
+                final_frags = utils_frags::remove_monomorphic_allele(final_frags, options.epsilon);
+            }
 
-            println!("Epsilon is {}", epsilon);
+            log::info!("Time taken reading inputs {:?}", Instant::now() - start_t);
 
-            if estimate_ploidy {
-                let num_locs_string = matches.value_of("num_iters_ploidy_est").unwrap_or("10");
-                let num_locs = num_locs_string.parse::<usize>().unwrap();
-                let mut hap_graph = graph_processing::generate_hap_graph(
-                    length_gn,
-                    num_locs,
-                    &all_frags,
-                    epsilon,
-                    &snp_to_genome_pos,
-                    max_number_solns,
-                    block_length,
-                    contig_out_dir.to_string(),
-                );
-                let flow_up_vec = graph_processing::solve_lp_graph(&hap_graph, contig_out_dir.to_string());
+            let avg_read_length = utils_frags::get_avg_length(&final_frags, 0.5);
+            log::debug!("Median number of SNPs in a read is {}", avg_read_length);
+            log::debug!("Number of fragments {}", final_frags.len());
+            log::debug!("Epsilon is {}", options.epsilon);
+
+            log::info!("Local phasing with {} threads...", options.num_threads);
+            let phasing_t= Instant::now();
+            let mut hap_graph = graph_processing::generate_hap_graph(
+                &final_frags,
+                &snp_to_genome_pos,
+                contig_out_dir.to_string(),
+                &options
+            );
+            log::info!("Phasing time taken {:?}", Instant::now() - phasing_t);
+
+            log::info!("Solving flow problem...");
+            let highs_t = Instant::now();
+            let flow_up_vec =
+                solve_flow::solve_lp_graph(&hap_graph);
+            log::info!("Flow solved in time {:?}", Instant::now() - highs_t);
+
+//            let minilp_t = Instant::now();
+//            let flow_up_vec =
+//                solve_flow::solve_lp_graph_minilp(&hap_graph, contig_out_dir.to_string());
+//            log::debug!("minilp time taken {:?}", Instant::now() - minilp_t);
+
+            let (all_path_parts, path_parts_snp_endpoints) =
                 graph_processing::get_disjoint_paths_rewrite(
                     &mut hap_graph,
                     flow_up_vec,
-                    epsilon,
                     contig_out_dir.to_string(),
-                    &snp_to_genome_pos,
-                );
-
-            } 
-            //We don't actually use this code path anymore, but it can be useful for testing purposes. 
-            else {
-                println!("Ploidy is {}", ploidy);
-                //Phasing occurs here
-                let start_t = Instant::now();
-                let initial_part;
-                //If first_pos = last_pos, then the initial_part is empty and we rely on the beam
-                //search to determine the correct initial partition.
-                let first_pos = 1;
-                let last_pos = 1;
-                initial_part = global_clustering::get_initial_clique(
-                    all_frags, ploidy, epsilon, first_pos, last_pos,
-                );
-                let binom_factor = 1.;
-                let all_frags_refs: Vec<&Frag> = all_frags.iter().collect();
-                let (break_positions, final_part) = global_clustering::beam_search_phasing(
-                    initial_part,
-                    &all_frags_refs,
-                    epsilon,
-                    binom_factor,
-                    cutoff_value,
-                    max_number_solns,
-                    use_mec,
-                    use_ref_bias,
-                );
-                println!("Time taken for phasing {:?}", Instant::now() - start_t);
-
-                let final_block_unpolish = utils_frags::hap_block_from_partition(&final_part);
-                let (f_binom_vec, f_freq_vec) =
-                    local_clustering::get_partition_stats(&final_part, &final_block_unpolish);
-                let final_score =
-                    -1.0 * local_clustering::get_mec_score(&f_binom_vec, &f_freq_vec, 0.0, 0.0);
-                println!("Final MEC score for the partition is {:?}.", final_score);
-
-                file_reader::write_output_partition_to_file(
-                    &final_part,
-                    vec![],
-                    contig_out_dir.to_string(),
+                    &vcf_profile,
                     contig,
-                    &snp_to_genome_pos
+                    &options,
                 );
 
-                file_reader::write_blocks_to_file(
-                    contig_out_dir.to_string(),
-                    &vec![final_block_unpolish],
-                    &vec![length_gn],
-                    &snp_to_genome_pos,
-                    &final_part,
-                    first_iter,
-                    contig,
-                    &break_positions,
-                );
-            }
+            let (sorted_path_parts, sorted_snp_endpoints) = part_block_manip::process_reads_for_final_parts(
+                all_path_parts,
+                &short_frags,
+                path_parts_snp_endpoints,
+                &options,
+                &snp_to_genome_pos,
+            );
+
+            file_reader::write_outputs(
+                &sorted_path_parts,
+                &sorted_snp_endpoints,
+                contig_out_dir.to_string(),
+                &format!("all"),
+                &contig,
+                &snp_to_genome_pos,
+                &options,
+            );
         }
+
+        log::info!("Total time taken is {:?}", Instant::now() - start_t_initial);
     }
 }

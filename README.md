@@ -13,8 +13,14 @@ Given
 
 ### Requirements 
 
-1. [rust](https://www.rust-lang.org/tools/install) and associated tools such as cargo are required and assumed to be in PATH.
-2. [cmake](https://cmake.org/download/) version > 3.12 is required. It's sufficient to download the binary from the link and do `PATH="/path/to/cmake-3.xx.x-linux-x86_64/bin/:$PATH"` before installation. 
+A relatively recent toolchain is needed, but no other dependencies. 
+
+1. [rust](https://www.rust-lang.org/tools/install) *version > 1.63.0* and associated tools such as cargo are required and assumed to be in PATH.
+2. [cmake](https://cmake.org/download/) *version > 3.12* is required. It's sufficient to download the binary from the link and do `PATH="/path/to/cmake-3.xx.x-linux-x86_64/bin/:$PATH"` before installation. 
+3. make 
+4. GCC (tested with version > 7)
+5. clang (works with version > 7)
+
 ### Install
 
 ```
@@ -30,22 +36,43 @@ cargo build --release
 ## Using glopp
 
 ```
-glopp -b bamfile.bam -c vcffile.vcf -o output_dir #long-read assuming ~10kb average length, 10% error rates
-glopp -b bamfile.bam -c vcffile.vcf -o output_dir -e 0.005 -l 500 #short-read assuming 150x2 bp, low error rates
+#long-read assuming ~10kb average length, 10% error rates
+glopp -b bamfile.bam -c vcffile.vcf -o output_dir 
+
+#short-read assuming 150x2 bp, SNP call error rate 0.5%
+glopp -b bamfile.bam -c vcffile.vcf -o output_dir -e 0.005 -l 500 
+
+#Realign reads onto reference with alternate alleles to improve accuracy
+glopp -b bamfile.bam -c vcffile.vcf -o output_dir -R reference.fa 
+
+#Realign reads and polish with long-read phasing with short reads.
+glopp -b bamfile.bam -c vcffile.vcf -o output_dir -R reference.fa -H short_read_aln.bam  
+
+#Phase only contigs listed in the -G option
+glopp -b bamfile.bam -c vcffile.vcf -o output_dir -G contig_1 contig_2 contig_3
 
 ```
-
-The standard mode of usage is to specify a bam file using the option **-b** and a vcf file using the option **-c**. The output is written to folder with value of option **-o**. 
-
-**VCF File:** glopp currently only uses SNP information and does not take into account indels. VCF file must have valid contig headers -- see the Misc section if your VCF does not have valid contig headers.
-
-**BAM File:** the bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
-
 For a quick test, we provide a VCF and BAM files in the tests folder. Run
 ```
  ./target/release/glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -o results
 ```
 to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
+
+### Standard usage
+
+The standard mode of usage is to specify an indexed bam file using the option **-b** and a vcf file using the option **-c**. The output is written to folder with value of option **-o**. 
+
+**VCF File:** glopp currently only uses SNP information and does not take into account indels. VCF file must have valid contig headers -- see the Misc section if your VCF does not have valid contig headers.
+
+**BAM File:** a **sorted and indexed** bam file. The bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
+
+### Parameters for best performance
+
+1. **-R ref.fa** is highly recommended to mitigate reference bias, especially for erroneous long-reads.
+2. **-H short_reads_aln.bam** is highly recommended if you have short-reads available. This uses short-read polishing to improve long-read SNP calls. 
+3. If using short-reads to phase (not to polish), make sure **-e** and **-l** which denotes the error rate and initial block size are set appropriately. -e 0.005 -l 500 works decently in practice for 2x150 bp reads. 
+4. **-e** controls how sensitive your blocks are during phasing. Blocks with error rate less than **-e** with not be phased further, so haplotypes that differ less than **-e** may be combined. Use a higher value for more contiguous but less sensitive phasings, and a lower value if you want a more sensitive but broken phasings. If using hybrid correction, maybe try setting this lower to 0.02 (default is 0.04). 
+5. **-X** allows supplementary alignments to be used. Improves phasing contiguity, but be careful if using for a messy reference.
 
 ## Output
 
@@ -88,11 +115,11 @@ The following information is output for each haplotig:
 Each haplotig corresponds to a cluster of reads and is presented in the following format:
 
 ```
-#0 (haplotig #0)
+#0,(coverage for haplotig 0),(error_rate for haplotig 0) 
 (read_name1) (first SNP position covered) 
 (read_name2) (first SNP position covered)
 ...
-#1 (haplotig #1)
+#1,(coverage for haplotig 1),(error_rate for haplotig 1)
 ...
 ```
 
@@ -100,12 +127,14 @@ Each haplotig corresponds to a cluster of reads and is presented in the followin
 For each haplotig, glopp outputs a haplotype file `#_hap.txt` in the following format:
 
 ```
->(haplotig number)
+>(haplotig number),(left snp cutoff position),(right snp cutoff position)
 (snp #1):(genome position)     (consensus allele #: 0/1/2...)    (allele #1):(support)|(allele #2):(support)|...
 (snp #2):(genome position)     (consensus allele #: 0/1/2...)    (allele #1):(support)|(allele #2):(support)|...
 ...
 
 ```
+
+The haplotig is valid for the region of the genome that lies within the left snp to the right snp cutoff positions. 
 
 1. Col. 1 indicates the # and position of the SNP. 
 2. Col. 2 states which allele is the consensus allele.
@@ -113,7 +142,7 @@ For each haplotig, glopp outputs a haplotype file `#_hap.txt` in the following f
 
 ### Read output ``results/contig/*_reads/``
 
-The reads in each haplotig can be found in either the `long_reads` or `short_reads` folder, depending on which type of read is used. Note that fastq files in these folders are trimmed and thus differ from the original reads. This is done so that all reads in a haplotig fall within an interval on the genome and do not extend past the interval. 
+The reads in each haplotig can be found in either the `long_reads` or `short_reads` folder, depending on which type of read is used. Note that fastq files in these folders are trimmed to lie within an interval and thus differ from the original reads. This is done so that all reads in a haplotig fall within an interval on the genome and do not extend past the interval. 
 
 ### Debugging
 
@@ -146,7 +175,7 @@ We found that some variant callers don't put contig headers in the VCF file. In 
 ### Output BAM partition
 To get a set of BAM files which correspond to each haplotig, use
 
-``python scripts/get_bam_partition.py results/contig/all_part.txt used_bam_file.bam  -prefix``
+``python scripts/get_bam_partition.py results/contig/all_part.txt used_bam_file.bam prefix``
 
 This will output a set of bams labelled `prefix1.bam`, `prefix2.bam` and so forth for each haplotig. This script requires pysam. 
 

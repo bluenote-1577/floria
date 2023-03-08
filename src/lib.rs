@@ -8,6 +8,14 @@ pub mod local_clustering;
 
 pub mod global_clustering;
 
-pub mod vcf_polishing;
-
 pub mod graph_processing;
+
+pub mod alignment; 
+
+pub mod part_block_manip;
+
+pub mod constants;
+
+pub mod parse_cmd_line;
+
+pub mod solve_flow;

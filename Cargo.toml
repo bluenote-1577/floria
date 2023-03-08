@@ -1,35 +1,45 @@
 [package]
-name = "flopp"
-version = "0.1.0"
+name = "glopp"
+version = "0.0.1"
 authors = ["jim <jimshawster@gmail.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-time = "*"
+time = "=0.3.10"
 fxhash="*"
 statrs="*"
-permute="*"
 rayon="*"
 rand="*"
-rand_pcg="*"
 rand_core="*"
 rust-htslib="*"
-clap = "2"
-simple_logger="*"
+clap = "3"
+debruijn = "*"
+simple_logger="3"
 log="*"
 itertools = "*"
-highs = "*"
+highs = { version = "*", optional = true }
+block-aligner = { version = "^0.2.0", features = ["simd_avx2"] }
 petgraph = "*"
 bio = "*"
+bio-types ="*"
+rust-lapper = "*"
+disjoint-sets = "0.4.2"
+ordered-float = "2.0"
+flate2 = "*"
+minilp = "*"
+
+[target.'cfg(target_env = "musl")'.dependencies]
+tikv-jemallocator = "0"
+
 
 [dev-dependencies]
-assert_cmd = "1.0.1"
+assert_cmd = "1"
 predicates = "1"
 
 [profile.release]
-opt-level = 3
+codegen-units = 1
 
 [profile.dev]
 opt-level = 3
