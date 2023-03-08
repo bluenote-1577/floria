@@ -109,6 +109,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
 
     let verbose = matches.is_present("verbose");
     let stopping_heuristic = !matches.is_present("no stop heuristic");
+    let use_monomorphic = matches.is_present("use monomorphic");
 
     let opt = Options{
         bam_file,
@@ -133,7 +134,8 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         short_bam_file,
         snp_count_filter,
         verbose,
-        stopping_heuristic
+        stopping_heuristic,
+        use_monomorphic
     };
     opt
 }
