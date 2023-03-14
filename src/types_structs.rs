@@ -41,7 +41,8 @@ pub struct Options{
     pub snp_count_filter: usize,
     pub stopping_heuristic: bool,
     pub use_monomorphic: bool,
-    pub num_threads: usize
+    pub num_threads: usize,
+    pub overwrite: bool
 }
 
 #[derive(Debug, Clone, Default)]
@@ -78,7 +79,7 @@ pub struct Frag {
 
 impl Ord for Frag{
     fn cmp(&self, other: &Frag) -> Ordering {
-        return (self.first_position,self.last_position,self.counter_id).cmp(&(other.first_position,other.last_position,other.counter_id));
+        return (self.first_position,other.last_position,self.counter_id).cmp(&(other.first_position,self.last_position,other.counter_id));
     }
 }
 
