@@ -504,8 +504,23 @@ fn find_overlapping_blocks<'a>(
 pub fn get_hapq<'a>(
     parts: &Vec<FxHashSet<&'a Frag>>,
     snp_to_genome_pos: &'a Vec<usize>,
-    options: &Options) -> Vec<u8> {
+    snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
+    options: &Options) -> (Vec<u8>,Vec<f64>)
+{
     let mut hapqs = vec![];
+    let mut purities = vec![];
+    let mut weight = 0.;
+    let mut error = 0.;
+    let mut total_covs = vec![];
+    let mut errs = vec![];
+    for (i,part) in parts.iter().enumerate(){
+        let (_cov, err, total_err, total_cov) = utils_frags::get_errors_cov_from_frags(part, snp_range_parts_vec[i].0, snp_range_parts_vec[i].1);
+        weight += total_cov;
+        error += total_err;
+        total_covs.push(total_cov);
+        errs.push(err);
+    }
+    let avg_err = error / weight; 
     let all_parts_block = utils_frags::hap_block_from_partition(&parts, true);
     let (all_ol, all_overlaps_p) = find_overlapping_blocks(parts, 0.05);
     for i in 0..parts.len(){
@@ -548,12 +563,17 @@ pub fn get_hapq<'a>(
         else{
             base_range = snp_to_genome_pos[(range.1 - 1) as usize] - snp_to_genome_pos[(range.0-1) as usize];
         }
-        
+
+//        let purity_score = utils_frags::stable_binom_cdf_p_rev(usize::max(total_covs[i] as usize,10000), (errs[i] * total_covs[i]) as usize, avg_err, 1.);
+//        let purity_val = f64::min(purity_score * 2.713f64.log(10.), 0.);
         let t1 = constants::HAPQ_CONSTANT * (1. - max_ol * (1. - dist));
-        //let t2 = f64::max(1., parts[i].len() as f64 / 3.);
+        let t2 = f64::min(1., parts[i].len() as f64 / 3.);
         let t3 = f64::max(0.0, ((base_range as f64 + options.block_length as f64)/ options.block_length as f64).ln());
-        let hapq =  (t1 *  t3) as usize;
+        let hapq =  (t1 * t2 * t3) as usize;
         hapqs.push(usize::min(hapq, 60) as u8);
+//        purities.push((-1. * purity_val) as u8);
+        purities.push(errs[i] / avg_err)
     }
-    return hapqs
+    return (hapqs, purities);
 }
+

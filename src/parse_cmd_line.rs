@@ -1,11 +1,13 @@
 use clap::ArgMatches;
 use std::env;
 use std::fs::File;
+use log::*;
 use std::io::Write;
 use std::path::Path;
 use crate::types_structs::Options;
 
 pub fn parse_cmd_line(matches : ArgMatches) -> Options{
+    let overwrite = matches.is_present("overwrite");
     //Parse command line args.
     let max_number_solns_str = matches.value_of("max_number_solns").unwrap_or("10");
     let max_number_solns = max_number_solns_str.parse::<usize>().unwrap();
@@ -65,8 +67,9 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         .parse::<f64>()
         .unwrap();
 
-    if Path::new(&out_dir).exists() {
-        panic!("Output directory exists; output directory must not be an existing directory");
+    if Path::new(&out_dir).exists() && !overwrite{
+        error!("Output directory exists; output directory must not be an existing directory. Use --overwrite to overwrite existing directory.");
+        std::process::exit(1);
     }
 
     std::fs::create_dir_all(&out_dir).unwrap();
@@ -140,7 +143,8 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         snp_count_filter,
         stopping_heuristic,
         use_monomorphic,
-        num_threads
+        num_threads,
+        overwrite
     };
     opt
 }

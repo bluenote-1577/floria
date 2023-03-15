@@ -80,6 +80,8 @@ pub struct Frag {
 impl Ord for Frag{
     fn cmp(&self, other: &Frag) -> Ordering {
         return (self.first_position,other.last_position,self.counter_id).cmp(&(other.first_position,self.last_position,other.counter_id));
+        //I tried the below ordering. Gives similar results. 
+        //return (self.first_position,other.seq_dict.len(),self.counter_id).cmp(&(other.first_position,self.seq_dict.len(),other.counter_id));
     }
 }
 

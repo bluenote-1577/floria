@@ -1,5 +1,6 @@
 use crate::constants;
 use crate::file_reader;
+use crate::file_writer;
 use crate::global_clustering;
 use crate::local_clustering;
 use crate::part_block_manip;
@@ -269,12 +270,13 @@ fn get_local_hap_blocks<'a>(
         }
         hap_node_blocks.push(hap_node_block);
 
-        file_reader::write_all_parts_file(
+        file_writer::write_all_parts_file(
             &frag_best_part,
             &vec![],
             &local_part_dir,
             &format!("{}-{}-{}-{}", j, l, snp_range_vec[j].0, best_ploidy),
             &snp_to_genome_pos,
+            &vec![],
             &vec![],
         );
     }
@@ -704,7 +706,7 @@ pub fn get_disjoint_paths_rewrite<'a>(
         cov_of_haplogroups.push(haplogroup_flow);
     }
 
-    log::info!("Number of haplogroups/disjoint paths: {}", best_paths.len());
+    log::debug!("Number of haplogroups/disjoint paths: {}", best_paths.len());
     let glopp_out_dir_copy = glopp_out_dir.clone();
     let mut path_debug_file =
         File::create(format!("{}/debug_paths.txt", glopp_out_dir_copy)).expect("Can't create file");

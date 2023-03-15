@@ -2,6 +2,7 @@ extern crate time;
 use clap::{AppSettings, Arg, Command};
 use fxhash::FxHashMap;
 use glopp::file_reader;
+use glopp::file_writer;
 use glopp::solve_flow;
 use glopp::parse_cmd_line;
 use glopp::graph_processing;
@@ -131,6 +132,10 @@ fn main() {
                               .help("RECOMMENDED: Use short aligned short reads to polish long-read SNPs.")
                               .help_heading(input_options)
                               .display_order(1))
+                          .arg(Arg::new("overwrite")
+                              .long("overwrite")
+                              .help("Force overwrite for output directory")
+                              .help_heading(output_options))
                             .arg(Arg::new("gzip-reads")
                               .long("gzip-reads")
                               .help("output gzipped reads. ")
@@ -174,17 +179,18 @@ fn main() {
     let start_t = Instant::now();
     let contigs_to_phase;
     contigs_to_phase = file_reader::get_contigs_to_phase(&options.bam_file);
-    log::debug!("Read BAM header successfully.");
+    let (mut main_bam, mut short_bam) = file_reader::get_bam_readers(&options);
+    log::debug!("Read BAM file successfully.");
 
-    let mut chrom_seqs = FxHashMap::default();
-    let (snp_to_genome_pos_t, _genotype_dict_t, _vcf_ploidy) =
+    let mut chrom_seqs = None;
+    let snp_to_genome_pos_t =
         file_reader::get_genotypes_from_vcf_hts(options.vcf_file.clone());
     let snp_to_genome_pos_map = snp_to_genome_pos_t;
     let vcf_profile = file_reader::get_vcf_profile(&options.vcf_file, &contigs_to_phase);
     log::debug!("Read VCF successfully.");
     if options.reference_fasta != "" {
-        chrom_seqs = file_reader::get_fasta_seqs(&options.reference_fasta);
-        log::info!("Read reference fasta successfully.");
+        chrom_seqs = Some(file_reader::get_fasta_seqs(&options.reference_fasta));
+        log::debug!("Read reference fasta successfully.");
     }
     log::info!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
@@ -194,7 +200,7 @@ fn main() {
         } else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
             || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < options.snp_count_filter
         {
-            log::warn!(
+            log::debug!(
                 "Contig '{}' not present or has < {} variants. Continuing (change --snp-count-filter to phase small contigs)",
                 contig,
                 options.snp_count_filter,
@@ -207,9 +213,11 @@ fn main() {
         log::info!("Reading inputs for contig {} (BAM/VCF).", contig);
         let mut all_frags;
         all_frags = file_reader::get_frags_from_bamvcf_rewrite(
+            &mut main_bam,
+            &mut short_bam,
             &vcf_profile,
             &options,
-            &chrom_seqs,
+            &mut chrom_seqs,
             &contig,
         );
         if all_frags.len() == 0 {
@@ -302,7 +310,7 @@ fn main() {
                 &snp_to_genome_pos,
             );
 
-            file_reader::write_outputs(
+            file_writer::write_outputs(
                 &sorted_path_parts,
                 &sorted_snp_endpoints,
                 contig_out_dir.to_string(),
@@ -313,6 +321,6 @@ fn main() {
             );
         }
 
-        log::info!("Total time taken is {:?}", Instant::now() - start_t_initial);
     }
+    log::info!("Total time taken is {:?}", Instant::now() - start_t_initial);
 }
