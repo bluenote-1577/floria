@@ -15,46 +15,58 @@ Given
 
 A relatively recent toolchain is needed, but no other dependencies. 
 
-1. [rust](https://www.rust-lang.org/tools/install) *version > 1.63.0* and associated tools such as cargo are required and assumed to be in PATH.
-2. [cmake](https://cmake.org/download/) *version > 3.12* is required. It's sufficient to download the binary from the link and do `PATH="/path/to/cmake-3.xx.x-linux-x86_64/bin/:$PATH"` before installation. 
+1. [rust](https://www.rust-lang.org/tools/install) **version > 1.63.0** and associated tools such as cargo are required and assumed to be in PATH.
+2. [cmake](https://cmake.org/download/) **version > 3.12** is required. It's sufficient to download the binary from the link and do `PATH="/path/to/cmake-3.xx.x-linux-x86_64/bin/:$PATH"` before installation. 
 3. make 
-4. GCC (tested with version > 7)
-5. clang (works with version > 7)
+4. GCC 
+
+Alternatively, we offer a statically compiled binary for linux if the above requirements can't be met. 
 
 ### Install
 
-```
+#### Option 1 - compile repository
+
+```sh
 git clone https://github.com/bluenote-1577/glopp
 cd glopp
-#git checkout flow <- development branch.
+
+# Option 1) If rust is installed with defaults
+cargo install --path . --root ~/.cargo 
+glopp -h # binary is available in PATH
+
+# Option 2) If for some reason the above doesn't work
 cargo build --release
-./target/release/glopp -h
+./target/release/glopp -h # binary built in ./target/release instead.
 ```
 
-`cargo build --release` builds the **glopp** binary, which is found in the ./target/release/ directory. 
-
+#### Option 2 - precompiled static binary on **linux**
+```sh
+wget https://github.com/bluenote-1577/glopp/releases/download/latest/glopp
+chmod +x glopp
+./glopp -h
+```
 ## Using glopp
 
-```
-#long-read assuming ~10kb average length, 10% error rates
+``` sh
+# long-read assuming ~10kb average length, 10% error rates
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir 
 
-#short-read assuming 150x2 bp, SNP call error rate 0.5%
+# short-read assuming 150x2 bp, SNP call error rate 0.5%
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir -e 0.005 -l 500 
 
-#Realign reads onto reference with alternate alleles to improve accuracy
+# Realign reads onto reference with alternate alleles to improve accuracy
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir -R reference.fa 
 
-#Realign reads and polish with long-read phasing with short reads.
+# Realign reads and polish with long-read phasing with short reads.
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir -R reference.fa -H short_read_aln.bam  
 
-#Phase only contigs listed in the -G option
+# Phase only contigs listed in the -G option
 glopp -b bamfile.bam -c vcffile.vcf -o output_dir -G contig_1 contig_2 contig_3
 
 ```
 For a quick test, we provide a VCF and BAM files in the tests folder. Run
 ```
- ./target/release/glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -o results
+ glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -o results
 ```
 to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
 
@@ -172,14 +184,10 @@ All haplotigs will be assembled in `results_dir/intermediate` and all assembled 
 ### VCF requires contig headers
 We found that some variant callers don't put contig headers in the VCF file. In this situation, run `python scripts/write_contig_headers_vcf.py (vcf_file)` to get a new VCF with contig headers.
 
-### Output BAM partition
-To get a set of BAM files which correspond to each haplotig, use
+### Haplotagging bams for visualization
 
-``python scripts/get_bam_partition.py results/contig/all_part.txt used_bam_file.bam prefix``
+To generate a new bam file that is tagged with the `HP:i` tag, we offer a python script called `haplotag_bam.py` in the `scripts` directory. 
 
-This will output a set of bams labelled `prefix1.bam`, `prefix2.bam` and so forth for each haplotig. This script requires pysam. 
+`python glopp/scripts/haplotag_bam.py glopp_out_dir/CONTIG/all_part.txt ORIGINAL_BAM_FILE.bam NEW_BAM_FILE.bam CONTIG`
 
-### Manually consensus for testing
-
-Suppose you already have a partitioning of reads. That is, you have bam files `bam_file1, bam_file2, bam_file3` and you want to use this partioning for the phasing. Use the `consensus` binary to get a phasing from the .bam files by `consensus -v (vcf_file) -b (bam_file1) (bam_file2) (bam_file3) -o (consensus_file.txt)`. This is useful if you have synthetic data. 
-
+For a single contig CONTIG, this generates a new bam file with `HP:i` tags called NEW_BAM_FILE.bam. This new bam file contains all reads in the ORIGINAL_BAM_FILE.bam mapped to CONTIG. You can then index NEW_BAM_FILE.bam and visualize it with [igv](https://igv.org/).  
