@@ -46,7 +46,8 @@ pub fn write_outputs(
         &out_bam_part_dir,
         snp_pos_to_genome_pos,
         &hapqs,
-        &rel_err
+        &rel_err,
+        &options.out_dir,
     );
     write_all_parts_file(
         part,
@@ -601,13 +602,20 @@ fn write_haplotypes(
     out_bam_part_dir: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
     hapqs: &Vec<u8>,
-    rel_err: &Vec<f64>
+    rel_err: &Vec<f64>,
+    top_dir: &str,
 ) -> FxHashMap<usize, u8> {
     let haplotig_file = format!("{}/haplotigs.fa", out_bam_part_dir);
     let ploidy_file = format!("{}/ploidy_info.txt", out_bam_part_dir);
+    let top_ploidy_file = format!("{}/contig_ploidy_info.txt", top_dir);
     let mut longest_haplotig_bases = 0;
+
     let mut snp_covered_count = vec![0.; snp_pos_to_genome_pos.len()];
     let mut coverage_count = vec![0.; snp_pos_to_genome_pos.len()];
+
+    let mut snp_covered_count_g0 = vec![0.; snp_pos_to_genome_pos.len()];
+    let mut coverage_count_g0 = vec![0.; snp_pos_to_genome_pos.len()];
+
     let mut hapQ_scores = FxHashMap::default();
     let mut total_bases_covered = 0;
     //    let mut hapQ_scores = vec![];
@@ -645,10 +653,14 @@ fn write_haplotypes(
 
             let hap_q = hapqs[i];
 
-            if hap_q >= constants::HAPQ_CUTOFF {
+            for i in left_snp_pos..right_snp_pos + 1 {
+                snp_covered_count[(i - 1) as usize] += 1.;
+                coverage_count[(i - 1) as usize] += cov
+            }
+            if hap_q > 0{
                 for i in left_snp_pos..right_snp_pos + 1 {
-                    snp_covered_count[(i - 1) as usize] += 1.;
-                    coverage_count[(i - 1) as usize] += cov
+                    snp_covered_count_g0[(i - 1) as usize] += 1.;
+                    coverage_count_g0[(i - 1) as usize] += cov
                 }
             }
 
@@ -700,29 +712,60 @@ fn write_haplotypes(
         .open(ploidy_file)
         .unwrap();
 
+    let mut top_ploidy_file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .create(true)
+        .open(top_ploidy_file)
+        .unwrap();
+
     let num_nonzero = snp_covered_count
         .iter()
         .filter(|x| **x > 0.)
         .collect::<Vec<_>>()
         .len();
+
+    let num_nonzero_g0 = snp_covered_count_g0
+        .iter()
+        .filter(|x| **x > 0.)
+        .collect::<Vec<_>>()
+        .len();
+
     let avg_local_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
+    let avg_local_ploidy_g0 = snp_covered_count_g0.iter().sum::<f64>() / num_nonzero_g0 as f64;
     let avg_global_ploidy = snp_covered_count.iter().sum::<f64>() / snp_covered_count.len() as f64;
+    let avg_global_ploidy_g0 = snp_covered_count_g0.iter().sum::<f64>() / snp_covered_count_g0.len() as f64;
     //let avg_global_ploidy = total_bases_covered / 
     let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
     write!(
         ploidy_file,
-        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_haplotig_bases_covered\n",
+        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_haplotig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\n",
     )
     .unwrap();
 
     write!(
         ploidy_file,
-        "{}\t{}\t{}\t{}\t{}\n",
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
         contig,
         avg_local_ploidy,
         avg_global_ploidy,
         rough_cvg,
-        total_bases_covered
+        total_bases_covered,
+        avg_local_ploidy_g0,
+        avg_global_ploidy_g0
+    )
+    .unwrap();
+
+   write!(
+        top_ploidy_file,
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        contig,
+        avg_local_ploidy,
+        avg_global_ploidy,
+        rough_cvg,
+        total_bases_covered,
+        avg_local_ploidy_g0,
+        avg_global_ploidy_g0
     )
     .unwrap();
 

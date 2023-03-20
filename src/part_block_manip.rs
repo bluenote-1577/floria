@@ -561,16 +561,18 @@ pub fn get_hapq<'a>(
             base_range = 0;
         }
         else{
-            base_range = snp_to_genome_pos[(range.1 - 1) as usize] - snp_to_genome_pos[(range.0-1) as usize];
+            //#base_range = snp_to_genome_pos[(range.1 - 1) as usize] - snp_to_genome_pos[(range.0-1) as usize];
+            //base_range = snp_to_genome_pos[snp_range_parts_vec[i].1 as usize - 1] - snp_to_genome_pos[snp_range_parts_vec[i].0 as usize - 1];
+            base_range = snp_range_parts_vec[i].1 - snp_range_parts_vec[i].0;
         }
 
 //        let purity_score = utils_frags::stable_binom_cdf_p_rev(usize::max(total_covs[i] as usize,10000), (errs[i] * total_covs[i]) as usize, avg_err, 1.);
 //        let purity_val = f64::min(purity_score * 2.713f64.log(10.), 0.);
-        let t1 = constants::HAPQ_CONSTANT * (1. - max_ol * (1. - dist));
+        let t1 = constants::HAPQ_CONSTANT * (1. - max_ol * (1. - dist) * (1. + errs[i]));
         let t2 = f64::min(1., parts[i].len() as f64 / 3.);
-        let t3 = f64::max(0.0, ((base_range as f64 + options.block_length as f64)/ options.block_length as f64).ln());
+        let t3 = f64::max(0.0, ((base_range as f64 + 1.)).ln());
         let hapq =  (t1 * t2 * t3) as usize;
-        hapqs.push(usize::min(hapq, 60) as u8);
+        hapqs.push(usize::min(hapq, 255) as u8);
 //        purities.push((-1. * purity_val) as u8);
         purities.push(errs[i] / avg_err)
     }

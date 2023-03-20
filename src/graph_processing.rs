@@ -707,15 +707,15 @@ pub fn get_disjoint_paths_rewrite<'a>(
     }
 
     log::debug!("Number of haplogroups/disjoint paths: {}", best_paths.len());
-    let glopp_out_dir_copy = glopp_out_dir.clone();
-    let mut path_debug_file =
-        File::create(format!("{}/debug_paths.txt", glopp_out_dir_copy)).expect("Can't create file");
-    for (i, path) in best_pathscolrow.iter().enumerate() {
-        writeln!(path_debug_file, "{}", i).unwrap();
-        writeln!(path_debug_file, "{:?}", path).unwrap();
-        //        writeln!(path_debug_file, "{:?}", path_parts_snps_endpoints_copy[i]).unwrap();
-        writeln!(path_debug_file, "{:?}", cov_of_haplogroups[i]).unwrap();
-    }
+//    let glopp_out_dir_copy = glopp_out_dir.clone();
+//    let mut path_debug_file =
+//        File::create(format!("{}/debug_paths.txt", glopp_out_dir_copy)).expect("Can't create file");
+//    for (i, path) in best_pathscolrow.iter().enumerate() {
+//        writeln!(path_debug_file, "{}", i).unwrap();
+//        writeln!(path_debug_file, "{:?}", path).unwrap();
+//        //        writeln!(path_debug_file, "{:?}", path_parts_snps_endpoints_copy[i]).unwrap();
+//        writeln!(path_debug_file, "{:?}", cov_of_haplogroups[i]).unwrap();
+//    }
 
     //Put read into best haplotig.
     if do_binning {

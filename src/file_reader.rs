@@ -441,13 +441,16 @@ pub fn get_fasta_seqs(fasta_file: &str) -> FastaIndexedReader<std::fs::File> {
     os_string.push("fai");
     let fai_path: &str = os_string.to_str().unwrap();
     if !Path::new(fai_path).exists(){
-        log::warn!(".fai index not detected. Trying to index.");
-        Command::new("samtools")
+        log::warn!(".fai index not detected. Trying to index using samtools faidx if it is in PATH.");
+        let status = Command::new("samtools")
             .arg("faidx")
             .arg(fasta_file)
             .status()
             .expect("Failed to run 'samtools index' on fasta file.");
-
+        if !status.success() {
+            log::error!("samtools faidx failed. Exiting");
+            std::process::exit(1);
+        }
     }
     let reader = FastaIndexedReader::from_file(&fasta_file.to_string());
     if !reader.is_err() {

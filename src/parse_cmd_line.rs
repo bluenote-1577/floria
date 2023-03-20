@@ -79,6 +79,15 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         write!(cmd_file, "{} ", arg).unwrap();
     }
 
+    //Overwrite the contig_ploidy_info file. 
+    let mut all_ploidy_file = File::create(format!("{}/contig_ploidy_info.txt", out_dir)).expect("Can't create file");
+    write!(
+        all_ploidy_file,
+        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_haplotig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\n",
+    )
+    .unwrap();
+
+
     //If the user is getting frag files from BAM and VCF.
     let bam;
     let bam_file = match matches.value_of("bam") {
