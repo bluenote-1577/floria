@@ -545,7 +545,9 @@ fn combine_frags(
                 //                    &frag.1.snp_pos_to_seq_pos[&frag.1.first_position],
                 //                    &frag.1.snp_pos_to_seq_pos[&frag.1.last_position]
                 //                );
-                assert!(frag.1.is_paired == false);
+                if frag.1.is_paired{
+                    log::warn!("Fragment {} is paired but appears in more than two mappings -- possibly a supplementary alignment. Careful.", &frag.1.id);
+                }
             }
 
             let mut supp_intervals = vec![];

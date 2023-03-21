@@ -21,7 +21,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     let hybrid = matches.is_present("hybrid");
     let reassign_short = matches.is_present("reassign_short");
     let do_binning = matches.is_present("do_binning");
-    let extend_read_clipping = matches.is_present("extend_read_clipping");
+    let trim_reads = matches.is_present("trim");
     let short_bam_file = matches.value_of("hybrid").unwrap_or("").to_string();
     let list_to_phase: Vec<String>;
     if let Some(values) = matches.values_of("list_to_phase") {
@@ -114,7 +114,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     let mapq_cutoff = matches.value_of("mapq_cutoff").unwrap_or("15").parse::<u8>().unwrap();
     let mut epsilon = 0.04;
     if hybrid{
-        epsilon = 0.02
+        epsilon = 0.03
     }
     if matches.is_present("epsilon"){
         epsilon = matches.value_of("epsilon").unwrap().parse::<f64>().unwrap();
@@ -127,6 +127,11 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
 
     let stopping_heuristic = !matches.is_present("no stop heuristic");
     let use_monomorphic = matches.is_present("use monomorphic");
+    let ploidy_sensitivity = matches.value_of("ploidy sensitivity").unwrap_or("2").parse::<u8>().unwrap();
+    if !(ploidy_sensitivity >= 1 && ploidy_sensitivity <= 3){
+        log::error!("Ploidy sensitivty option must be between 1 and 3");
+        std::process::exit(1);
+    }
 
     let opt = Options{
         bam_file,
@@ -147,13 +152,14 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         list_to_phase,
         block_length,
         reference_fasta,
-        extend_read_clipping,
+        trim_reads,
         short_bam_file,
         snp_count_filter,
         stopping_heuristic,
         use_monomorphic,
         num_threads,
-        overwrite
+        overwrite,
+        ploidy_sensitivity
     };
     opt
 }

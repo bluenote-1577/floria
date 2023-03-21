@@ -27,7 +27,7 @@ pub fn write_outputs(
     snp_pos_to_genome_pos: &Vec<usize>,
     options: &Options,
 ) {
-    let extend_read_clipping = options.extend_read_clipping;
+    let trim_reads= options.trim_reads;
     let gzip = options.gzip;
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
@@ -63,7 +63,7 @@ pub fn write_outputs(
             part,
             snp_range_parts_vec,
             &out_bam_part_dir,
-            extend_read_clipping,
+            !trim_reads,
             &hapqs,
             gzip,
         );

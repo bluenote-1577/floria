@@ -558,7 +558,7 @@ pub fn hybrid_correction(frags: Vec<Frag>) -> (Vec<Frag>, Vec<Frag>) {
         //        dbg!(cand_seq_dict, &long_frag.seq_dict);
     });
 
-    println!("Time taken error_correct {:?}", Instant::now() - start_t);
+    log::info!("Time taken error_correct {:?}", Instant::now() - start_t);
     let mut short_frags = vec![];
     for frag in frags.into_iter() {
         if frag.is_paired {

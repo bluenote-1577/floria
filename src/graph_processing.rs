@@ -100,22 +100,19 @@ fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
 }
 
 
-
 fn get_local_hap_blocks<'a>(
     all_frags: &'a Vec<Frag>,
-    epsilon: f64,
     snp_to_genome_pos: &'a Vec<GnPosition>,
-    max_number_solns: usize,
-    _block_length: usize,
     glopp_out_dir: &str,
     j: usize,
     snp_range_vec: &Vec<(SnpPosition, SnpPosition)>,
-    max_ploidy: usize,
-    stopping_heuristic: bool,
+    options: &Options
 ) -> Option<Vec<Vec<HapNode<'a>>>> {
+    let max_ploidy = options.max_ploidy;
+    let epsilon = options.epsilon;
+    let max_number_solns = options.max_number_solns;
     let ploidy_start = 1;
     let ploidy_end = max_ploidy + 1;
-    let error_rate = epsilon;
     let num_ploidies = ploidy_end - ploidy_start;
     let mut mec_vector = vec![0.; num_ploidies];
     let mut parts_vector = vec![];
@@ -195,7 +192,7 @@ fn get_local_hap_blocks<'a>(
         parts_vector.push(ind_parts);
         endpoints_vector.push(split_part_endpoints);
 
-        expected_errors_ref.push(num_alleles as f64 * error_rate);
+        expected_errors_ref.push(num_alleles as f64 * epsilon);
 
         if ploidy > ploidy_start {
             //            let mec_threshold = 1.0 / (1.0 - error_rate) / (1.0 + 1.0 / (ploidy + 1) as f64);
@@ -204,9 +201,22 @@ fn get_local_hap_blocks<'a>(
             //                &mec_vector,
             //                expected_errors_ref
             //            );
-            let mec_threshold =
-                1.0 / (1.0 - error_rate) / (1.0 + 1.0 / ((ploidy as f64).powf(0.75) + 1.32) as f64);
-            log::trace!(
+            let mec_threshold;
+            if options.ploidy_sensitivity == 1{
+                mec_threshold =
+                1.0 / (1.0 - epsilon) / (1.0 + 1.0 / ((ploidy as f64).powf(0.50) + 1.00) as f64);
+
+            }
+            else if options.ploidy_sensitivity == 2{
+                mec_threshold =
+                1.0 / (1.0 - epsilon) / (1.0 + 1.0 / ((ploidy as f64).powf(0.75) + 1.32) as f64);
+            }
+            else{
+                mec_threshold =
+                1.0 / (1.0 - epsilon) / (1.0 + 1.0 / ((ploidy as f64).powf(1.00) + 1.00) as f64);
+
+            }
+            log::debug!(
                 "Expected MEC ratio {}, observed MEC ratio {}",
                 mec_threshold,
                 mec_vector[ploidy - ploidy_start] as f64
@@ -216,20 +226,22 @@ fn get_local_hap_blocks<'a>(
                 / mec_vector[ploidy - ploidy_start - 1] as f64)
                 < mec_threshold
             {
-            } else{
-                if stopping_heuristic{
-                    log::trace!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
+                //do nothing
+            } 
+            else{
+                if options.stopping_heuristic{
+                    log::debug!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
                     best_ploidy -= 1;
                     break;
                 }
             }
             if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
-                log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
+                log::debug!("MEC error threshold, returning ploidy {}.", ploidy);
                 break;
             }
         } else {
             if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
-                log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
+                log::debug!("MEC error threshold, returning ploidy {}.", ploidy);
                 break;
             }
         }
@@ -241,7 +253,7 @@ fn get_local_hap_blocks<'a>(
 
     log::trace!("DIFF\t{}\t{}", mec_vector[0], mec_vector[1]);
 
-    log::trace!(
+    log::debug!(
         "MEC vector {:?}, error_thresh {:?}, SNPs interval  {} {}",
         &mec_vector,
         expected_errors_ref,
@@ -309,11 +321,8 @@ pub fn generate_hap_graph<'a>(
     glopp_out_dir: String,
     options: &Options,
 ) -> Vec<Vec<HapNode<'a>>> {
-    let max_number_solns = options.max_number_solns;
     let block_length = options.block_length;
     let minimal_density = options.snp_density;
-    let max_ploidy = options.max_ploidy;
-    let epsilon = options.epsilon;
 
     let iter_vec: Vec<(SnpPosition, SnpPosition)> = utils_frags::get_range_with_lengths(
         snp_to_genome_pos,
@@ -332,15 +341,11 @@ pub fn generate_hap_graph<'a>(
         .for_each(|j| {
             let block_chunk = get_local_hap_blocks(
                 all_frags,
-                epsilon,
                 snp_to_genome_pos,
-                max_number_solns,
-                block_length,
                 &glopp_out_dir,
                 j,
                 &interval_vec,
-                max_ploidy,
-                options.stopping_heuristic
+                options,
             );
             //If the ploidy is 1, we return nothing.
             if !block_chunk.is_none() {
