@@ -1,11 +1,11 @@
 use crate::alignment;
+use log::*;
 use std::ffi::{OsString};
 use std::process::Command;
 use crate::constants;
 use crate::types_structs::{
-    build_frag, Frag, Genotype, GnPosition, HapBlock, SnpPosition, VcfProfile, Options
+    build_frag, Frag, Genotype, GnPosition, SnpPosition, VcfProfile, Options
 };
-use bio_types::genome::AbstractInterval;
 use debruijn::dna_string::DnaString;
 use fxhash::{FxHashMap, FxHashSet};
 use rayon::prelude::*;
@@ -705,3 +705,70 @@ pub fn get_contigs_to_phase(bam_file: &str) -> Vec<String> {
         .collect();
 }
 
+
+pub fn l_epsilon_auto_detect(bam_file: &str) -> (usize, f64){
+    let mut main_bam = IndexedReader::from_path(bam_file).unwrap();
+    let mut count = 0;
+    let mut err_vec = vec![];
+    let mut read_lengths = vec![];
+    let stop = 1000;
+    for p in main_bam.pileup(){
+        if count % 1000 != 0{
+            count += 1;
+            continue;
+        }
+        let pileup = p.unwrap();
+        let mut most_base = 0;
+        let mut base_dict = FxHashMap::default();
+        for alignment in pileup.alignments(){
+            if !alignment.is_del() && !alignment.is_refskip(){
+
+                let rec = alignment.record();
+                let flags = rec.flags();
+                let errors_mask = 1796;
+                let secondary_mask = 256;
+                //We can only get record for primary sequences
+                if flags & errors_mask > 0 || flags & secondary_mask > 0 || rec.seq().len() == 0{
+                    continue;
+                }
+                read_lengths.push(rec.seq().len());
+
+                let readbase = rec.seq()[alignment.qpos().unwrap()];
+                *base_dict.entry(readbase).or_insert(0) += 1;
+            }
+        }
+
+        let mut total_c = 0;
+        for val in base_dict.into_values(){
+            if val > most_base{
+                most_base = val;
+            }
+            total_c += val;
+        }
+        if total_c < 5{
+            continue
+        }
+        let other_bases = total_c - most_base;
+        let err = other_bases as f64 / most_base as f64;
+        err_vec.push(err);
+        if err_vec.len() == stop{
+            break;
+        }
+        count +=1;
+    }
+    read_lengths.sort();
+    let q_33 = read_lengths[read_lengths.len() * 33 / 100];
+    let q_50 = read_lengths[read_lengths.len() * 50 / 100];
+    let q_66 = read_lengths[read_lengths.len() * 66 / 100];
+    err_vec.sort_by(|x,y| x.partial_cmp(&y).unwrap());
+    let med = err_vec[err_vec.len() * 50 /100];
+    let med66 = err_vec[err_vec.len() * 66 /100];
+    let eps_guess = err_vec.into_iter().sum::<f64>() as f64 / stop as f64;
+    //log::info!("{}-{} estimated epsilon mean (TESTING TODO)",eps_guess,eps_guess * (1.5 - eps_guess * 100. * (0.5/5.)));
+    let final_eps = f64::max(med66, 0.01);
+    let final_l = usize::max(q_66, constants::MINIMUM_BLOCK_SIZE);
+    info!("33,50,66 non-hard clipped read length percentiles: {}, {}, {}. If -l is not set, estimated -l is set to {}.", q_33, q_50, q_66, final_l);
+    info!("If -e is not set, estimated -e is set to {}.", final_eps);
+    return (final_l, final_eps);
+    //panic!();
+}

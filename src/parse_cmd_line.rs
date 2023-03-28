@@ -5,8 +5,29 @@ use log::*;
 use std::io::Write;
 use std::path::Path;
 use crate::types_structs::Options;
+use crate::file_reader;
 
 pub fn parse_cmd_line(matches : ArgMatches) -> Options{
+    // Set up our logger if the user passed the debug flag
+    if matches.is_present("trace") {
+        simple_logger::SimpleLogger::new()
+            .with_level(log::LevelFilter::Trace)
+            .init()
+            .unwrap();
+    } else if matches.is_present("debug"){
+        simple_logger::SimpleLogger::new()
+            .with_level(log::LevelFilter::Debug)
+            .init()
+            .unwrap();
+    }
+    else{
+        simple_logger::SimpleLogger::new()
+            .with_level(log::LevelFilter::Info)
+            .init()
+            .unwrap();
+    }
+
+
     let overwrite = matches.is_present("overwrite");
     //Parse command line args.
     let max_number_solns_str = matches.value_of("max_number_solns").unwrap_or("10");
@@ -30,32 +51,55 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         list_to_phase = vec![];
     }
 
-    let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
-    let block_length = block_length.parse::<usize>().unwrap();
+    let bam;
+    let bam_file = match matches.value_of("bam") {
+        None => {
+            bam = false;
+            "_"
+        }
+        Some(bam_file) => {
+            bam = true;
+            bam_file
+        }
+    };
+    let bam_file = bam_file.to_string();
+
+
+    let epsilon;
+    let block_length;
+    if !matches.is_present("epsilon") || !matches.is_present("bam_block_length"){
+        let (est_block_len, est_epsilon) = file_reader::l_epsilon_auto_detect(&bam_file);
+        if !matches.is_present("epsilon"){
+            epsilon = est_epsilon;
+        }
+        else{
+            epsilon = matches.value_of("epsilon").unwrap().parse::<f64>().unwrap();
+        }
+        if !matches.is_present("bam_block_length"){
+            block_length = est_block_len;
+        }
+        else{
+            block_length = matches.value_of("bam_block_length").unwrap().parse::<usize>().unwrap();
+        }
+    }
+    else {
+        epsilon = matches.value_of("epsilon").unwrap().parse::<f64>().unwrap();
+        block_length = matches.value_of("bam_block_length").unwrap().parse::<usize>().unwrap();
+    }
+
+//    let mut epsilon = 0.04;
+//    if hybrid{
+//        epsilon = 0.03
+//    }
+//    if matches.is_present("epsilon"){
+//        epsilon = matches.value_of("epsilon").unwrap().parse::<f64>().unwrap();
+//    }
+//    let block_length = matches.value_of("bam_block_length").unwrap_or("15000");
+//    let block_length = block_length.parse::<usize>().unwrap();
     //    let use_mec = matches.is_present("use_mec");
     let reference_fasta = matches.value_of("reference_fasta").unwrap_or("").to_string();
     let use_supp_aln = matches.is_present("use_supplementary");
     let gzip = matches.is_present("gzip-reads");
-
-    // Set up our logger if the user passed the debug flag
-    if matches.is_present("trace") {
-        simple_logger::SimpleLogger::new()
-            .with_level(log::LevelFilter::Trace)
-            .init()
-            .unwrap();
-    } else if matches.is_present("debug"){
-        simple_logger::SimpleLogger::new()
-            .with_level(log::LevelFilter::Debug)
-            .init()
-            .unwrap();
-    }
-    else{
-        simple_logger::SimpleLogger::new()
-            .with_level(log::LevelFilter::Info)
-            .init()
-            .unwrap();
-    }
-
     //If the user is splitting the bam file according to the output partition.
     let out_dir = matches
         .value_of("output dir")
@@ -89,18 +133,6 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
 
 
     //If the user is getting frag files from BAM and VCF.
-    let bam;
-    let bam_file = match matches.value_of("bam") {
-        None => {
-            bam = false;
-            "_"
-        }
-        Some(bam_file) => {
-            bam = true;
-            bam_file
-        }
-    };
-    let bam_file = bam_file.to_string();
 
     let vcf_file = matches.value_of("vcf").unwrap().to_string();
 
@@ -112,13 +144,8 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     let use_qual_scores = matches.is_present("use_qual_scores");
     let output_reads = !matches.is_present("no output reads");
     let mapq_cutoff = matches.value_of("mapq_cutoff").unwrap_or("15").parse::<u8>().unwrap();
-    let mut epsilon = 0.04;
-    if hybrid{
-        epsilon = 0.03
-    }
-    if matches.is_present("epsilon"){
-        epsilon = matches.value_of("epsilon").unwrap().parse::<f64>().unwrap();
-    }
+    
+    
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
@@ -126,7 +153,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         .unwrap();
 
     let stopping_heuristic = !matches.is_present("no stop heuristic");
-    let use_monomorphic = matches.is_present("use monomorphic");
+    let ignore_monomorphic = matches.is_present("ignore monomorphic");
     let ploidy_sensitivity = matches.value_of("ploidy sensitivity").unwrap_or("2").parse::<u8>().unwrap();
     if !(ploidy_sensitivity >= 1 && ploidy_sensitivity <= 3){
         log::error!("Ploidy sensitivty option must be between 1 and 3");
@@ -156,7 +183,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         short_bam_file,
         snp_count_filter,
         stopping_heuristic,
-        use_monomorphic,
+        ignore_monomorphic,
         num_threads,
         overwrite,
         ploidy_sensitivity

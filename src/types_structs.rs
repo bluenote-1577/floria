@@ -40,7 +40,7 @@ pub struct Options{
     pub short_bam_file: String,
     pub snp_count_filter: usize,
     pub stopping_heuristic: bool,
-    pub use_monomorphic: bool,
+    pub ignore_monomorphic: bool,
     pub num_threads: usize,
     pub overwrite: bool,
     pub ploidy_sensitivity: u8

@@ -415,7 +415,12 @@ fn write_reads(
                 } else {
                     right_read_pair = 0;
                 }
-                right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
+                if frag.seq_string[right_read_pair as usize].len() == 0{
+                    right_seq_pos =0;
+                }
+                else{
+                    right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
+                }
             } else {
                 loop {
                     if frag.snp_pos_to_seq_pos.contains_key(&tmp) {

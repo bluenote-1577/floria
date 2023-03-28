@@ -16,3 +16,4 @@ pub const WEIRD_SPLIT: bool = false;
 pub const FLOW_CUTOFF_MULT: f64 = 100.;
 pub const HAPQ_CONSTANT: f64 = 40.;
 pub const SUPPL_ALN_DIST_CUTOFF: i64 = 40000;
+pub const MINIMUM_BLOCK_SIZE: usize = 500;

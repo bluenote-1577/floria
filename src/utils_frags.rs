@@ -601,11 +601,13 @@ pub fn get_errors_cov_from_frags(
     let emptydict = FxHashMap::default();
     let mut errors = 0.;
     let mut total_support = 0.;
+    let mut snp_nonzero = FxHashSet::default();
     for pos in left_snp_pos..right_snp_pos + 1 {
         let mut snp_support = OrderedFloat(0.);
         let mut max_count_pos = OrderedFloat(0.);
         let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
         if *allele_map != emptydict {
+            snp_nonzero.insert(pos);
             for (site, count) in allele_map {
                 if *site == GAP_CHAR {
                     continue;
@@ -631,7 +633,8 @@ pub fn get_errors_cov_from_frags(
         }
         //Mean
         else {
-            cov = *snp_counter_list.iter().sum::<GenotypeCount>() / snp_counter_list.len() as f64;
+            //cov = *snp_counter_list.iter().sum::<GenotypeCount>() / snp_counter_list.len() as f64;
+            cov = *snp_counter_list.iter().sum::<GenotypeCount>() / snp_nonzero.len() as f64;
         }
     }
 

@@ -1,6 +1,5 @@
 extern crate time;
 use clap::{AppSettings, Arg, Command};
-use fxhash::FxHashMap;
 use glopp::file_reader;
 use glopp::file_writer;
 use glopp::solve_flow;
@@ -125,9 +124,9 @@ fn main() {
                               .takes_value(true)
                               .help("Skip contigs with less than --snp-count-filter SNPs (Default: 100)")
                               .help_heading(input_options))
-                          .arg(Arg::new("use monomorphic")
-                              .long("use-monomorphic") 
-                              .help("Use SNPs that have minor allele frequency less than epsilon (Default: ignore monomorphic SNPs)")
+                          .arg(Arg::new("ignore monomorphic")
+                              .long("ignore-monomorphic") 
+                              .help("Ignore SNPs that have minor allele frequency less than epsilon (Default: use monomorphic SNPs)")
                               .help_heading(input_options))
                           .arg(Arg::new("use_supplementary")
                               .short('X')
@@ -202,17 +201,21 @@ fn main() {
     }
     log::info!("Finished preprocessing in {:?}", Instant::now() - start_t);
 
+    let mut warn_first_length = true;
     for contig in contigs_to_phase.iter() {
         if !options.list_to_phase.contains(&contig.to_string()) && !options.list_to_phase.is_empty() {
             continue;
         } else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
             || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < options.snp_count_filter
         {
-            log::debug!(
-                "Contig '{}' not present or has < {} variants. Continuing (change --snp-count-filter to phase small contigs)",
-                contig,
-                options.snp_count_filter,
-            );
+            if warn_first_length{
+                log::warn!(
+                    "A contig ({}) is not present or has < {} variants. This warning will not be shown from now on. Make sure to change --snp-count-filter if you want to phase small contigs.",
+                    contig,
+                    options.snp_count_filter,
+                );
+            }
+            warn_first_length = false;
             continue;
         }
 
@@ -268,7 +271,7 @@ fn main() {
                 final_frags = all_frags;
             }
 
-            if !options.use_monomorphic{
+            if options.ignore_monomorphic{
                 final_frags = utils_frags::remove_monomorphic_allele(final_frags, options.epsilon);
             }
 
