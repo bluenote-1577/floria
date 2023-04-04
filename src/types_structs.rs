@@ -25,7 +25,7 @@ pub struct Options{
     pub output_reads: bool,
     pub mapq_cutoff: u8,
     pub epsilon: f64,
-    pub use_supp_aln: bool,
+    pub dont_use_supp_aln: bool,
     pub reassign_short: bool,
     pub do_binning: bool,
     pub max_number_solns: usize,

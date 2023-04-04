@@ -68,6 +68,7 @@ pub fn beam_search_phasing<'a>(
         let current_startpos = frag.first_position;
         for (node, block) in search_node_heap.iter() {
             let mut p_value_list = vec![];
+//            let mut same_diff_list = vec![];
             for part_index in 0..ploidy {
                 let dist;
                 let (same, diff) = utils_frags::distance_read_haplo_epsilon_empty(
@@ -84,13 +85,16 @@ pub fn beam_search_phasing<'a>(
                         div_factor,
                     );
 
+//                same_diff_list.push((same,diff));
                 p_value_list.push(dist);
             }
             let lse = utils_frags::log_sum_exp(&p_value_list);
+            //let mut num_prune = 0;
             //let p_value_list_lse : Vec<f64> = p_value_list.iter().map(|x| (x - lse).exp()).collect();
             //dbg!(p_value_list_lse);
             for j in 0..ploidy {
                 if p_value_list[j] - lse > cutoff_value {
+                //if true{
                     //score is either the PEM or MEC score. I want to play around with using the
                     //iterative sum of p-values as well.
                     let (score, new_error_vec) =
@@ -127,8 +131,14 @@ pub fn beam_search_phasing<'a>(
                             search_node_heap_next.pop();
                         }
                     }
+//                    log::trace!("read not pruned {}-{}, {:?}, {:?}, {}", i, j, &p_value_list, &same_diff_list, lse);
+                }
+                else{
+//                    num_prune += 1;
+//                    log::trace!("read pruned {}-{}, {:?}, {:?}, {}", i, j, &p_value_list, &same_diff_list, lse);
                 }
             }
+//            log::trace!("num prune {}, ploidy {}", num_prune, ploidy);
         }
 
         let _unused = mem::replace(&mut search_node_heap, search_node_heap_next);

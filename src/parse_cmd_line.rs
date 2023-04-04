@@ -98,7 +98,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
 //    let block_length = block_length.parse::<usize>().unwrap();
     //    let use_mec = matches.is_present("use_mec");
     let reference_fasta = matches.value_of("reference_fasta").unwrap_or("").to_string();
-    let use_supp_aln = matches.is_present("use_supplementary");
+    let dont_use_supp_aln = matches.is_present("dont use supplementary");
     let gzip = matches.is_present("gzip-reads");
     //If the user is splitting the bam file according to the output partition.
     let out_dir = matches
@@ -107,7 +107,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         .to_string();
     let snp_density = matches
         .value_of("snp_density")
-        .unwrap_or("0.001")
+        .unwrap_or("0.0005")
         .parse::<f64>()
         .unwrap();
 
@@ -142,7 +142,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
 
     let snp_count_filter = matches.value_of("snp_count_filter").unwrap_or("100").parse::<usize>().unwrap();
     let use_qual_scores = matches.is_present("use_qual_scores");
-    let output_reads = !matches.is_present("no output reads");
+    let output_reads = matches.is_present("output reads");
     let mapq_cutoff = matches.value_of("mapq_cutoff").unwrap_or("15").parse::<u8>().unwrap();
     
     
@@ -168,7 +168,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         output_reads,
         mapq_cutoff,
         epsilon,
-        use_supp_aln,
+        dont_use_supp_aln,
         reassign_short,
         do_binning,
         max_number_solns,

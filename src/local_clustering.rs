@@ -154,6 +154,36 @@ pub fn get_partition_stats(
     (binom_vec, freq_vec)
 }
 
+pub fn get_mec_stats_epsilon_yes_phred(
+    read_part: &Vec<FxHashSet<&Frag>>,
+    epsilon: f64,
+) -> Vec<(f64, f64)> {
+    let mut binom_vec = vec![];
+    let hap_block_no_phred = utils_frags::hap_block_from_partition(read_part, true);
+    for hap in hap_block_no_phred.blocks.iter() {
+        let mut errors = 0.;
+        let mut bases = 0.;
+        for seq_dict in hap.values() {
+            let mut allele_counts: Vec<(&Genotype, &GenotypeCount)> = seq_dict.iter().collect();
+            if allele_counts.is_empty() {
+                continue;
+            }
+            allele_counts.sort_by(|x, y| x.1.cmp(&y.1));
+            let allele_counts: Vec<&GenotypeCount> = allele_counts.iter().map(|x| x.1).collect();
+            let cons_bases = **allele_counts.last().unwrap();
+            bases += *cons_bases;
+            for i in 0..allele_counts.len() - 1 {
+                errors += allele_counts[i].into_inner();
+            }
+            if cons_bases <= OrderedFloat(1.) {
+                errors += epsilon;
+            }
+        }
+        binom_vec.push((bases, errors));
+    }
+    return binom_vec;
+}
+
 pub fn get_mec_stats_epsilon_no_phred(
     read_part: &Vec<FxHashSet<&Frag>>,
     epsilon: f64,

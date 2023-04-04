@@ -420,6 +420,10 @@ pub fn get_range_with_lengths(
             return_vec.push((left_endpoint, i));
             break;
         }
+        if *pos < last_pos{
+            log::error!("VCF malformed. Positions are not increasing {} {}", last_pos, *pos);
+            std::process::exit(1);
+        }
         cum_pos += *pos - last_pos;
         last_pos = *pos;
         if cum_pos > block_length - overlap_len && hit_new_left == false {
@@ -432,7 +436,7 @@ pub fn get_range_with_lengths(
             if snp_density > minimal_density {
                 return_vec.push((left_endpoint, i - 1));
             } else {
-                log::trace!(
+                log::debug!(
                     "Block endpoints {} - {} has density {} < min density {}",
                     left_endpoint,
                     i - 1,
@@ -634,7 +638,12 @@ pub fn get_errors_cov_from_frags(
         //Mean
         else {
             //cov = *snp_counter_list.iter().sum::<GenotypeCount>() / snp_counter_list.len() as f64;
-            cov = *snp_counter_list.iter().sum::<GenotypeCount>() / snp_nonzero.len() as f64;
+            if snp_nonzero.len() > 0{
+                cov = *snp_counter_list.iter().sum::<GenotypeCount>() / snp_nonzero.len() as f64;
+            }
+            else{
+                cov = 0.;
+            }
         }
     }
 

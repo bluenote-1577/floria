@@ -337,7 +337,7 @@ pub fn get_frags_from_bamvcf_rewrite(
 {
 
     let filter_supplementary = true;
-    let use_supplementary = options.use_supp_aln;
+    let use_supplementary = !options.dont_use_supp_aln;
     let vcf_pos_allele_map = &vcf_profile.vcf_pos_allele_map;
     let vcf_pos_to_snp_counter_map = &vcf_profile.vcf_pos_to_snp_counter_map;
     let vcf_snp_pos_to_gn_pos_map = &vcf_profile.vcf_snp_pos_to_gn_pos_map;
@@ -691,7 +691,7 @@ fn frag_from_record(
         .keys()
         .map(|x| *x)
         .collect::<FxHashSet<SnpPosition>>();
-    frag.qual_string[0] = record.qual().iter().map(|x| x + 33).collect();
+    frag.qual_string[0] = record.qual().iter().map(|x| x.checked_add(33).unwrap_or(255)).collect();
     return frag;
 }
 
@@ -718,7 +718,7 @@ pub fn l_epsilon_auto_detect(bam_file: &str) -> (usize, f64){
             continue;
         }
         let pileup = p.unwrap();
-        let mut most_base = 0;
+        let mut most_base = 0.;
         let mut base_dict = FxHashMap::default();
         for alignment in pileup.alignments(){
             if !alignment.is_del() && !alignment.is_refskip(){
@@ -734,36 +734,42 @@ pub fn l_epsilon_auto_detect(bam_file: &str) -> (usize, f64){
                 read_lengths.push(rec.seq().len());
 
                 let readbase = rec.seq()[alignment.qpos().unwrap()];
-                *base_dict.entry(readbase).or_insert(0) += 1;
+                let readbasequal= rec.qual()[alignment.qpos().unwrap()];
+                //*base_dict.entry(readbase).or_insert(0.) += 1. * (1. - 10_f32.powf((readbasequal) as f32 / -10.));
+                *base_dict.entry(readbase).or_insert(0.) += 1.;
             }
         }
 
-        let mut total_c = 0;
+        let mut total_c = 0.;
         for val in base_dict.into_values(){
             if val > most_base{
                 most_base = val;
             }
             total_c += val;
         }
-        if total_c < 5{
+        if total_c < 5.{
             continue
         }
         let other_bases = total_c - most_base;
         let err = other_bases as f64 / most_base as f64;
         err_vec.push(err);
-        if err_vec.len() == stop{
+        if err_vec.len() >= stop && read_lengths.len() > 0{
             break;
         }
         count +=1;
     }
     read_lengths.sort();
+    if read_lengths.len() == 0{
+        warn!("Parameter estimator for -l and -e failed. Assuming short-reads and returning -l 500 and -e 0.01. WARNING: If using long-reads, make sure to change this!");
+        return (500, 0.01);
+    }
     let q_33 = read_lengths[read_lengths.len() * 33 / 100];
     let q_50 = read_lengths[read_lengths.len() * 50 / 100];
     let q_66 = read_lengths[read_lengths.len() * 66 / 100];
     err_vec.sort_by(|x,y| x.partial_cmp(&y).unwrap());
-    let med = err_vec[err_vec.len() * 50 /100];
+    //let med = err_vec[err_vec.len() * 50 /100];
     let med66 = err_vec[err_vec.len() * 66 /100];
-    let eps_guess = err_vec.into_iter().sum::<f64>() as f64 / stop as f64;
+    //let eps_guess = err_vec.into_iter().sum::<f64>() as f64 / stop as f64;
     //log::info!("{}-{} estimated epsilon mean (TESTING TODO)",eps_guess,eps_guess * (1.5 - eps_guess * 100. * (0.5/5.)));
     let final_eps = f64::max(med66, 0.01);
     let final_l = usize::max(q_66, constants::MINIMUM_BLOCK_SIZE);

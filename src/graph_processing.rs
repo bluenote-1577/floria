@@ -20,7 +20,6 @@ use std::mem;
 
 fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
     //    let pseudo_count = 10.;
-    let cutoff_val = constants::MIN_SHARED_READS_UNAMBIG;
     let mut out_edges_block_hap = vec![];
     for i in 0..hap_graph.len() - 1 {
         let mut out_edges_block = vec![];
@@ -59,7 +58,7 @@ fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
             //            let _normalized_out_weights: Vec<f64> = out_weights.iter().map(|x| x / sum).collect();
             let mut out_edges_hap = vec![];
             for l in 0..hap_block2.len() {
-                if out_weights[l] > cutoff_val {
+                if out_weights[l] >= constants::MIN_SHARED_READS_UNAMBIG {
                     //                    out_edges_hap.push((l, normalized_out_weights[l]));
                     out_edges_hap.push((l, out_weights[l]));
                 }
@@ -154,6 +153,7 @@ fn get_local_hap_blocks<'a>(
             local_clustering::optimize_clustering(part, epsilon, constants::NUM_ITER_OPTIMIZE);
 
         let binom_vec = local_clustering::get_mec_stats_epsilon_no_phred(&optimized_part, epsilon);
+//        let binom_vec = local_clustering::get_mec_stats_epsilon_yes_phred(&optimized_part, epsilon);
         for (good, bad) in binom_vec {
             mec_vector[ploidy - ploidy_start] += bad;
             num_alleles += good;
@@ -208,8 +208,11 @@ fn get_local_hap_blocks<'a>(
 
             }
             else if options.ploidy_sensitivity == 2{
+//                mec_threshold =
+//                1.0 / (1.0 - epsilon) / (1.0 + 1.0 / ((ploidy as f64).powf(0.75) + 1.32) as f64);
                 mec_threshold =
-                1.0 / (1.0 - epsilon) / (1.0 + 1.0 / ((ploidy as f64).powf(0.75) + 1.32) as f64);
+                1.0 / (1.0 - epsilon) / (1.0 + 1.0 / ((ploidy as f64).powf(1.00) + 1./3.) as f64);
+
             }
             else{
                 mec_threshold =
@@ -356,7 +359,6 @@ pub fn generate_hap_graph<'a>(
 
     let block_chunks = block_chunks.into_inner().unwrap();
     let mut hap_node_blocks = process_chunks(block_chunks);
-    log::info!("Phasing done");
     if hap_node_blocks.is_empty() {
         return vec![];
     } else {
@@ -466,7 +468,8 @@ pub fn get_disjoint_paths_rewrite<'a>(
     let mut hap_petgraph = StableGraph::<(usize, usize), f64>::new();
     //Update the graph to include flows.
     for (n1_inf, n2_inf, flow) in flow_update_vec {
-        if flow < constants::FLOW_CUTOFF_MULT * options.epsilon {
+        //if flow < constants::FLOW_CUTOFF_MULT * options.epsilon {
+        if flow < constants::MIN_SHARED_READS_UNAMBIG{
             continue;
         }
         hap_graph[n1_inf.0][n1_inf.1]
