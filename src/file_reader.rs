@@ -126,9 +126,9 @@ where
     //let mut genotype_dict = FxHashMap::default();
     let header = vcf.header().clone();
 
-    if header.sample_count() > 1 {
-        panic!("More than 1 sample detected in header of vcf file; please use only 1 sample");
-    }
+//    if header.sample_count() > 1 {
+//        panic!("More than 1 sample detected in header of vcf file; please use only 1 sample");
+//    }
 
     //    if header.contig_count() > 1 {
     //        panic!("More than 1 contig detected in header of vcf file; please use only 1 contig/reference per vcf file.");
@@ -446,7 +446,7 @@ pub fn get_fasta_seqs(fasta_file: &str) -> FastaIndexedReader<std::fs::File> {
             .arg("faidx")
             .arg(fasta_file)
             .status()
-            .expect("Failed to run 'samtools index' on fasta file.");
+            .expect("Failed to run 'samtools faidx' on fasta file.");
         if !status.success() {
             log::error!("samtools faidx failed. Exiting");
             std::process::exit(1);

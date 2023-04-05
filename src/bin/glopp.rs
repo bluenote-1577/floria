@@ -144,7 +144,7 @@ fn main() {
                               .long("hybrid")
                               .takes_value(true)
                               .value_name("BAM FILE")
-                              .help("BETA MODE: use short aligned short reads from the same sample to polish long-read SNPs.")
+                              .help("UNSTABLE BETA MODE: use short aligned short reads from the same sample to polish long-read SNPs.")
                               .help_heading(input_options))
                           .arg(Arg::new("overwrite")
                               .long("overwrite")
@@ -231,7 +231,7 @@ fn main() {
 
         let start_t = Instant::now();
         //log::info!("-----{}-----", contig);
-        log::info!("Reading inputs for contig {} (BAM/VCF).", contig);
+        log::info!("Reading and realigning inputs for contig {} (BAM/VCF).", contig);
         let mut all_frags;
         all_frags = file_reader::get_frags_from_bamvcf_rewrite(
             &mut main_bam,
@@ -335,7 +335,7 @@ fn main() {
                 &sorted_path_parts,
                 &sorted_snp_endpoints,
                 contig_out_dir.to_string(),
-                &format!("all"),
+                &format!("{}",&contig),
                 &contig,
                 &snp_to_genome_pos,
                 &options,

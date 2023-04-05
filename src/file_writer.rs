@@ -35,7 +35,7 @@ pub fn write_outputs(
         fs::create_dir_all(&format!("{}/local_parts", out_bam_part_dir)).unwrap();
         fs::create_dir_all(&format!("{}/short_reads", out_bam_part_dir)).unwrap();
         fs::create_dir_all(&format!("{}/long_reads", out_bam_part_dir)).unwrap();
-        fs::create_dir_all(&format!("{}/haplotypes", out_bam_part_dir)).unwrap();
+        fs::create_dir_all(&format!("{}/vartig_info", out_bam_part_dir)).unwrap();
     }
 
     let (hapqs, rel_err) = part_block_manip::get_hapq(&part, snp_pos_to_genome_pos, snp_range_parts_vec, options);
@@ -223,7 +223,7 @@ fn write_fragset_haplotypes(
     left_snp_pos: SnpPosition,
     right_snp_pos: SnpPosition,
 ) -> Vec<u8> {
-    let filename = format!("{}/haplotypes/{}_hap.txt", dir, name);
+    let filename = format!("{}/vartig_info/{}_hap.txt", dir, name);
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
@@ -610,10 +610,10 @@ fn write_haplotypes(
     rel_err: &Vec<f64>,
     top_dir: &str,
 ) -> FxHashMap<usize, u8> {
-    let haplotig_file = format!("{}/vartigs.fa", out_bam_part_dir);
+    let vartig_file = format!("{}/{}_vartigs.txt", out_bam_part_dir,contig);
     let ploidy_file = format!("{}/ploidy_info.txt", out_bam_part_dir);
     let top_ploidy_file = format!("{}/contig_ploidy_info.txt", top_dir);
-    let mut longest_haplotig_bases = 0;
+    let mut longest_vartig_bases = 0;
 
     let mut snp_covered_count = vec![0.; snp_pos_to_genome_pos.len()];
     let mut coverage_count = vec![0.; snp_pos_to_genome_pos.len()];
@@ -624,11 +624,11 @@ fn write_haplotypes(
     let mut hapQ_scores = FxHashMap::default();
     let mut total_bases_covered = 0;
     //    let mut hapQ_scores = vec![];
-    let mut haplotig_file = OpenOptions::new()
+    let mut vartig_file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(haplotig_file)
+        .open(vartig_file)
         .unwrap();
 
     for (i, set) in part.iter().enumerate() {
@@ -647,10 +647,10 @@ fn write_haplotypes(
             let left_gn_pos = snp_pos_to_genome_pos[(left_snp_pos - 1) as usize];
             let right_gn_pos = snp_pos_to_genome_pos[(right_snp_pos - 1) as usize];
 
-            let bases_covered_haplotig = right_gn_pos - left_gn_pos;
-            total_bases_covered += bases_covered_haplotig;
-            if bases_covered_haplotig > longest_haplotig_bases {
-                longest_haplotig_bases = bases_covered_haplotig;
+            let bases_covered_vartig = right_gn_pos - left_gn_pos;
+            total_bases_covered += bases_covered_vartig ;
+            if bases_covered_vartig > longest_vartig_bases {
+                longest_vartig_bases = bases_covered_vartig;
             }
 
             let (cov, err, _total_err, _total_cov) =
@@ -672,7 +672,7 @@ fn write_haplotypes(
             hapQ_scores.insert(i, hap_q);
 
             write!(
-                haplotig_file,
+                vartig_file,
                 ">{}_HAP{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{}\tERR:{}\tHAPQ:{}\tREL_ERR:{:.2}\n",
                 out_bam_part_dir,
                 i,
@@ -696,7 +696,7 @@ fn write_haplotypes(
                 right_snp_pos,
             );
             write!(
-                haplotig_file,
+                vartig_file,
                 "{}\n",
                 std::str::from_utf8(
                     &vec_of_alleles
@@ -744,7 +744,7 @@ fn write_haplotypes(
     let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
     write!(
         ploidy_file,
-        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_haplotig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\n",
+        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_vartig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\n",
     )
     .unwrap();
 
@@ -787,7 +787,7 @@ pub fn write_all_parts_file(
     rel_err: &Vec<f64>
 ) {
     fs::create_dir_all(&out_bam_part_dir).unwrap();
-    let part_path = &format!("{}/{}_part.txt", out_bam_part_dir, prefix);
+    let part_path = &format!("{}/{}_haplosets.txt", out_bam_part_dir, prefix);
     let file = File::create(part_path).expect("Can't create file");
 
     let mut file = LineWriter::new(file);
