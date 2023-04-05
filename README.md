@@ -186,6 +186,9 @@ We found that some variant callers don't put contig headers in the VCF file. In 
 
 ### Haplotagging bams for visualization
 
+-- requires natsort
+-- requires pysam 
+
 To generate a new bam file that is tagged with the `HP:i` tag, we offer a python script called `haplotag_bam.py` in the `scripts` directory. 
 
 `python glopp/scripts/haplotag_bam.py glopp_out_dir/CONTIG/all_part.txt ORIGINAL_BAM_FILE.bam NEW_BAM_FILE.bam CONTIG`
