@@ -26,13 +26,12 @@ Alternatively, we offer a statically compiled binary for x86-64 linux if the abo
 
 #### Option 1 - compile from scratch
 
-If you're using an x86-64 architecture with avx2 instructions: 
+If you're using an **x86-64 architecture with avx2 instructions**: 
 
 ```sh
 git clone https://github.com/bluenote-1577/glopp
 cd glopp
 
-# Option 1) AVX2 instructions are available
 cargo install --path . --root ~/.cargo 
 glopp -h # binary is available in PATH
 
@@ -41,7 +40,8 @@ glopp -h # binary is available in PATH
 cargo build --release
 ./target/release/glopp -h # binary built in ./target/release instead.
 ```
-If you're using an ARM architecture with NEON instructions (e.g. Mac M1): 
+
+If you're using an **ARM architecture with NEON instructions** (e.g. Mac M1): 
 
 ```sh
 
@@ -53,7 +53,7 @@ glopp -h # binary is available in PATH
 
 #### Option 2 - precompiled static binary on **x86-64-linux**
 
-If you're using ARM then you'll have to compile. See above. 
+The static binary only for x86-64 linux with AVX2 instructions currently. 
 
 ```sh
 wget https://github.com/bluenote-1577/glopp/releases/download/latest/glopp
