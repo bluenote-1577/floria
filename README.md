@@ -7,7 +7,7 @@
 Given 
 
 1. a list of variants in .vcf format
-2. a set of reads mapped to a reference in .bam format
+2. a set of reads mapped to contigs/references in .bam format (**sorted and indexed**)
 
 **glopp** performs strain/haplotype phasing.
 
@@ -20,7 +20,7 @@ A relatively recent toolchain is needed, but no other dependencies.
 3. make 
 4. GCC 
 
-Alternatively, we offer a statically compiled binary for linux if the above requirements can't be met. 
+Alternatively, we offer a statically compiled binary for x86-64 linux if the above requirements can't be met. 
 
 ### Install
 
@@ -48,43 +48,29 @@ chmod +x glopp
 ## Using glopp
 
 ``` sh
-# long-read assuming ~10kb average length, 10% error rates
-glopp -b bamfile.bam -c vcffile.vcf -o output_dir 
 
-# short-read assuming 150x2 bp, SNP call error rate 0.5%
-glopp -b bamfile.bam -c vcffile.vcf -o output_dir -e 0.005 -l 500 
+# Options for glopp
+glopp -h
 
-# Realign reads onto reference with alternate alleles to improve accuracy
-glopp -b bamfile.bam -c vcffile.vcf -o output_dir -R reference.fa 
+# Basic minimal run -- automatic estimation of parameters, 10 threads by default
+glopp -b bamfile.bam -v vcffile.vcf -r references.fa
 
-# Realign reads and polish with long-read phasing with short reads.
-glopp -b bamfile.bam -c vcffile.vcf -o output_dir -R reference.fa -H short_read_aln.bam  
+# Phase only contigs listed in the -G option to output_dir, 30 threads
+glopp -b bamfile.bam -v vcffile.vcf -r references.fa -o output_dir -G contig_1 contig_2 contig_3 -t 30
 
-# Phase only contigs listed in the -G option
-glopp -b bamfile.bam -c vcffile.vcf -o output_dir -G contig_1 contig_2 contig_3
+# Options to filter bam using MAPQ, outputting reads, filtering contigs. See manual for more information.
+glopp -b bamfile.bam -v vcffile.vcf -r references.fa -m 60 --output-reads --snp-count-filter 1000
 
 ```
 For a quick test, we provide a VCF and BAM files in the tests folder. Run
 ```
- glopp -b tests/test_bams/pds_ploidy3.bam -c tests/test_vcfs/pds.vcf -o results
+glopp -b tests/test_long.bam -v tests/test.vcf -r tests/MN-03.fa 
 ```
-to run glopp on a 3 Mb section of a simulated 3x ploidy potato chromosome with 30x read coverage.
-
-### Standard usage
-
-The standard mode of usage is to specify an indexed bam file using the option **-b** and a vcf file using the option **-c**. The output is written to folder with value of option **-o**. 
-
-**VCF File:** glopp currently only uses SNP information and does not take into account indels. VCF file must have valid contig headers -- see the Misc section if your VCF does not have valid contig headers.
-
-**BAM File:** a **sorted and indexed** bam file. The bam file may contain multiple contigs/references which the reads are mapped to as long as the corresponding contigs also appear in the vcf file.
+to run glopp on a 100 kb section of a simulated 3-strain Klebsiella Pneumoniae sample. Look through the resulting `glopp_out_dir` folder to get a sense of glopp's output format. 
 
 ### Parameters for best performance
 
-1. **-R ref.fa** is highly recommended to mitigate reference bias, especially for erroneous long-reads.
-2. **-H short_reads_aln.bam** is highly recommended if you have short-reads available. This uses short-read polishing to improve long-read SNP calls. 
-3. If using short-reads to phase (not to polish), make sure **-e** and **-l** which denotes the error rate and initial block size are set appropriately. -e 0.005 -l 500 works decently in practice for 2x150 bp reads. 
 4. **-e** controls how sensitive your blocks are during phasing. Blocks with error rate less than **-e** with not be phased further, so haplotypes that differ less than **-e** may be combined. Use a higher value for more contiguous but less sensitive phasings, and a lower value if you want a more sensitive but broken phasings. If using hybrid correction, maybe try setting this lower to 0.02 (default is 0.04). 
-5. **-X** allows supplementary alignments to be used. Improves phasing contiguity, but be careful if using for a messy reference.
 
 ## Output
 
