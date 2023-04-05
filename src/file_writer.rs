@@ -750,7 +750,7 @@ fn write_haplotypes(
 
     write!(
         ploidy_file,
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\n",
         contig,
         avg_local_ploidy,
         avg_global_ploidy,
@@ -763,7 +763,7 @@ fn write_haplotypes(
 
    write!(
         top_ploidy_file,
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\n",
         contig,
         avg_local_ploidy,
         avg_global_ploidy,

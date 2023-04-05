@@ -707,7 +707,12 @@ pub fn get_contigs_to_phase(bam_file: &str) -> Vec<String> {
 
 
 pub fn l_epsilon_auto_detect(bam_file: &str) -> (usize, f64){
-    let mut main_bam = IndexedReader::from_path(bam_file).unwrap();
+    let main_bam_opt = IndexedReader::from_path(bam_file);
+    if main_bam_opt.is_err(){
+        error!("Error opening bam file '{}'. It is either malformed or not present.", bam_file);
+        std::process::exit(1);
+    }
+    let mut main_bam = main_bam_opt.unwrap();
     let mut count = 0;
     let mut err_vec = vec![];
     let mut read_lengths = vec![];

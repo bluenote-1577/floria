@@ -1,4 +1,5 @@
 extern crate time;
+use std::path::Path;
 use clap::{AppSettings, Arg, Command};
 use glopp::file_reader;
 use glopp::file_writer;
@@ -248,6 +249,14 @@ fn main() {
 
         if snp_to_genome_pos_map.contains_key(contig){
             let contig_out_dir = format!("{}/{}", options.out_dir, contig);
+
+            if Path::new(&contig_out_dir).exists() && options.overwrite{
+                let res = fs::remove_dir_all(&contig_out_dir);
+                if res.is_err(){
+                    log::warn!("Could not remove {} successfully. Proceeding ...", &contig_out_dir);
+                }
+            }
+
             fs::create_dir_all(&contig_out_dir).unwrap();
 
             let snp_to_genome_pos: &Vec<usize>;

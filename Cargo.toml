@@ -20,7 +20,7 @@ simple_logger="3"
 log="*"
 itertools = "*"
 highs = { version = "*", optional = true }
-block-aligner = { version = "^0.2.0", features = ["simd_avx2"] }
+block-aligner = { version = "*"}
 petgraph = "*"
 bio = "*"
 bio-types ="*"
@@ -30,9 +30,15 @@ ordered-float = "2.0"
 flate2 = "*"
 minilp = "*"
 
+[features]
+default = ["avx2"]
+avx2 = ["block-aligner/simd_avx2"]
+#TODO on release, put this in when Daniel updates the cargo repo
+#sse2 = ["block-aligner/simd_sse2"]
+neon = ["block-aligner/simd_neon"]
+
 [target.'cfg(target_env = "musl")'.dependencies]
 tikv-jemallocator = "0"
-
 
 [dev-dependencies]
 assert_cmd = "1"

@@ -16,6 +16,7 @@ pub fn realign(
         open: -2,
         extend: -1,
     };
+    let mut a = Block::<false, false>::new(2 * flank, 2 * flank , 2 * flank);
     for (snp_pos, orig_geno) in frag.seq_dict.iter_mut() {
         let snp_gn_pos = var_to_gn_pos[snp_pos] as usize;
         let snp_q_pos = frag.snp_pos_to_seq_pos[&(snp_pos)].1 as usize;
@@ -29,16 +30,19 @@ pub fn realign(
             let mut best_score = i32::MIN;
             let mut best_geno = 0;
             let q = PaddedBytes::from_bytes::<NucMatrix>(
-                &frag.seq_string[0].to_ascii_vec()[snp_q_pos - flank..snp_q_pos + flank],
+                &frag.seq_string[0].slice(snp_q_pos - flank, snp_q_pos + flank).ascii(),
                 block_size,
             );
             for i in 0..alleles.len() {
                 ref_str[flank] = alleles[i] as u8;
                 let r = PaddedBytes::from_bytes::<NucMatrix>(&ref_str, block_size);
 
+                //let a = Block::<false, false>::align(&q, &r, &NW1, gaps, block_size..=block_size, 0);
+
                 // Align with traceback, but no x drop threshold.
-                let a =
-                    Block::<_, true, false>::align(&q, &r, &NW1, gaps, block_size..=block_size, 0);
+//                let a =
+//                    Block::<false,false>::align(&q, &r, &NW1, gaps, block_size..=block_size, 0);
+                a.align(&q, &r, &NW1, gaps, block_size..=block_size, 0);
                 let res = a.res();
                 let score = res.score;
                 if score > best_score {
