@@ -209,6 +209,7 @@ pub fn process_reads_for_final_parts<'a>(
             //This didn't work well
             //            diff_part_vec.push(((diff + 1.) / (same + 1.), id));
             diff_part_vec.push(((diff + 1.), id, (same)));
+//            diff_part_vec.push(((diff + 1.)/(diff + 1. + same), id, (same)));
         }
         let best_part = diff_part_vec
             .iter()

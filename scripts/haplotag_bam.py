@@ -1,19 +1,23 @@
 import pysam
 import subprocess
 import sys
+import argparse
 
-if len(sys.argv) < 5:
-    print("usage: haplotag_bam.py contig_part.txt original_bam.bam new_haplotagged_bam_name.bam contig_name min_hapQ")
-    exit()
+parser = argparse.ArgumentParser(description='Utility script for haplotagging bam files. ')
+
+parser.add_argument("-t", "--haploset", help="the haploset file to haplotag.", type=str, required=True)
+parser.add_argument("-b", "--bam", help="bam file to haplotag.", type=str, required=True)
+parser.add_argument("-o", "--output-name", help="output name of the bam file. '.bam' is appended as a file extension. ", type=str,required=True)
+parser.add_argument("-n", "--name-contig", help="name of the contig to haplotag.", type=str, required=True)
+parser.add_argument("-q", "--min-hapq", help = "minimum HAPQ threshold for haplotagging (default = 0)", type = int, default = 0) 
+args = parser.parse_args()
 
 query_name_to_read_part = dict()
-read_part_file = sys.argv[1]
-bam_file = sys.argv[2]
-new_name = sys.argv[3]
-contig_name = sys.argv[4]
-min_hapq = 0
-if len(sys.argv) == 6:
-    min_hapq = int(sys.argv[5])
+read_part_file = args.haploset
+bam_file = args.bam
+new_name = args.output_name
+contig_name = args.name_contig
+min_hapq = args.min_hapq
 
 bam = pysam.AlignmentFile(bam_file)
 
@@ -23,9 +27,9 @@ index = 0
 hapq_good = False;
 for line in open(read_part_file,'r'):
     if '#' in line:
-        split = line.split(',');
+        split = line.split();
         index = int(split[0][1:])
-        hapq = int(split[-1].split(':')[-1])
+        hapq = int(split[-2].split(':')[-1])
         if hapq >= min_hapq:
             hapq_good = True
             read_part[index] = set()
@@ -38,8 +42,10 @@ for line in open(read_part_file,'r'):
             query_name_to_read_part[qname] = index
 
 
-new_bam_name = new_name
+new_bam_name = new_name + '.bam'
 new_bam_file = pysam.AlignmentFile(new_bam_name, "wb", template=bam)
+
+print(f"Tagging {bam_file} and outputting new bam to {new_name}.bam ...")
 
 for b in bam.fetch(until_eof=True,contig=contig_name):
     not_frag = True;
@@ -58,3 +64,7 @@ for b in bam.fetch(until_eof=True,contig=contig_name):
             new_bam_file.write(b)
 
 bam.close()
+
+print(f"Done! HP:i tags are now added to {new_name}.bam. Remember to run 'samtools index {new_name}.bam' if you want to visualize {new_name}.bam in the IGV.")
+#cmd = f"samtools index {new_name}.bam"
+#stream = subprocess.Popen(cmd, shell = True)

@@ -610,7 +610,7 @@ fn write_haplotypes(
     rel_err: &Vec<f64>,
     top_dir: &str,
 ) -> FxHashMap<usize, u8> {
-    let haplotig_file = format!("{}/haplotigs.fa", out_bam_part_dir);
+    let haplotig_file = format!("{}/vartigs.fa", out_bam_part_dir);
     let ploidy_file = format!("{}/ploidy_info.txt", out_bam_part_dir);
     let top_ploidy_file = format!("{}/contig_ploidy_info.txt", top_dir);
     let mut longest_haplotig_bases = 0;
