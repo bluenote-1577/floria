@@ -3,7 +3,7 @@ import subprocess
 import sys
 import argparse
 
-parser = argparse.ArgumentParser(description='Utility script for haplotagging bam files. ')
+parser = argparse.ArgumentParser(description='Generate a new bam file with haplotagging information for a single contig. ')
 
 parser.add_argument("-t", "--haploset", help="the haploset file to haplotag.", type=str, required=True)
 parser.add_argument("-b", "--bam", help="bam file to haplotag.", type=str, required=True)
@@ -64,7 +64,11 @@ for b in bam.fetch(until_eof=True,contig=contig_name):
             new_bam_file.write(b)
 
 bam.close()
+new_bam_file.close()
 
-print(f"Done! HP:i tags are now added to {new_name}.bam. Remember to run 'samtools index {new_name}.bam' if you want to visualize {new_name}.bam in the IGV.")
+print(f"Indexing {new_bam_name} ...")
+pysam.index(new_bam_name)
+
+print(f"Done! HP:i tags are now added to {new_name}.bam")
 #cmd = f"samtools index {new_name}.bam"
 #stream = subprocess.Popen(cmd, shell = True)
