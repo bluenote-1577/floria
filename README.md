@@ -74,8 +74,9 @@ glopp -b bamfile.bam -v vcffile.vcf -r references.fa
 # Phase only contigs listed in the -G option to output_dir, 30 threads
 glopp -b bamfile.bam -v vcffile.vcf -r references.fa -o output_dir -G contig_1 contig_2 contig_3 -t 30
 
-# Options to filter bam using MAPQ, outputting reads, filtering contigs. See manual for more information.
-glopp -b bamfile.bam -v vcffile.vcf -r references.fa -m 60 --output-reads --snp-count-filter 1000
+# Options to filter bam using MAPQ, outputting reads, filtering contigs, supplementary alignments
+# See manual for more information.
+glopp -b bamfile.bam -v vcffile.vcf -r references.fa -m 60 --output-reads --snp-count-filter 1000 -X
 
 ```
 For a quick test, we provide a VCF and BAM files in the tests folder. Run
