@@ -166,7 +166,7 @@ snp_#2:genome_position     (consensus allele #: 0/1/2...)    (allele #1):(suppor
 
 ### Read output ``results/contig/*_reads/``
 
-The reads in each haplotig can be found in either the `long_reads` or `short_reads` folder, depending on which type of read is used. Note that fastq files in these folders are trimmed to lie within an interval and thus differ from the original reads. This is done so that all reads in a haplotig fall within an interval on the genome and do not extend past the interval. 
+The reads in each haplotig can be found in either the `long_reads` or `short_reads` folder, depending on which type of read is used. 
 
 ### Debugging
 
