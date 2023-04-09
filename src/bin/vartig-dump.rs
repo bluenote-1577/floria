@@ -3,22 +3,21 @@ use clap::{App, AppSettings, Arg};
 use glopp::file_reader;
 use glopp::file_writer;
 use glopp::types_structs::*;
-use std::time::Instant;
 
 fn main() {
     let matches = App::new("vartig-dump")
                           .version("0.1.0")
                           .setting(AppSettings::ArgRequiredElseHelp)
-                          .about("Turn VCF + BAM -> Fragment files. Output can be used to debug or to input into other haplotype phasing algorithms.\n\nExample usage : frag-dump -b bamfile.bam -v vcffile.vcf -o output.txt") 
+                          .about("Turn VCF + BAM -> Vartig. Can be used to take a whole genome alignment of a particular strain against a reference strain and turn it into a vartig.\n\nExample usage : vartig-dump -b bamfile.bam -v vcffile.vcf") 
                           .arg(Arg::with_name("bam")
                               .short('b')
                               .value_name("BAMFILE")
-                               .help("Input a bam file.")
+                               .help("Input a bam file. All alignments will be grouped together to form one vartig.")
                                 .takes_value(true)
                                 .required(true))
                           .arg(Arg::with_name("vcf")
                                .short('v')
-                               .help("Input a VCF : Mandatory if using BAM file; Enables genotype polishing if using frag file.")
+                               .help("Input a VCF.")
                                .value_name("VCFFILE")
                                .takes_value(true)
                                .required(true))
