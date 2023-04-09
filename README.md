@@ -85,23 +85,21 @@ glopp -b tests/test_long.bam -v tests/test.vcf -r tests/MN-03.fa
 ```
 to run glopp on a 100 kb section of a simulated 3-strain Klebsiella Pneumoniae sample. Look through the resulting `glopp_out_dir` folder to get a sense of glopp's output format. 
 
-### Parameters for best performance
-
-4. **-e** controls how sensitive your blocks are during phasing. Blocks with error rate less than **-e** with not be phased further, so haplotypes that differ less than **-e** may be combined. Use a higher value for more contiguous but less sensitive phasings, and a lower value if you want a more sensitive but broken phasings. If using hybrid correction, maybe try setting this lower to 0.02 (default is 0.04). 
-
 ## Output
 
 ```
 results
+|   contig_ploidy_info.txt
+|   cmd.log
 │      
 └───contig1_in_bam
-│   │   all_part.txt
+│   │   contig1_haplosets.txt
+|   |   contig1_vartigs.txt
 │   │   pet_graph.dot
-|   |   (other debug files)
+|   |   
 │   │
-│   └───haplotypes
+│   └───vartig_info
 │   |   │   0_hap.txt
-│   |   │   1_hap.txt
 │   |   │   ...
 |   |
 │   └───long_reads
@@ -117,25 +115,30 @@ results
     │   ...
     │   ...
 ```
-glopp outputs a set of **haplotigs**. We define a haplotig to be a set of reads that belong to the same strain. The collection of all haplotigs is found in the `results/contig1/all_part.txt` file. 
+glopp outputs a set of **vartigs** and **haplosets**. We define a *haploset* to be a set of reads that belong to the same strain. A *vartig* is the sequence of variants associated to a haploset obtained by choosing the consensus allele at each variant position. 
 
-The following information is output for each haplotig:
+* The vartigs for a contig are output in `results/contig1/contig1_vartigs.txt`. 
+* The haplosets for a contig are output in `results/contig1/contig1_haplosets.txt`.
 
-1. a **haplotype** which is the sequence of SNPs on each haplotig in the `haplotypes` folder. 
-2. trimmed long-reads (if using long-reads) corresponding to each haplotig are found in the `long_reads` folder. 
-3. trimmed short-reads (if using short-reads) corresponding to each haplotig are found in the `short_reads` folder. 
-
-### Haplotigs ``results/contig/all_part.txt`` 
-
-Each haplotig corresponds to a cluster of reads and is presented in the following format:
+### Haploset file format ``results/contig/contig_haplosets.txt`` 
 
 ```
-#0,(coverage for haplotig 0),(error_rate for haplotig 0) 
-(read_name1) (first SNP position covered) 
-(read_name2) (first SNP position covered)
+>out_dir/contig_HAP0   SNPRANGE:1-6    BASERANGE:772-5000    COV:49.371  ERR:0.075   HAPQ:47   REL_ERR:1.35
+read_name1  first_snp_covered   last_snp_covered
+read_name2  first_snp_covered   last_snp_covered
 ...
-#1,(coverage for haplotig 1),(error_rate for haplotig 1)
-...
+>out_dir/contig_HAP1   SNPRANGE:7-11    BASERANGE:5055-6500    COV:25.012  ERR:0.050   HAPQ:15   REL_ERR:1.11
+read_name6
+read_name7
+```
+
+### Vartig file format ``results/contig/contig_vartig.txt`` 
+
+```
+>out_dir/contig_HAP0   SNPRANGE:1-6    BASERANGE:772-5000    COV:49.371  ERR:0.075   HAPQ:47   REL_ERR:1.35
+111111
+>out_dir/contig_HAP1   SNPRANGE:7-11    BASERANGE:5055-6500    COV:25.012  ERR:0.050   HAPQ:15   REL_ERR:1.11
+01111
 ```
 
 ### Haplotype output ``results/contig/haplotypes/``
