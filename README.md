@@ -119,6 +119,7 @@ glopp outputs a set of **vartigs** and **haplosets**. We define a *haploset* to 
 
 * The vartigs for a contig are output in `results/contig1/contig1_vartigs.txt`. 
 * The haplosets for a contig are output in `results/contig1/contig1_haplosets.txt`.
+* A file indicating the estimated ploidy of the contig is output in `results/contig_info_ploidy.txt`. This gives a rough estmiate of how many strains are present, as detected by glopp. 
 
 ### Haploset file format ``results/contig/contig_haplosets.txt`` 
 
