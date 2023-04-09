@@ -1,22 +1,22 @@
+use crate::constants;
+use crate::part_block_manip;
 use crate::types_structs::*;
-use std::collections::BTreeMap;
-use std::path::Path;
-use fxhash::{FxHashMap, FxHashSet};
+use crate::utils_frags;
+use bio::alphabets::dna::revcomp;
+use bio::io::fastq;
+use bio::io::fastq::Writer;
+use debruijn::*;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use fxhash::{FxHashMap, FxHashSet};
+use std::collections::BTreeMap;
 use std::fs;
+use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::LineWriter;
 use std::io::Write;
-use crate::constants;
-use debruijn::*;
-use bio::io::fastq;
-use bio::io::fastq::Writer;
-use crate::utils_frags;
+use std::path::Path;
 use std::time::Instant;
-use std::fs::File;
-use crate::part_block_manip;
-use bio::alphabets::dna::revcomp;
 
 pub fn write_outputs(
     part: &Vec<FxHashSet<&Frag>>,
@@ -27,7 +27,7 @@ pub fn write_outputs(
     snp_pos_to_genome_pos: &Vec<usize>,
     options: &Options,
 ) {
-    let trim_reads= options.trim_reads;
+    let trim_reads = options.trim_reads;
     let gzip = options.gzip;
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
@@ -38,7 +38,8 @@ pub fn write_outputs(
         fs::create_dir_all(&format!("{}/vartig_info", out_bam_part_dir)).unwrap();
     }
 
-    let (hapqs, rel_err) = part_block_manip::get_hapq(&part, snp_pos_to_genome_pos, snp_range_parts_vec, options);
+    let (hapqs, rel_err) =
+        part_block_manip::get_hapq(&part, snp_pos_to_genome_pos, snp_range_parts_vec, options);
     write_haplotypes(
         part,
         contig,
@@ -51,14 +52,15 @@ pub fn write_outputs(
     );
     write_all_parts_file(
         part,
+        contig,
         snp_range_parts_vec,
         &out_bam_part_dir,
         prefix,
         snp_pos_to_genome_pos,
         &hapqs,
-        &rel_err
+        &rel_err,
     );
-    if options.output_reads{
+    if options.output_reads {
         write_reads(
             part,
             snp_range_parts_vec,
@@ -233,7 +235,7 @@ fn write_fragset_haplotypes(
 
     let hap_map = utils_frags::set_to_seq_dict(&frags, false);
     let emptydict = FxHashMap::default();
-    let title_string = format!(">{},{},{}\n", name, left_snp_pos, right_snp_pos);
+    let title_string = format!(">HAP_{}_{}\tSNPRANGE:{}-{}\n", name, dir, left_snp_pos, right_snp_pos);
     write!(file, "{}", title_string).unwrap();
     let positions: Vec<&SnpPosition> = hap_map.keys().collect();
     if positions.len() == 0 {
@@ -253,9 +255,9 @@ fn write_fragset_haplotypes(
             .unwrap();
         }
         let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
-        //If a block has no coverage at a position, we write -1.
+        //If a block has no coverage at a position, we write ?.
         if *allele_map == emptydict {
-            file.write_all(b"-1\t").unwrap();
+            file.write_all(b"?\t").unwrap();
             //This prints ?
             vec_of_alleles.push(15);
         } else {
@@ -308,7 +310,7 @@ fn write_reads(
         let mut vec_part: Vec<&Frag> = set.into_iter().cloned().collect();
         vec_part.sort();
         //Non-empty means that we're writing the final partition after path collection
-        let gz =  if gzip {".gz"} else {""};
+        let gz = if gzip { ".gz" } else { "" };
         let part_fastq_reads = format!("{}/long_reads/{}_part.fastq{}", out_bam_part_dir, i, gz);
         let part_fastq_reads_paired1 = format!(
             "{}/short_reads/{}_part_paired1.fastq{}",
@@ -327,17 +329,20 @@ fn write_reads(
         let mut fastq_writer_paired2;
 
         if gzip {
-            let gz_encoder : Box<dyn Write> = Box::new(GzEncoder::new(fastq_file, Compression::default()));
-            let gz_encoder1 : Box<dyn Write> = Box::new(GzEncoder::new(fastq_file1, Compression::default()));
-            let gz_encoder2 : Box<dyn Write> = Box::new(GzEncoder::new(fastq_file2, Compression::default()));
+            let gz_encoder: Box<dyn Write> =
+                Box::new(GzEncoder::new(fastq_file, Compression::default()));
+            let gz_encoder1: Box<dyn Write> =
+                Box::new(GzEncoder::new(fastq_file1, Compression::default()));
+            let gz_encoder2: Box<dyn Write> =
+                Box::new(GzEncoder::new(fastq_file2, Compression::default()));
 
             fastq_writer = fastq::Writer::new(gz_encoder);
             fastq_writer_paired1 = fastq::Writer::new(gz_encoder1);
             fastq_writer_paired2 = fastq::Writer::new(gz_encoder2);
         } else {
-            let enc : Box<dyn Write> = Box::new(fastq_file);
-            let enc1 : Box<dyn Write> = Box::new(fastq_file1);
-            let enc2 : Box<dyn Write> = Box::new(fastq_file2);
+            let enc: Box<dyn Write> = Box::new(fastq_file);
+            let enc1: Box<dyn Write> = Box::new(fastq_file1);
+            let enc2: Box<dyn Write> = Box::new(fastq_file2);
             fastq_writer = fastq::Writer::new(enc);
             fastq_writer_paired1 = fastq::Writer::new(enc1);
             fastq_writer_paired2 = fastq::Writer::new(enc2);
@@ -415,10 +420,9 @@ fn write_reads(
                 } else {
                     right_read_pair = 0;
                 }
-                if frag.seq_string[right_read_pair as usize].len() == 0{
-                    right_seq_pos =0;
-                }
-                else{
+                if frag.seq_string[right_read_pair as usize].len() == 0 {
+                    right_seq_pos = 0;
+                } else {
                     right_seq_pos = frag.seq_string[right_read_pair as usize].len() - 1;
                 }
             } else {
@@ -598,7 +602,6 @@ pub fn write_frags_file(frags: Vec<Frag>, filename: String) {
     }
 }
 
-
 #[allow(non_snake_case)]
 fn write_haplotypes(
     part: &Vec<FxHashSet<&Frag>>,
@@ -610,7 +613,7 @@ fn write_haplotypes(
     rel_err: &Vec<f64>,
     top_dir: &str,
 ) -> FxHashMap<usize, u8> {
-    let vartig_file = format!("{}/{}_vartigs.txt", out_bam_part_dir,contig);
+    let vartig_file = format!("{}/{}_vartigs.txt", out_bam_part_dir, contig);
     let ploidy_file = format!("{}/ploidy_info.txt", out_bam_part_dir);
     let top_ploidy_file = format!("{}/contig_ploidy_info.txt", top_dir);
     let mut longest_vartig_bases = 0;
@@ -637,7 +640,6 @@ fn write_haplotypes(
         }
 
         if !snp_range_parts_vec.is_empty() {
-
             let left_snp_pos = snp_range_parts_vec[i].0;
             let right_snp_pos = snp_range_parts_vec[i].1;
             if left_snp_pos > right_snp_pos {
@@ -648,7 +650,7 @@ fn write_haplotypes(
             let right_gn_pos = snp_pos_to_genome_pos[(right_snp_pos - 1) as usize];
 
             let bases_covered_vartig = right_gn_pos - left_gn_pos;
-            total_bases_covered += bases_covered_vartig ;
+            total_bases_covered += bases_covered_vartig;
             if bases_covered_vartig > longest_vartig_bases {
                 longest_vartig_bases = bases_covered_vartig;
             }
@@ -662,7 +664,7 @@ fn write_haplotypes(
                 snp_covered_count[(i - 1) as usize] += 1.;
                 coverage_count[(i - 1) as usize] += cov
             }
-            if hap_q > 0{
+            if hap_q > 0 {
                 for i in left_snp_pos..right_snp_pos + 1 {
                     snp_covered_count_g0[(i - 1) as usize] += 1.;
                     coverage_count_g0[(i - 1) as usize] += cov
@@ -673,9 +675,10 @@ fn write_haplotypes(
 
             write!(
                 vartig_file,
-                ">{}_HAP{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{}\tERR:{}\tHAPQ:{}\tREL_ERR:{:.2}\n",
-                out_bam_part_dir,
+                ">HAP_{}_{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{}\tERR:{}\tHAPQ:{}\tREL_ERR:{:.2}\n",
                 i,
+                out_bam_part_dir,
+                contig,
                 left_snp_pos,
                 right_snp_pos,
                 left_gn_pos + 1,
@@ -739,8 +742,9 @@ fn write_haplotypes(
     let avg_local_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
     let avg_local_ploidy_g0 = snp_covered_count_g0.iter().sum::<f64>() / num_nonzero_g0 as f64;
     let avg_global_ploidy = snp_covered_count.iter().sum::<f64>() / snp_covered_count.len() as f64;
-    let avg_global_ploidy_g0 = snp_covered_count_g0.iter().sum::<f64>() / snp_covered_count_g0.len() as f64;
-    //let avg_global_ploidy = total_bases_covered / 
+    let avg_global_ploidy_g0 =
+        snp_covered_count_g0.iter().sum::<f64>() / snp_covered_count_g0.len() as f64;
+    //let avg_global_ploidy = total_bases_covered /
     let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
     write!(
         ploidy_file,
@@ -761,7 +765,7 @@ fn write_haplotypes(
     )
     .unwrap();
 
-   write!(
+    write!(
         top_ploidy_file,
         "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\n",
         contig,
@@ -779,12 +783,13 @@ fn write_haplotypes(
 
 pub fn write_all_parts_file(
     part: &Vec<FxHashSet<&Frag>>,
+    contig: &str,
     snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     out_bam_part_dir: &String,
     prefix: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
     hapqs: &Vec<u8>,
-    rel_err: &Vec<f64>
+    rel_err: &Vec<f64>,
 ) {
     fs::create_dir_all(&out_bam_part_dir).unwrap();
     let part_path = &format!("{}/{}_haplosets.txt", out_bam_part_dir, prefix);
@@ -811,9 +816,11 @@ pub fn write_all_parts_file(
                 utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
             write!(
                 file,
-                "#{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{}\tERR:{}\tHAPQ:{}\tREL_ERR:{:.2}\n",
+                ">HAP_{}_{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{}\tERR:{}\tHAPQ:{}\tREL_ERR:{:.2}\n",
                 //1-indexed snp poses are output... this is annoying
                 i,
+                out_bam_part_dir,
+                contig,
                 left_snp_pos,
                 right_snp_pos,
                 snp_pos_to_genome_pos[(left_snp_pos - 1) as usize] + 1,
@@ -884,4 +891,52 @@ fn convert_dict_to_block(frag: Frag) -> (Vec<SnpPosition>, Vec<Vec<Genotype>>, V
 
     blocks.push(block);
     (block_start_pos, blocks, qual_block)
+}
+
+pub fn write_alignment_as_vartig(
+    frags: &Vec<Frag>,
+    in_file: &str,
+    contig: &str,
+    snp_pos_to_genome_pos: &Vec<GnPosition>,
+    left_snp_pos: SnpPosition,
+    right_snp_pos: SnpPosition,
+    out: &str
+) {
+    let set_frag = frags.iter().collect();
+    let hap_map = utils_frags::set_to_seq_dict(&set_frag, false);
+    let emptydict = FxHashMap::default();
+    let mut vec_of_alleles = vec![];
+    let rightmost_base = snp_pos_to_genome_pos[(right_snp_pos-1) as usize];
+    let leftmost_base = snp_pos_to_genome_pos[(left_snp_pos-1) as usize];
+    for pos in left_snp_pos..right_snp_pos + 1 {
+        let allele_map = hap_map.get(&pos).unwrap_or(&emptydict);
+        if *allele_map == emptydict {
+            //This prints ?
+            vec_of_alleles.push(15);
+        } else {
+            let best_allele = allele_map.iter().max_by_key(|entry| entry.1).unwrap().0;
+            vec_of_alleles.push(*best_allele as u8);
+        }
+    }
+    let hap_header = format!(">HAP_{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\n", in_file, contig, left_snp_pos, right_snp_pos,  leftmost_base, rightmost_base);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(out)
+        .unwrap();
+    write!(file, "{}", hap_header).unwrap();
+    write!(
+        file,
+        "{}\n",
+        std::str::from_utf8(
+            &vec_of_alleles
+                .into_iter()
+                .map(|x| x + 48)
+                .collect::<Vec<u8>>()
+        )
+        .unwrap()
+    )
+    .unwrap();
+
 }

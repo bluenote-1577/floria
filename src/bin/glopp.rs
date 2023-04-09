@@ -188,6 +188,13 @@ fn main() {
                               .value_name("INT")
                               .help("Primary MAPQ cutoff. (default: 15)")
                               .help_heading(alg_options))
+                            .arg(Arg::new("supp_aln_dist_cutoff")
+                              .long("supp-aln-dist-cutoff")
+                              .takes_value(true)
+                              .value_name("INT")
+                              .help("Maximum allowed distance between supp. alignments. (default: 40000)")
+                              .help_heading(alg_options))
+
                           .get_matches();
 
     let options = parse_cmd_line::parse_cmd_line(matches);

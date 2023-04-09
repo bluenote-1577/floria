@@ -1,4 +1,5 @@
 use ordered_float::*;
+use derivative::Derivative;
 use debruijn::dna_string::DnaString;
 use crate::utils_frags;
 use fxhash::{FxHashMap, FxHashSet};
@@ -16,7 +17,8 @@ pub static GAP_CHAR: Genotype = 9;
 
 pub type FlowUpVec = Vec<((usize, usize), (usize, usize), f64)>;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone, Derivative)]
+#[derivative(Default)]
 pub struct Options{
     pub bam_file: String,
     pub vcf_file: String,
@@ -43,7 +45,9 @@ pub struct Options{
     pub ignore_monomorphic: bool,
     pub num_threads: usize,
     pub overwrite: bool,
-    pub ploidy_sensitivity: u8
+    pub ploidy_sensitivity: u8,
+    #[derivative(Default(value="40000"))]
+    pub supp_aln_dist_cutoff: i64
 }
 
 #[derive(Debug, Clone, Default)]

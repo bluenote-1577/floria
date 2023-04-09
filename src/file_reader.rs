@@ -425,6 +425,7 @@ pub fn get_frags_from_bamvcf_rewrite(
         ref_id_to_frag_map.into_inner().unwrap(),
         &vcf_profile,
         contig,
+        options,
     );
 
     //    for frag in ref_vec_frags.iter(){
@@ -466,6 +467,7 @@ fn combine_frags(
     id_to_frag_map: FxHashMap<Vec<u8>, Vec<(u16, Frag)>>,
     vcf_profile: &VcfProfile,
     contig: &str,
+    options: &Options
 ) -> Vec<Frag> {
     let first_in_pair_mask = 64;
     let second_in_pair_mask = 128;
@@ -535,7 +537,7 @@ fn combine_frags(
             ref_frags.push(std::mem::take(&mut frags[0].1));
         } else {
             //Arbitrary cutoff for reference suppl. alignment distance
-            let supp_aln_dist_cutoff = constants::SUPPL_ALN_DIST_CUTOFF;
+            let supp_aln_dist_cutoff = options.supp_aln_dist_cutoff;
             //2 or more fragments and no paired indicates a long supplementary alignment.
             for frag in frags.iter() {
                 //                dbg!(

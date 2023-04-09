@@ -287,6 +287,7 @@ fn get_local_hap_blocks<'a>(
 
         file_writer::write_all_parts_file(
             &frag_best_part,
+            "",
             &vec![],
             &local_part_dir,
             &format!("{}-{}-{}-{}", j, l, snp_range_vec[j].0, best_ploidy),

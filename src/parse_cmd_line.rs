@@ -31,6 +31,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     let overwrite = matches.is_present("overwrite");
     //Parse command line args.
     let max_number_solns_str = matches.value_of("max_number_solns").unwrap_or("10");
+    let supp_aln_dist_cutoff = matches.value_of("supp_aln_dist_cutoff").unwrap_or("40000").parse::<i64>().unwrap();
     let max_number_solns = max_number_solns_str.parse::<usize>().unwrap();
     let num_t_str = matches.value_of("threads").unwrap_or("10");
     let num_threads = match num_t_str.parse::<usize>() {
@@ -186,7 +187,8 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
         ignore_monomorphic,
         num_threads,
         overwrite,
-        ploidy_sensitivity
+        ploidy_sensitivity,
+        supp_aln_dist_cutoff
     };
     opt
 }
