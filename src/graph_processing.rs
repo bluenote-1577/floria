@@ -1,5 +1,4 @@
 use crate::constants;
-use crate::file_reader;
 use crate::file_writer;
 use crate::global_clustering;
 use crate::local_clustering;
@@ -102,7 +101,7 @@ fn update_hap_graph(hap_graph: &mut Vec<Vec<HapNode>>) {
 fn get_local_hap_blocks<'a>(
     all_frags: &'a Vec<Frag>,
     snp_to_genome_pos: &'a Vec<GnPosition>,
-    glopp_out_dir: &str,
+    floria_out_dir: &str,
     j: usize,
     snp_range_vec: &Vec<(SnpPosition, SnpPosition)>,
     options: &Options
@@ -266,7 +265,7 @@ fn get_local_hap_blocks<'a>(
 
     let best_parts = mem::take(&mut parts_vector[best_ploidy - ploidy_start]);
     let best_endpoints = mem::take(&mut endpoints_vector[best_ploidy - ploidy_start]);
-    let local_part_dir = format!("{}/local_parts/", glopp_out_dir);
+    let local_part_dir = format!("{}/local_parts/", floria_out_dir);
     let mut hap_node_blocks = vec![];
     //    if best_ploidy == 1{
     //        return None;
@@ -322,7 +321,7 @@ fn process_chunks(mut chunks: Vec<(usize, Vec<Vec<HapNode>>)>) -> Vec<Vec<HapNod
 pub fn generate_hap_graph<'a>(
     all_frags: &'a Vec<Frag>,
     snp_to_genome_pos: &'a Vec<usize>,
-    glopp_out_dir: String,
+    floria_out_dir: String,
     options: &Options,
 ) -> Vec<Vec<HapNode<'a>>> {
     let block_length = options.block_length;
@@ -346,7 +345,7 @@ pub fn generate_hap_graph<'a>(
             let block_chunk = get_local_hap_blocks(
                 all_frags,
                 snp_to_genome_pos,
-                &glopp_out_dir,
+                &floria_out_dir,
                 j,
                 &interval_vec,
                 options,
@@ -459,7 +458,7 @@ fn merge_split_parts(
 pub fn get_disjoint_paths_rewrite<'a>(
     hap_graph: &'a mut Vec<Vec<HapNode>>,
     flow_update_vec: FlowUpVec,
-    glopp_out_dir: String,
+    floria_out_dir: String,
     vcf_profile: &VcfProfile,
     contig: &str,
     options: &Options,
@@ -534,7 +533,7 @@ pub fn get_disjoint_paths_rewrite<'a>(
     }
 
     let mut pet_graph_file =
-        File::create(format!("{}/pet_graph.dot", glopp_out_dir)).expect("Can't create file");
+        File::create(format!("{}/pet_graph.dot", floria_out_dir)).expect("Can't create file");
     write!(pet_graph_file, "{:?}", Dot::new(&hap_petgraph)).unwrap();
     let mut iter_count = 0;
     let mut all_joined_path_parts = vec![];

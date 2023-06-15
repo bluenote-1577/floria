@@ -1,13 +1,13 @@
 extern crate time;
 use std::path::Path;
 use clap::{AppSettings, Arg, Command};
-use glopp::file_reader;
-use glopp::file_writer;
-use glopp::solve_flow;
-use glopp::parse_cmd_line;
-use glopp::graph_processing;
-use glopp::part_block_manip;
-use glopp::utils_frags;
+use floria::file_reader;
+use floria::file_writer;
+use floria::solve_flow;
+use floria::parse_cmd_line;
+use floria::graph_processing;
+use floria::part_block_manip;
+use floria::utils_frags;
 use std::fs;
 use std::time::Instant;
 
@@ -23,10 +23,10 @@ fn main() {
     let output_options = "OUTPUT";
     let alg_options = "ALGORITHM";
     let mandatory_options = "REQUIRED";
-    let matches = Command::new("glopp")
+    let matches = Command::new("floria")
                           .version("0.0.1")
                           .setting(AppSettings::ArgRequiredElseHelp)
-                          .about("glopp - polyploid phasing from read sequencing.\n\nExample usage :\nglopp -b bamfile.bam -c vcffile.vcf -o results \n")
+                          .about("floria - polyploid phasing from read sequencing.\n\nExample usage :\nfloria -b bamfile.bam -c vcffile.vcf -o results \n")
                           .arg(Arg::new("bam")
                               .short('b')
                               .value_name("BAM FILE")
@@ -64,7 +64,7 @@ fn main() {
                           .arg(Arg::new("output dir")
                               .short('o')
                               .long("output-dir")
-                              .help("Output folder. (default: glopp_out_dir)")
+                              .help("Output folder. (default: floria_out_dir)")
                               .value_name("STRING")
                               .takes_value(true)
                               .help_heading(output_options))
@@ -170,8 +170,8 @@ fn main() {
                               .hidden(true)
                               .display_order(2))
                           .arg(Arg::new("trim")
-                              .long("trim-reads")
-                              .help("Trim output long-reads to lie within the haplotype block the read is assigned to.")
+                              .long("extra-trimming")
+                              .help("Trim the reads extra carefully against the reference genome. May cause more fragmented but accurate assemblies.")
                               .help_heading(output_options))
                           .arg(Arg::new("list_to_phase")
                               .short('G')
@@ -208,10 +208,14 @@ fn main() {
     log::debug!("Read BAM file successfully.");
 
     let mut chrom_seqs = None;
-    let snp_to_genome_pos_t =
-        file_reader::get_genotypes_from_vcf_hts(options.vcf_file.clone());
-    let snp_to_genome_pos_map = snp_to_genome_pos_t;
+    //I have two instances of data structures that go from snp positions to genome positions, for
+    //some reason. This is bad. snp_to_genome_pos_map and also another map in vcf_profile. TODO fix
+    //this. Also, snp_to_genome_pos_map requires a -1 to get the index correct...
+    //
+    //
+    //let snp_to_genome_pos_map = file_reader::get_genotypes_from_vcf_hts(options.vcf_file.clone());
     let vcf_profile = file_reader::get_vcf_profile(&options.vcf_file, &contigs_to_phase);
+    let snp_to_genome_pos_map = file_reader::get_genotypes_from_vcf_hts(options.vcf_file.clone());
     log::debug!("Read VCF successfully.");
     if options.reference_fasta != "" {
         chrom_seqs = Some(file_reader::get_fasta_seqs(&options.reference_fasta));
@@ -228,7 +232,7 @@ fn main() {
         {
             if warn_first_length{
                 log::warn!(
-                    "A contig ({}) is not present or has < {} variants. This warning will not be shown from now on. Make sure to change --snp-count-filter if you want to phase small contigs.",
+                    "A contig ({}) is not present has < {} variants. This warning will not be shown from now on. Make sure to change --snp-count-filter if you want to phase small contigs.",
                     contig,
                     options.snp_count_filter,
                 );

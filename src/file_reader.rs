@@ -165,8 +165,7 @@ where
         let positions_vec = map_positions_vec
             .entry(String::from_utf8(ref_chrom_vcf.to_vec()).unwrap())
             .or_insert(Vec::new());
-        //+1 because htslib is 0 index by default
-        positions_vec.push(unr.pos() as usize + 1);
+        positions_vec.push(unr.pos() as usize);
     }
 
     map_positions_vec
@@ -741,7 +740,8 @@ pub fn l_epsilon_auto_detect(bam_file: &str) -> (usize, f64){
                 read_lengths.push(rec.seq().len());
 
                 let readbase = rec.seq()[alignment.qpos().unwrap()];
-                let readbasequal= rec.qual()[alignment.qpos().unwrap()];
+                //We don't use basequals here, otherwise it biases the error estimation weirdly. 
+                let _readbasequal = rec.qual()[alignment.qpos().unwrap()];
                 //*base_dict.entry(readbase).or_insert(0.) += 1. * (1. - 10_f32.powf((readbasequal) as f32 / -10.));
                 *base_dict.entry(readbase).or_insert(0.) += 1.;
             }

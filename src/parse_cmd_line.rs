@@ -104,7 +104,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     //If the user is splitting the bam file according to the output partition.
     let out_dir = matches
         .value_of("output dir")
-        .unwrap_or("glopp_out_dir")
+        .unwrap_or("floria_out_dir")
         .to_string();
     let snp_density = matches
         .value_of("snp_density")
@@ -125,7 +125,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     }
 
     //Overwrite the contig_ploidy_info file. 
-    let mut all_ploidy_file = File::create(format!("{}/contig_ploidy_info.txt", out_dir)).expect("Can't create file");
+    let mut all_ploidy_file = File::create(format!("{}/contig_ploidy_info.tsv", out_dir)).expect("Can't create file");
     write!(
         all_ploidy_file,
         "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_haplotig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\n",

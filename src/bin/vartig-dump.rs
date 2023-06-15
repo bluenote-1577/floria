@@ -1,8 +1,8 @@
 extern crate time;
 use clap::{App, AppSettings, Arg};
-use glopp::file_reader;
-use glopp::file_writer;
-use glopp::types_structs::*;
+use floria::file_reader;
+use floria::file_writer;
+use floria::types_structs::*;
 
 fn main() {
     let matches = App::new("vartig-dump")
@@ -25,8 +25,7 @@ fn main() {
                               .short('o')
                               .help("Name of output file (default : BAMFILE_vartigs.txt)")
                               .value_name("OUTPUT")
-                              .takes_value(true)
-                              .required(true))
+                              .takes_value(true))
                           .get_matches();
 
     let mut options = Options::default();

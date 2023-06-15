@@ -16,7 +16,6 @@ use std::fs::OpenOptions;
 use std::io::LineWriter;
 use std::io::Write;
 use std::path::Path;
-use std::time::Instant;
 
 pub fn write_outputs(
     part: &Vec<FxHashSet<&Frag>>,
@@ -221,7 +220,7 @@ fn write_fragset_haplotypes(
     name: &str,
     dir: &str,
     snp_pos_to_genome_pos: &Vec<GnPosition>,
-    append: bool,
+    _append: bool,
     left_snp_pos: SnpPosition,
     right_snp_pos: SnpPosition,
 ) -> Vec<u8> {
@@ -235,7 +234,7 @@ fn write_fragset_haplotypes(
 
     let hap_map = utils_frags::set_to_seq_dict(&frags, false);
     let emptydict = FxHashMap::default();
-    let title_string = format!(">HAP_{}_{}\tSNPRANGE:{}-{}\n", name, dir, left_snp_pos, right_snp_pos);
+    let title_string = format!(">HAP{}.{}\tSNPRANGE:{}-{}\n", name, dir, left_snp_pos, right_snp_pos);
     write!(file, "{}", title_string).unwrap();
     let positions: Vec<&SnpPosition> = hap_map.keys().collect();
     if positions.len() == 0 {
@@ -613,9 +612,9 @@ fn write_haplotypes(
     rel_err: &Vec<f64>,
     top_dir: &str,
 ) -> FxHashMap<usize, u8> {
-    let vartig_file = format!("{}/{}_vartigs.txt", out_bam_part_dir, contig);
-    let ploidy_file = format!("{}/ploidy_info.txt", out_bam_part_dir);
-    let top_ploidy_file = format!("{}/contig_ploidy_info.txt", top_dir);
+    let vartig_file = format!("{}/{}.vartigs", out_bam_part_dir, contig);
+    let ploidy_file = format!("{}/ploidy_info.tsv", out_bam_part_dir);
+    let top_ploidy_file = format!("{}/contig_ploidy_info.tsv", top_dir);
     let mut longest_vartig_bases = 0;
 
     let mut snp_covered_count = vec![0.; snp_pos_to_genome_pos.len()];
@@ -675,7 +674,7 @@ fn write_haplotypes(
 
             write!(
                 vartig_file,
-                ">HAP_{}_{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{}\tERR:{}\tHAPQ:{}\tREL_ERR:{:.2}\n",
+                ">HAP{}.{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{:.3}\tERR:{:.3}\tHAPQ:{}\tREL_ERR:{:.3}\n",
                 i,
                 out_bam_part_dir,
                 contig,
@@ -792,7 +791,7 @@ pub fn write_all_parts_file(
     rel_err: &Vec<f64>,
 ) {
     fs::create_dir_all(&out_bam_part_dir).unwrap();
-    let part_path = &format!("{}/{}_haplosets.txt", out_bam_part_dir, prefix);
+    let part_path = &format!("{}/{}.haplosets", out_bam_part_dir, prefix);
     let file = File::create(part_path).expect("Can't create file");
 
     let mut file = LineWriter::new(file);
@@ -816,7 +815,7 @@ pub fn write_all_parts_file(
                 utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
             write!(
                 file,
-                ">HAP_{}_{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{}\tERR:{}\tHAPQ:{}\tREL_ERR:{:.2}\n",
+                ">HAP{}.{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{:.3}\tERR:{:.3}\tHAPQ:{}\tREL_ERR:{:.3}\n",
                 //1-indexed snp poses are output... this is annoying
                 i,
                 out_bam_part_dir,
@@ -918,7 +917,7 @@ pub fn write_alignment_as_vartig(
             vec_of_alleles.push(*best_allele as u8);
         }
     }
-    let hap_header = format!(">HAP_{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\n", in_file, contig, left_snp_pos, right_snp_pos,  leftmost_base, rightmost_base);
+    let hap_header = format!(">HAP{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\n", in_file, contig, left_snp_pos, right_snp_pos,  leftmost_base, rightmost_base);
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)

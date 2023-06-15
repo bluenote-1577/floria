@@ -5,6 +5,7 @@ import subprocess
 import sys
 import argparse
 from natsort import natsorted
+import re
 
 parser = argparse.ArgumentParser(description='Generate a new bam which contains all haplotagging information over all contigs in the result folder. Consider the haplotag_bam.py script if you only care about a single contig.')
 
@@ -19,6 +20,11 @@ bam = pysam.AlignmentFile(args.bam)
 new_bam_name = args.output_name + '.bam'
 new_bam_file = pysam.AlignmentFile(new_bam_name, "wb", template=bam)
 min_hapq = args.min_hapq
+
+p = re.compile('COV:(\d*\.?\d+)')
+snp_p = re.compile('BASERANGE:(\d+)-(\d+)')
+hapq_p = re.compile('HAPQ:(\d+)')
+index_p = re.compile('HAP(\d+)')
 
 for dir_object in natsorted(glob.glob(args.result_directory + '/*')):
     if os.path.isdir(dir_object):
@@ -39,10 +45,9 @@ for dir_object in natsorted(glob.glob(args.result_directory + '/*')):
         query_name_to_read_part = dict()
         hapq_good = False;
         for line in open(haploset_file,'r'):
-            if '#' in line:
-                split = line.split();
-                index = int(split[0][1:])
-                hapq = int(split[-2].split(':')[-1])
+            if '>' in line:
+                index = int(index_p.findall(line)[0])
+                hapq = int(hapq_p.findall(line)[0])
                 if hapq >= min_hapq:
                     hapq_good = True
                     read_part[index] = set()

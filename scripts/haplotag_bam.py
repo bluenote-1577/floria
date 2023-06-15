@@ -2,6 +2,12 @@ import pysam
 import subprocess
 import sys
 import argparse
+import re
+import shlex
+p = re.compile('COV:(\d*\.?\d+)')
+snp_p = re.compile('BASERANGE:(\d+)-(\d+)')
+hapq_p = re.compile('HAPQ:(\d+)')
+index_p = re.compile('HAP(\d+)')
 
 parser = argparse.ArgumentParser(description='Generate a new bam file with haplotagging information for a single contig. ')
 
@@ -26,10 +32,9 @@ read_part = dict()
 index = 0
 hapq_good = False;
 for line in open(read_part_file,'r'):
-    if '#' in line:
-        split = line.split();
-        index = int(split[0][1:])
-        hapq = int(split[-2].split(':')[-1])
+    if '>' in line:
+        index = int(index_p.findall(line)[0])
+        hapq = int(hapq_p.findall(line)[0])
         if hapq >= min_hapq:
             hapq_good = True
             read_part[index] = set()
