@@ -85,23 +85,21 @@ glopp -b tests/test_long.bam -v tests/test.vcf -r tests/MN-03.fa
 ```
 to run glopp on a 100 kb section of a simulated 3-strain Klebsiella Pneumoniae sample. Look through the resulting `glopp_out_dir` folder to get a sense of glopp's output format. 
 
-### Parameters for best performance
-
-4. **-e** controls how sensitive your blocks are during phasing. Blocks with error rate less than **-e** with not be phased further, so haplotypes that differ less than **-e** may be combined. Use a higher value for more contiguous but less sensitive phasings, and a lower value if you want a more sensitive but broken phasings. If using hybrid correction, maybe try setting this lower to 0.02 (default is 0.04). 
-
 ## Output
 
 ```
 results
+|   contig_ploidy_info.txt
+|   cmd.log
 │      
 └───contig1_in_bam
-│   │   all_part.txt
+│   │   contig1_haplosets.txt
+|   |   contig1_vartigs.txt
 │   │   pet_graph.dot
-|   |   (other debug files)
+|   |   
 │   │
-│   └───haplotypes
+│   └───vartig_info
 │   |   │   0_hap.txt
-│   |   │   1_hap.txt
 │   |   │   ...
 |   |
 │   └───long_reads
@@ -117,69 +115,63 @@ results
     │   ...
     │   ...
 ```
-glopp outputs a set of **haplotigs**. We define a haplotig to be a set of reads that belong to the same strain. The collection of all haplotigs is found in the `results/contig1/all_part.txt` file. 
+glopp outputs a set of **vartigs** and **haplosets**. We define a *haploset* to be a set of reads that belong to the same strain. A *vartig* is the sequence of variants associated to a haploset obtained by choosing the consensus allele at each variant position. 
 
-The following information is output for each haplotig:
+* The vartigs for a contig are output in `results/contig1/contig1_vartigs.txt`. 
+* The haplosets for a contig are output in `results/contig1/contig1_haplosets.txt`.
+* A file indicating the estimated ploidy of the contig is output in `results/contig_info_ploidy.txt`. This gives a rough estmiate of how many strains are present, as detected by glopp. 
 
-1. a **haplotype** which is the sequence of SNPs on each haplotig in the `haplotypes` folder. 
-2. trimmed long-reads (if using long-reads) corresponding to each haplotig are found in the `long_reads` folder. 
-3. trimmed short-reads (if using short-reads) corresponding to each haplotig are found in the `short_reads` folder. 
-
-### Haplotigs ``results/contig/all_part.txt`` 
-
-Each haplotig corresponds to a cluster of reads and is presented in the following format:
+### Haploset file format ``results/contig/contig_haplosets.txt`` 
 
 ```
-#0,(coverage for haplotig 0),(error_rate for haplotig 0) 
-(read_name1) (first SNP position covered) 
-(read_name2) (first SNP position covered)
+>HAP0_out-dir/contig   SNPRANGE:1-6    BASERANGE:772-5000    COV:49.371  ERR:0.075   HAPQ:47   REL_ERR:1.35
+read_name1  first_snp_covered   last_snp_covered
+read_name2  first_snp_covered   last_snp_covered
 ...
-#1,(coverage for haplotig 1),(error_rate for haplotig 1)
+>HAP1_out-dir/contig   SNPRANGE:7-11    BASERANGE:5055-6500    COV:25.012  ERR:0.050   HAPQ:15   REL_ERR:1.11
 ...
 ```
 
-### Haplotype output ``results/contig/haplotypes/``
-For each haplotig, glopp outputs a haplotype file `#_hap.txt` in the following format:
+#### Tag meanings
+
+* SNPRANGE - The range of SNPs covered by this haploset. Inclusive and 1-indexed.
+* BASERANGE - The range of bases covered by this haploset. Inclusive and 1-indexed.
+* COV - Average coverage of the alleles in the haploset.
+* ERR - Error rate of the alleles in the haploset. Probability of calling wrong allele
+* HAPQ - Haplotyping quality. Higher score indicates higher chance the haploset is not spurious or erroneous. Ranges from 0-60.
+* REL_ERR - The ERR in this haploset divided by the average error over all haplosets
+
+### Vartig file format ``results/contig/contig_vartig.txt`` 
 
 ```
->(haplotig number),(left snp cutoff position),(right snp cutoff position)
-(snp #1):(genome position)     (consensus allele #: 0/1/2...)    (allele #1):(support)|(allele #2):(support)|...
-(snp #2):(genome position)     (consensus allele #: 0/1/2...)    (allele #1):(support)|(allele #2):(support)|...
+>HAP0_out-dir/contig  SNPRANGE:1-6    BASERANGE:772-5000    COV:49.371  ERR:0.075   HAPQ:47   REL_ERR:1.35
+111111
+>HAP1_out-dir/contig   SNPRANGE:7-11    BASERANGE:5055-6500    COV:25.012  ERR:0.050   HAPQ:15   REL_ERR:1.11
+01111
+```
+
+### Additional vartig info ``results/contig/vartig_info/``
+For each vartig, glopp outputs a vartig informatio file `#_hap.txt` in the following format:
+
+```
+>HAP0_out-dir/contig    SNPRANGE:1-6 
+snp_#1:genome_position     (consensus allele #: 0/1/2...)    (allele #1):(support)|(allele #2):(support)|...
+snp_#2:genome_position     (consensus allele #: 0/1/2...)    (allele #1):(support)|(allele #2):(support)|...
 ...
 
 ```
-
-The haplotig is valid for the region of the genome that lies within the left snp to the right snp cutoff positions. 
 
 1. Col. 1 indicates the # and position of the SNP. 
 2. Col. 2 states which allele is the consensus allele.
-3. Col. 3 describes how many reads support each allele (i.e. how many reads in the haplotig have the allele at the SNP position). 
+3. Col. 3 describes how many reads support each allele (i.e. how many reads in the haploset have the allele at the SNP position). 
 
 ### Read output ``results/contig/*_reads/``
 
-The reads in each haplotig can be found in either the `long_reads` or `short_reads` folder, depending on which type of read is used. Note that fastq files in these folders are trimmed to lie within an interval and thus differ from the original reads. This is done so that all reads in a haplotig fall within an interval on the genome and do not extend past the interval. 
+The reads in each haplotig can be found in either the `long_reads` or `short_reads` folder, depending on which type of read is used. 
 
 ### Debugging
 
 Extra debug files in `local_parts` and `debug_paths` show the local partitions and the path corresponding to the haplotigs and local partitions. To visualize the flow-graph constructed, a graphviz `pet_graph.dot` file is included. If graphviz is installed, this can be visualized by running `dot -Tps results/contig/pet_graph.dot -o outfile.ps` and looking at the resulting `outfile.ps`. 
-
-## Assembling output reads in `results/contig/*_reads/`
-
-If you want to assemble the haplotigs (in the same way strainberry does) then the utility scripts `strains_phase_scripts/assemble_from_glopp_out.py` or `assemble_shortreads_from_glopp_out.py` for long and short reads respectively allow you to do so. Ensure that 
-
-1. wtdbg2 (for long-reads)
-2. minimap2
-3. abyss (for short-reads)
-
-and associated binaries are present in path or edit the files to include paths to the binaries. Run 
-
-```strains_phase_scripts/assemble_from_glopp_out.py results_dir results_dir reference.fa```
-
-where `results_dir` is the output of glopp (i.e. the `-o` output) for long-reads and the other script for short reads. 
-
-All haplotigs will be assembled in `results_dir/intermediate` and all assembled haplotigs will be mapped onto `reference.fa` in the `results_dir/all_assemblies.bam` bam file. 
-
-**NOTE**: this only works for single contig phasings, i.e. your bam file is only aligned to a single reference. I will test this later for multi-contig phasings.
 
 
 ## Extra scripts
@@ -189,11 +181,17 @@ We found that some variant callers don't put contig headers in the VCF file. In 
 
 ### Haplotagging bams for visualization
 
--- requires natsort
--- requires pysam 
+In the `scripts` folder provided in this repository, we provide two scripts for quickly visualizing haplosets. We require [natsort](https://pypi.org/project/natsort/) and [pysam](https://github.com/pysam-developers/pysam) installed. 
 
-To generate a new bam file that is tagged with the `HP:i` tag, we offer a python script called `haplotag_bam.py` in the `scripts` directory. 
+```sh
+# haplotagging a specific contig 
+# outputs a bam named output_bam_name.bam that can be visualized in IGV
+python scripts/haplotag_bam.py -h
+python scripts/haplotag_bam.py -t out-dir/contig_xxx/contig_xxx_haplosets.txt -o output_bam_name -b mapped_reads.bam -n contig_xxx
+```
 
-`python glopp/scripts/haplotag_bam.py glopp_out_dir/CONTIG/all_part.txt ORIGINAL_BAM_FILE.bam NEW_BAM_FILE.bam CONTIG`
+```sh
+# haplotagging a bam file with all contigs in the ouptut directory
+python scripts/haplotag_output_dir.py -d out-dir/ -b mapped_reads.bam -o output_bam_name
+```
 
-For a single contig CONTIG, this generates a new bam file with `HP:i` tags called NEW_BAM_FILE.bam. This new bam file contains all reads in the ORIGINAL_BAM_FILE.bam mapped to CONTIG. You can then index NEW_BAM_FILE.bam and visualize it with [igv](https://igv.org/).  
