@@ -1,6 +1,6 @@
 use crate::constants;
 use crate::types_structs::{Frag, VcfProfile};
-use crate::types_structs::{Options, SnpPosition};
+use crate::types_structs::{Options, SnpPosition, GnPosition};
 use crate::utils_frags;
 use disjoint_sets::UnionFind;
 use fxhash::{FxHashMap, FxHashSet};
@@ -362,8 +362,8 @@ pub fn bin_haplogroups<'a>(
     let mut clusters = vec![];
     let mut none_clusters = vec![];
     for i in 0..snp_endpoints.len() {
-        let left_gn = snp_to_gn_pos[&(snp_endpoints[i].0)] as usize;
-        let right_gn = snp_to_gn_pos[&(snp_endpoints[i].1)] as usize;
+        let left_gn = snp_to_gn_pos[&(snp_endpoints[i].0 - 1)] as usize;
+        let right_gn = snp_to_gn_pos[&(snp_endpoints[i].1 - 1)] as usize;
         let cov = cov_of_haplogroups[i];
         if !cov.is_none() {
             clusters.push(vec![(left_gn, right_gn, cov.unwrap(), i)]);
@@ -519,7 +519,7 @@ pub fn get_hapq<'a>(
     snp_to_genome_pos: &'a Vec<usize>,
     snp_range_parts_vec: &Vec<(SnpPosition, SnpPosition)>,
     options: &Options,
-) -> (Vec<u8>, Vec<f64>) {
+) -> (Vec<u8>, Vec<f64>, f64) {
     let mut hapqs = vec![];
     let mut purities = vec![];
     let mut weight = 0.;
@@ -616,5 +616,60 @@ pub fn get_hapq<'a>(
         //        purities.push((-1. * purity_val) as u8);
         purities.push(errs[i] / avg_err)
     }
-    return (hapqs, purities);
+    return (hapqs, purities, avg_err);
+}
+
+pub fn get_frags_in_snpless_gaps<'a>(path_parts: &Vec<(SnpPosition, SnpPosition)>, snp_to_gn_pos: &Vec<GnPosition>, snpless_frags: &'a Vec<Frag>, block_len: GnPosition, final_frags: &'a Vec<Frag>) -> Vec<&'a Frag> {
+
+    let mut paired = false;
+    for frag in snpless_frags.iter(){
+        if frag.is_paired{
+            paired = true;
+        }
+        else if paired{
+            log::warn!("Both paired and non-paired reads found in bam file. Assuming paired-end mode.");
+            break;
+        }
+    }
+
+    let mut interval_vec = vec![];
+    type Iv = Interval<GnPosition, usize>;
+    
+    //We have expanded interval boundaries for paired reads because 
+    //paired reads are not trimmed against the reference.
+    for (i, range) in path_parts.iter().enumerate() {
+        let mut start =  snp_to_gn_pos[(range.0-1) as usize];
+        if start > block_len && paired{
+            start = start - block_len;
+        }
+        let end;
+        if paired{
+            end = snp_to_gn_pos[(range.1-1) as usize] + 1 + block_len
+        }
+        else{
+            end = snp_to_gn_pos[(range.1-1) as usize] + 1
+        }
+        interval_vec.push(Iv {
+            start: start,
+            stop: end,
+            val: i,
+        });
+    }
+
+    let mut snpless_gap_frags = vec![];
+    let laps = Lapper::new(interval_vec);
+    for frag in snpless_frags.iter() {
+        let ol = laps.count(frag.first_pos_base, frag.last_pos_base);
+        if ol == 0{
+            snpless_gap_frags.push(frag);
+        }
+    }
+    for frag in final_frags.iter(){
+        let ol = laps.count(frag.first_pos_base, frag.last_pos_base);
+        if ol == 0{
+            snpless_gap_frags.push(frag);
+        }
+    }
+
+    snpless_gap_frags
 }

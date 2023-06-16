@@ -90,6 +90,8 @@ where
                         qual_string: vec![vec![]; 2],
                         is_paired: false,
                         snp_pos_to_seq_pos: FxHashMap::default(),
+                        first_pos_base: GnPosition::MAX,
+                        last_pos_base: GnPosition::MAX,
                     };
 
                     all_frags.push(new_frag);
@@ -332,7 +334,7 @@ pub fn get_frags_from_bamvcf_rewrite(
     options: &Options,
     chrom_seqs: &mut Option<FastaIndexedReader<std::fs::File>>,
     contig: &str,
-) -> Vec<Frag>
+) -> (Vec<Frag>, Vec<Frag>)
 {
 
     let filter_supplementary = true;
@@ -402,19 +404,19 @@ pub fn get_frags_from_bamvcf_rewrite(
                         let mut frag =
                             frag_from_record(&record, snp_positions_contig, pos_allele_map, count);
 
-                        if frag.seq_dict.keys().len() > 0 {
-                            if !chrom_seqs.is_none() {
-                                alignment::realign(
-                                    &seq,
-                                    &mut frag,
-                                    &snp_to_gn_map,
-                                    &pos_allele_map,
-                                );
-                            }
-                            let mut locked = ref_id_to_frag_map.lock().unwrap();
-                            let bucket = locked.entry(rec_name).or_insert(vec![]);
-                            bucket.push((record.flags(), frag));
+//                        if frag.seq_dict.keys().len() > 0 {
+                        if !chrom_seqs.is_none() {
+                            alignment::realign(
+                                &seq,
+                                &mut frag,
+                                &snp_to_gn_map,
+                                &pos_allele_map,
+                            );
                         }
+                        let mut locked = ref_id_to_frag_map.lock().unwrap();
+                        let bucket = locked.entry(rec_name).or_insert(vec![]);
+                        bucket.push((record.flags(), frag));
+//                        }
                     }
                 }
             });
@@ -432,7 +434,17 @@ pub fn get_frags_from_bamvcf_rewrite(
     //            dbg!(&frag);
     //        }
     //    }
-    ref_vec_frags
+    let mut frags_with_snps = vec![];
+    let mut frags_without_snps = vec![];
+    for frag in ref_vec_frags{
+        if frag.seq_dict.keys().len() > 0{
+            frags_with_snps.push(frag);
+        }
+        else{
+            frags_without_snps.push(frag);
+        }
+    }
+    (frags_with_snps, frags_without_snps)
 }
 
 pub fn get_fasta_seqs(fasta_file: &str) -> FastaIndexedReader<std::fs::File> {
@@ -519,6 +531,9 @@ fn combine_frags(
             first_frag.last_position =
                 SnpPosition::max(first_frag.last_position, sec_frag.last_position);
 
+            first_frag.first_pos_base = GnPosition::min(first_frag.first_pos_base, sec_frag.first_pos_base);
+            first_frag.last_pos_base = GnPosition::min(first_frag.last_pos_base, sec_frag.last_pos_base);
+
             let mut temp = DnaString::new();
             std::mem::swap(&mut sec_frag.seq_string[0], &mut temp);
             first_frag.seq_string[1] = temp;
@@ -554,19 +569,24 @@ fn combine_frags(
             let mut supp_intervals = vec![];
 
             for frag in frags.iter() {
-                supp_intervals.push((frag.1.first_position, frag.1.last_position));
+                if frag.1.seq_dict.len() > 0{
+                    supp_intervals.push((frag.1.first_position, frag.1.last_position));
+                }
             }
             supp_intervals.sort();
 
             let snp_to_gn = &vcf_profile.vcf_snp_pos_to_gn_pos_map[contig];
             let mut take_primary_only = false;
-            for i in 0..supp_intervals.len() - 1 {
-                if snp_to_gn[&supp_intervals[i + 1].0] as i64
-                    - snp_to_gn[&supp_intervals[i].1] as i64
-                    > supp_aln_dist_cutoff
-                {
-                    take_primary_only = true;
-                    break;
+            //dbg!(&supp_intervals);
+            if supp_intervals.len() > 0{
+                for i in 0..supp_intervals.len() - 1 {
+                    if snp_to_gn[&supp_intervals[i + 1].0] as i64
+                        - snp_to_gn[&supp_intervals[i].1] as i64
+                        > supp_aln_dist_cutoff
+                    {
+                        take_primary_only = true;
+                        break;
+                    }
                 }
             }
 
@@ -609,6 +629,9 @@ fn combine_frags(
                     primary_frag.last_position =
                         SnpPosition::max(primary_frag.last_position, frag.last_position);
 
+                    primary_frag.first_pos_base = GnPosition::min(primary_frag.first_pos_base, frag.first_pos_base);
+                    primary_frag.last_pos_base = GnPosition::min(primary_frag.last_pos_base, frag.last_pos_base);
+
                     primary_frag
                         .snp_pos_to_seq_pos
                         .extend(frag.snp_pos_to_seq_pos);
@@ -643,6 +666,8 @@ fn frag_from_record(
     if record.flags() & supplementary_mask > 0 {
         leading_hardclips = record.cigar().leading_hardclips();
     }
+    frag.first_pos_base = record.reference_start() as GnPosition;
+    frag.last_pos_base = record.reference_end() as GnPosition;
 
     for pair in aligned_pairs {
         if pair[1].is_none() {

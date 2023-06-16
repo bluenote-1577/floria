@@ -78,6 +78,8 @@ pub struct Frag {
     pub qual_string: Vec<Vec<u8>>, //Needs to be PHRED scaled i.e. +33 from value
     pub is_paired: bool,
     pub snp_pos_to_seq_pos: FxHashMap<SnpPosition, (u8, GnPosition)>,
+    pub first_pos_base: GnPosition,
+    pub last_pos_base: GnPosition
 
     
 }
@@ -278,6 +280,8 @@ pub fn build_frag(id: String, counter_id: usize, is_paired: bool) -> Frag {
         qual_string: vec![vec![]; 2],
         is_paired: is_paired,
         snp_pos_to_seq_pos: FxHashMap::default(),
+        first_pos_base: GnPosition::MAX,
+        last_pos_base: GnPosition::MAX,
     };
 
     toret

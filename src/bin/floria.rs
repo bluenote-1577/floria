@@ -1,19 +1,19 @@
 extern crate time;
-use std::path::Path;
 use clap::{AppSettings, Arg, Command};
 use floria::file_reader;
 use floria::file_writer;
-use floria::solve_flow;
-use floria::parse_cmd_line;
 use floria::graph_processing;
+use floria::parse_cmd_line;
 use floria::part_block_manip;
+use floria::solve_flow;
 use floria::utils_frags;
 use std::fs;
+use std::path::Path;
 use std::time::Instant;
 
 //This makes statically compiled musl library
 //much much faster. Set to default for x86 systems...
-#[cfg(target_env="musl")]
+#[cfg(target_env = "musl")]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
@@ -225,12 +225,13 @@ fn main() {
 
     let mut warn_first_length = true;
     for contig in contigs_to_phase.iter() {
-        if !options.list_to_phase.contains(&contig.to_string()) && !options.list_to_phase.is_empty() {
+        if !options.list_to_phase.contains(&contig.to_string()) && !options.list_to_phase.is_empty()
+        {
             continue;
         } else if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
             || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < options.snp_count_filter
         {
-            if warn_first_length{
+            if warn_first_length {
                 log::warn!(
                     "A contig ({}) is not present has < {} variants. This warning will not be shown from now on. Make sure to change --snp-count-filter if you want to phase small contigs.",
                     contig,
@@ -243,9 +244,13 @@ fn main() {
 
         let start_t = Instant::now();
         //log::info!("-----{}-----", contig);
-        log::info!("Reading and realigning inputs for contig {} (BAM/VCF).", contig);
+        log::info!(
+            "Reading and realigning inputs for contig {} (BAM/VCF).",
+            contig
+        );
         let mut all_frags;
-        all_frags = file_reader::get_frags_from_bamvcf_rewrite(
+        let frags_without_snps;
+        (all_frags, frags_without_snps) = file_reader::get_frags_from_bamvcf_rewrite(
             &mut main_bam,
             &mut short_bam,
             &vcf_profile,
@@ -258,13 +263,16 @@ fn main() {
             continue;
         }
 
-        if snp_to_genome_pos_map.contains_key(contig){
+        if snp_to_genome_pos_map.contains_key(contig) {
             let contig_out_dir = format!("{}/{}", options.out_dir, contig);
 
-            if Path::new(&contig_out_dir).exists() && options.overwrite{
+            if Path::new(&contig_out_dir).exists() && options.overwrite {
                 let res = fs::remove_dir_all(&contig_out_dir);
-                if res.is_err(){
-                    log::warn!("Could not remove {} successfully. Proceeding ...", &contig_out_dir);
+                if res.is_err() {
+                    log::warn!(
+                        "Could not remove {} successfully. Proceeding ...",
+                        &contig_out_dir
+                    );
                 }
             }
 
@@ -301,11 +309,14 @@ fn main() {
                 final_frags = all_frags;
             }
 
-            if options.ignore_monomorphic{
+            if options.ignore_monomorphic {
                 final_frags = utils_frags::remove_monomorphic_allele(final_frags, options.epsilon);
             }
 
-            log::info!("Reading inputs, realigning time taken {:?}", Instant::now() - start_t);
+            log::info!(
+                "Reading inputs, realigning time taken {:?}",
+                Instant::now() - start_t
+            );
 
             let avg_read_length = utils_frags::get_avg_length(&final_frags, 0.5);
             log::debug!("Median number of SNPs in a read is {}", avg_read_length);
@@ -313,25 +324,24 @@ fn main() {
             log::debug!("Epsilon is {}", options.epsilon);
 
             log::info!("Local phasing with {} threads...", options.num_threads);
-            let phasing_t= Instant::now();
+            let phasing_t = Instant::now();
             let mut hap_graph = graph_processing::generate_hap_graph(
                 &final_frags,
                 &snp_to_genome_pos,
                 contig_out_dir.to_string(),
-                &options
+                &options,
             );
             log::info!("Phasing time taken {:?}", Instant::now() - phasing_t);
 
             log::info!("Solving flow problem...");
             let highs_t = Instant::now();
-            let flow_up_vec =
-                solve_flow::solve_lp_graph(&hap_graph);
+            let flow_up_vec = solve_flow::solve_lp_graph(&hap_graph);
             log::info!("Flow solved in time {:?}", Instant::now() - highs_t);
 
-//            let minilp_t = Instant::now();
-//            let flow_up_vec =
-//                solve_flow::solve_lp_graph_minilp(&hap_graph, contig_out_dir.to_string());
-//            log::debug!("minilp time taken {:?}", Instant::now() - minilp_t);
+            //            let minilp_t = Instant::now();
+            //            let flow_up_vec =
+            //                solve_flow::solve_lp_graph_minilp(&hap_graph, contig_out_dir.to_string());
+            //            log::debug!("minilp time taken {:?}", Instant::now() - minilp_t);
 
             let (all_path_parts, path_parts_snp_endpoints) =
                 graph_processing::get_disjoint_paths_rewrite(
@@ -343,25 +353,35 @@ fn main() {
                     &options,
                 );
 
-            let (sorted_path_parts, sorted_snp_endpoints) = part_block_manip::process_reads_for_final_parts(
-                all_path_parts,
-                &short_frags,
-                path_parts_snp_endpoints,
-                &options,
+            let (sorted_path_parts, sorted_snp_endpoints) =
+                part_block_manip::process_reads_for_final_parts(
+                    all_path_parts,
+                    &short_frags,
+                    path_parts_snp_endpoints,
+                    &options,
+                    &snp_to_genome_pos,
+                );
+
+            //Scan over path_parts_snp_endpoints and only put in frags_without_snps that end there.
+            let snpless_frags_between_gaps = part_block_manip::get_frags_in_snpless_gaps(
+                &sorted_snp_endpoints,
                 &snp_to_genome_pos,
+                &frags_without_snps,
+                options.block_length,
+                &final_frags,
             );
 
             file_writer::write_outputs(
                 &sorted_path_parts,
                 &sorted_snp_endpoints,
                 contig_out_dir.to_string(),
-                &format!("{}",&contig),
+                &format!("{}", &contig),
                 &contig,
                 &snp_to_genome_pos,
                 &options,
+                &snpless_frags_between_gaps,
             );
         }
-
     }
     log::info!("Total time taken is {:?}", Instant::now() - start_t_initial);
 }

@@ -49,7 +49,7 @@ fn main() {
     let (mut main_bam, mut short_bam) = file_reader::get_bam_readers(&options);
     let mut chrom_seqs = None;
     for contig in contigs_to_phase.iter(){
-        let mut all_frags = file_reader::get_frags_from_bamvcf_rewrite(&mut main_bam, &mut short_bam, &vcf_profile, &options, &mut chrom_seqs, &contig );
+        let (mut all_frags,_) = file_reader::get_frags_from_bamvcf_rewrite(&mut main_bam, &mut short_bam, &vcf_profile, &options, &mut chrom_seqs, &contig );
         all_frags.sort_by(|a, b| a.first_position.cmp(&b.first_position));
         file_writer::write_alignment_as_vartig(&all_frags, output_frag_str, contig, &snp_to_genome_pos_map[contig], 1, snp_to_genome_pos_map[contig].len() as SnpPosition, output_frag_str);
    }

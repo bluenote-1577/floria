@@ -25,6 +25,7 @@ pub fn write_outputs(
     contig: &String,
     snp_pos_to_genome_pos: &Vec<usize>,
     options: &Options,
+    snpless_frags: &Vec<&Frag>,
 ) {
     let trim_reads = options.trim_reads;
     let gzip = options.gzip;
@@ -37,7 +38,7 @@ pub fn write_outputs(
         fs::create_dir_all(&format!("{}/vartig_info", out_bam_part_dir)).unwrap();
     }
 
-    let (hapqs, rel_err) =
+    let (hapqs, rel_err, avg_err) =
         part_block_manip::get_hapq(&part, snp_pos_to_genome_pos, snp_range_parts_vec, options);
     write_haplotypes(
         part,
@@ -48,6 +49,7 @@ pub fn write_outputs(
         &hapqs,
         &rel_err,
         &options.out_dir,
+        avg_err
     );
     write_all_parts_file(
         part,
@@ -59,6 +61,10 @@ pub fn write_outputs(
         &hapqs,
         &rel_err,
     );
+    write_nosnp_reads_parts(
+        &out_bam_part_dir,
+        &snpless_frags,
+    );
     if options.output_reads {
         write_reads(
             part,
@@ -68,16 +74,89 @@ pub fn write_outputs(
             &hapqs,
             gzip,
         );
+        write_nosnp_reads(
+            &out_bam_part_dir,
+            &snpless_frags,
+            gzip,
+        );
+
     }
+}
+
+fn write_nosnp_reads(out_bam_part_dir: &str, snpless_frags:&Vec<&Frag>, gzip: bool){
+    let gz = if gzip { ".gz" } else { "" };
+    let part_fastq_reads = format!("{}/long_reads/snpless.fastq{}", out_bam_part_dir, gz);
+    let part_fastq_reads_paired1 = format!(
+        "{}/short_reads/snpless_paired1.fastq{}",
+        out_bam_part_dir, gz
+    );
+    let part_fastq_reads_paired2 = format!(
+        "{}/short_reads/snpless_paired2.fastq{}",
+        out_bam_part_dir, gz
+    );
+
+    let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
+    let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
+    let fastq_file2 = File::create(part_fastq_reads_paired2).expect("Can't create file");
+    let mut fastq_writer;
+    let mut fastq_writer_paired1;
+    let mut fastq_writer_paired2;
+
+    if gzip {
+        let gz_encoder: Box<dyn Write> =
+            Box::new(GzEncoder::new(fastq_file, Compression::default()));
+        let gz_encoder1: Box<dyn Write> =
+            Box::new(GzEncoder::new(fastq_file1, Compression::default()));
+        let gz_encoder2: Box<dyn Write> =
+            Box::new(GzEncoder::new(fastq_file2, Compression::default()));
+
+        fastq_writer = fastq::Writer::new(gz_encoder);
+        fastq_writer_paired1 = fastq::Writer::new(gz_encoder1);
+        fastq_writer_paired2 = fastq::Writer::new(gz_encoder2);
+    } else {
+        let enc: Box<dyn Write> = Box::new(fastq_file);
+        let enc1: Box<dyn Write> = Box::new(fastq_file1);
+        let enc2: Box<dyn Write> = Box::new(fastq_file2);
+        fastq_writer = fastq::Writer::new(enc);
+        fastq_writer_paired1 = fastq::Writer::new(enc1);
+        fastq_writer_paired2 = fastq::Writer::new(enc2);
+    }
+
+    for frag in snpless_frags{
+        if frag.is_paired{
+            write_paired_reads_no_trim(&mut fastq_writer_paired1, &mut fastq_writer_paired2, &frag);
+        }
+        else{
+            if frag.seq_string[0].len() == 0{
+                fastq_writer.write(&format!("{}",frag.id), None, &vec![78], &vec![33]).unwrap();
+            }
+            else{
+                fastq_writer.write(&format!("{}",frag.id), None, &frag.seq_string[0].to_ascii_vec(), &frag.qual_string[0]).unwrap();
+            }
+        }
+    }
+}
+
+fn write_nosnp_reads_parts(out_bam_part_dir: &str, snpless_frags:&Vec<&Frag>){
+    let part_path = &format!("{}/reads_without_snps.tsv", out_bam_part_dir);
+    let file = File::create(part_path).expect("Can't create file");
+
+    let mut file = LineWriter::new(file);
+
+    write!(file, "READ_NAME\tREAD_LENGTH_IN_BASES\n").unwrap();
+    for frag in snpless_frags{
+        let mut len = 0;
+        for dna_string in frag.seq_string.iter(){
+            len += dna_string.len();
+        }
+        write!(file, "{}\t{}\n", &frag.id, len).unwrap();
+    }
+
 }
 
 fn write_paired_reads_no_trim<W: Write>(
     fastq_writer_paired1: &mut Writer<W>,
     fastq_writer_paired2: &mut Writer<W>,
-    _left_read_pair: u8,
-    _right_read_pair: u8,
-    _left_seq_pos: usize,
-    _right_seq_pos: usize,
     frag: &Frag,
 ) {
     if frag.seq_string[0].len() == 0 {
@@ -379,16 +458,16 @@ fn write_reads(
             }
             let mut left_seq_pos;
             let mut tmp = left_snp_pos;
-            let left_read_pair;
+            let _left_read_pair;
             if frag.first_position > left_snp_pos && extend_read_clipping {
                 left_seq_pos = 0;
-                left_read_pair = 0;
+                _left_read_pair = 0;
             } else {
                 loop {
                     if frag.snp_pos_to_seq_pos.contains_key(&tmp) {
                         let info = frag.snp_pos_to_seq_pos[&tmp];
                         left_seq_pos = info.1;
-                        left_read_pair = info.0;
+                        _left_read_pair = info.0;
                         break;
                     }
                     tmp += 1;
@@ -453,10 +532,6 @@ fn write_reads(
                 write_paired_reads_no_trim(
                     &mut fastq_writer_paired1,
                     &mut fastq_writer_paired2,
-                    left_read_pair,
-                    right_read_pair,
-                    left_seq_pos,
-                    right_seq_pos,
                     &frag,
                 );
             } else {
@@ -611,6 +686,7 @@ fn write_haplotypes(
     hapqs: &Vec<u8>,
     rel_err: &Vec<f64>,
     top_dir: &str,
+    avg_err: f64,
 ) -> FxHashMap<usize, u8> {
     let vartig_file = format!("{}/{}.vartigs", out_bam_part_dir, contig);
     let ploidy_file = format!("{}/ploidy_info.tsv", out_bam_part_dir);
@@ -747,33 +823,35 @@ fn write_haplotypes(
     let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
     write!(
         ploidy_file,
-        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_vartig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\n",
+        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_vartig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\tavg_err\n",
     )
     .unwrap();
 
     write!(
         ploidy_file,
-        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\n",
+        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.3}\n",
         contig,
         avg_local_ploidy,
         avg_global_ploidy,
         rough_cvg,
         total_bases_covered,
         avg_local_ploidy_g0,
-        avg_global_ploidy_g0
+        avg_global_ploidy_g0,
+        avg_err
     )
     .unwrap();
 
     write!(
         top_ploidy_file,
-        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\n",
+        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.3}\n",
         contig,
         avg_local_ploidy,
         avg_global_ploidy,
         rough_cvg,
         total_bases_covered,
         avg_local_ploidy_g0,
-        avg_global_ploidy_g0
+        avg_global_ploidy_g0,
+        avg_err
     )
     .unwrap();
 
