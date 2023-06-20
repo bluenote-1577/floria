@@ -94,6 +94,8 @@ fn write_nosnp_reads(out_bam_part_dir: &str, snpless_frags:&Vec<&Frag>, gzip: bo
     let mut fastq_writer;
     let mut fastq_writer_paired1;
     let mut fastq_writer_paired2;
+    let mut paired_written = false;
+    let mut single_end_written = false;
 
     if gzip {
         let gz_encoder: Box<dyn Write> =
@@ -117,9 +119,11 @@ fn write_nosnp_reads(out_bam_part_dir: &str, snpless_frags:&Vec<&Frag>, gzip: bo
 
     for frag in snpless_frags{
         if frag.is_paired{
+            paired_written = true;
             write_paired_reads_no_trim(&mut fastq_writer_paired1, &mut fastq_writer_paired2, &frag);
         }
         else{
+            single_end_written = true;
             if frag.seq_string[0].len() == 0{
                 fastq_writer.write(&format!("{}",frag.id), None, &vec![78], &vec![33]).unwrap();
             }
@@ -127,6 +131,13 @@ fn write_nosnp_reads(out_bam_part_dir: &str, snpless_frags:&Vec<&Frag>, gzip: bo
                 fastq_writer.write(&format!("{}",frag.id), None, &frag.seq_string[0].to_ascii_vec(), &frag.qual_string[0]).unwrap();
             }
         }
+    }
+    if !paired_written{
+        fs::remove_file(&part_fastq_reads_paired1).unwrap();
+        fs::remove_file(&part_fastq_reads_paired2).unwrap();
+    }
+    if !single_end_written{
+        fs::remove_file(&part_fastq_reads).unwrap();
     }
 }
 
