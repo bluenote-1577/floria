@@ -19,3 +19,4 @@ pub const WEIRD_SPLIT: bool = false;
 pub const FLOW_CUTOFF_MULT: f64 = 100.;
 pub const HAPQ_CONSTANT: f64 = 40.;
 pub const MINIMUM_BLOCK_SIZE: usize = 500;
+pub const EXTENSION_BASES: usize = 25;

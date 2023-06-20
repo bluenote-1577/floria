@@ -31,7 +31,7 @@ for dir_object in natsorted(glob.glob(args.result_directory + '/*')):
 
         contig_name = os.path.basename(dir_object)
 
-        haploset_g = glob.glob(dir_object + '/*_haploset*')
+        haploset_g = glob.glob(dir_object + '/*haploset*')
         if len(haploset_g) == 0:
             haploset_g = glob.glob(dir_object + '/all_part.txt')
         if len(haploset_g) == 0:

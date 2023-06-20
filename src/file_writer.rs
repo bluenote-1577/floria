@@ -31,13 +31,6 @@ pub fn write_outputs(
     let gzip = options.gzip;
     fs::create_dir_all(&out_bam_part_dir).unwrap();
 
-    if !snp_range_parts_vec.is_empty() {
-        fs::create_dir_all(&format!("{}/local_parts", out_bam_part_dir)).unwrap();
-        fs::create_dir_all(&format!("{}/short_reads", out_bam_part_dir)).unwrap();
-        fs::create_dir_all(&format!("{}/long_reads", out_bam_part_dir)).unwrap();
-        fs::create_dir_all(&format!("{}/vartig_info", out_bam_part_dir)).unwrap();
-    }
-
     let (hapqs, rel_err, avg_err) =
         part_block_manip::get_hapq(&part, snp_pos_to_genome_pos, snp_range_parts_vec, options);
     write_haplotypes(
@@ -95,9 +88,9 @@ fn write_nosnp_reads(out_bam_part_dir: &str, snpless_frags:&Vec<&Frag>, gzip: bo
         out_bam_part_dir, gz
     );
 
-    let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
-    let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
-    let fastq_file2 = File::create(part_fastq_reads_paired2).expect("Can't create file");
+    let fastq_file = File::create(&part_fastq_reads).expect("Can't create file");
+    let fastq_file1 = File::create(&part_fastq_reads_paired1).expect("Can't create file");
+    let fastq_file2 = File::create(&part_fastq_reads_paired2).expect("Can't create file");
     let mut fastq_writer;
     let mut fastq_writer_paired1;
     let mut fastq_writer_paired2;
@@ -298,19 +291,12 @@ fn write_fragset_haplotypes(
     frags: &FxHashSet<&Frag>,
     name: &str,
     dir: &str,
+    file: &mut File,
     snp_pos_to_genome_pos: &Vec<GnPosition>,
-    _append: bool,
     left_snp_pos: SnpPosition,
     right_snp_pos: SnpPosition,
 ) -> Vec<u8> {
-    let filename = format!("{}/vartig_info/{}_hap.txt", dir, name);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(filename)
-        .unwrap();
-
+    
     let hap_map = utils_frags::set_to_seq_dict(&frags, false);
     let emptydict = FxHashMap::default();
     let title_string = format!(">HAP{}.{}\tSNPRANGE:{}-{}\n", name, dir, left_snp_pos, right_snp_pos);
@@ -372,6 +358,9 @@ fn write_reads(
     hapqs: &Vec<u8>,
     gzip: bool,
 ) {
+    fs::create_dir_all(&format!("{}/short_reads", out_bam_part_dir)).unwrap();
+    fs::create_dir_all(&format!("{}/long_reads", out_bam_part_dir)).unwrap();
+
     for (i, set) in part.iter().enumerate() {
         if set.is_empty() {
             continue;
@@ -399,12 +388,14 @@ fn write_reads(
             out_bam_part_dir, i, gz
         );
 
-        let fastq_file = File::create(part_fastq_reads).expect("Can't create file");
-        let fastq_file1 = File::create(part_fastq_reads_paired1).expect("Can't create file");
-        let fastq_file2 = File::create(part_fastq_reads_paired2).expect("Can't create file");
+        let fastq_file = File::create(&part_fastq_reads).expect("Can't create file");
+        let fastq_file1 = File::create(&part_fastq_reads_paired1).expect("Can't create file");
+        let fastq_file2 = File::create(&part_fastq_reads_paired2).expect("Can't create file");
         let mut fastq_writer;
         let mut fastq_writer_paired1;
         let mut fastq_writer_paired2;
+        let mut paired_written = false;
+        let mut single_end_written = false;
 
         if gzip {
             let gz_encoder: Box<dyn Write> =
@@ -429,7 +420,7 @@ fn write_reads(
         //        let mut fastq_writer = fastq::Writer::new(fastq_file);
         //        let mut fastq_writer_paired1 = fastq::Writer::new(fastq_file1);
         //        let mut fastq_writer_paired2 = fastq::Writer::new(fastq_file2);
-        let extension = 25;
+        let extension = constants::EXTENSION_BASES;
         for frag in vec_part.iter() {
             let mut found_primary = false;
             for seq in frag.seq_string.iter() {
@@ -529,12 +520,14 @@ fn write_reads(
             }
 
             if frag.is_paired {
+                paired_written = true;
                 write_paired_reads_no_trim(
                     &mut fastq_writer_paired1,
                     &mut fastq_writer_paired2,
                     &frag,
                 );
             } else {
+                single_end_written = true;
                 if left_seq_pos > right_seq_pos {
                     log::trace!(
                             "{} left seq pos > right seq pos at {:?}. Left:{}, Right:{}.
@@ -552,6 +545,14 @@ fn write_reads(
                     )
                     .unwrap();
             }
+        }
+
+        if !paired_written{
+            fs::remove_file(&part_fastq_reads_paired1).unwrap();
+            fs::remove_file(&part_fastq_reads_paired2).unwrap();
+        }
+        if !single_end_written{
+            fs::remove_file(&part_fastq_reads).unwrap();
         }
     }
 }
@@ -709,6 +710,15 @@ fn write_haplotypes(
         .open(vartig_file)
         .unwrap();
 
+    let vartig_info_str = format!("{}/vartig_info.txt", out_bam_part_dir);
+    let mut vartig_info = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&vartig_info_str)
+        .unwrap();
+
+
     for (i, set) in part.iter().enumerate() {
         if set.is_empty() {
             continue;
@@ -750,7 +760,7 @@ fn write_haplotypes(
 
             write!(
                 vartig_file,
-                ">HAP{}.{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{:.3}\tERR:{:.3}\tHAPQ:{}\tREL_ERR:{:.3}\n",
+                ">HAP{}.{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{:.3}\tERR:{:.4}\tHAPQ:{}\tREL_ERR:{:.3}\n",
                 i,
                 out_bam_part_dir,
                 contig,
@@ -768,8 +778,8 @@ fn write_haplotypes(
                 set,
                 &format!("{}", i),
                 &out_bam_part_dir,
+                &mut vartig_info,
                 &snp_pos_to_genome_pos,
-                false,
                 left_snp_pos,
                 right_snp_pos,
             );
@@ -829,7 +839,7 @@ fn write_haplotypes(
 
     write!(
         ploidy_file,
-        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.3}\n",
+        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.4}\n",
         contig,
         avg_local_ploidy,
         avg_global_ploidy,
@@ -843,7 +853,7 @@ fn write_haplotypes(
 
     write!(
         top_ploidy_file,
-        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.3}\n",
+        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.4}\n",
         contig,
         avg_local_ploidy,
         avg_global_ploidy,
@@ -893,7 +903,7 @@ pub fn write_all_parts_file(
                 utils_frags::get_errors_cov_from_frags(set, left_snp_pos, right_snp_pos);
             write!(
                 file,
-                ">HAP{}.{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{:.3}\tERR:{:.3}\tHAPQ:{}\tREL_ERR:{:.3}\n",
+                ">HAP{}.{}\tCONTIG:{}\tSNPRANGE:{}-{}\tBASERANGE:{}-{}\tCOV:{:.3}\tERR:{:.4}\tHAPQ:{}\tREL_ERR:{:.3}\n",
                 //1-indexed snp poses are output... this is annoying
                 i,
                 out_bam_part_dir,

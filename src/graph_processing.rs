@@ -1,4 +1,6 @@
 use crate::constants;
+use log::Level::{Debug, Trace};
+use log::{log_enabled};
 use crate::file_writer;
 use crate::global_clustering;
 use crate::local_clustering;
@@ -218,7 +220,7 @@ fn get_local_hap_blocks<'a>(
                 1.0 / (1.0 - epsilon) / (1.0 + 1.0 / ((ploidy as f64).powf(1.00) + 1.00) as f64);
 
             }
-            log::debug!(
+            log::trace!(
                 "Expected MEC ratio {}, observed MEC ratio {}",
                 mec_threshold,
                 mec_vector[ploidy - ploidy_start] as f64
@@ -232,18 +234,18 @@ fn get_local_hap_blocks<'a>(
             } 
             else{
                 if options.stopping_heuristic{
-                    log::debug!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
+                    log::trace!("MEC decrease thereshold, returning ploidy {}.", ploidy - 1);
                     best_ploidy -= 1;
                     break;
                 }
             }
             if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
-                log::debug!("MEC error threshold, returning ploidy {}.", ploidy);
+                log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
                 break;
             }
         } else {
             if mec_vector[ploidy - ploidy_start] < expected_errors_ref[ploidy - ploidy_start] {
-                log::debug!("MEC error threshold, returning ploidy {}.", ploidy);
+                log::trace!("MEC error threshold, returning ploidy {}.", ploidy);
                 break;
             }
         }
@@ -255,7 +257,7 @@ fn get_local_hap_blocks<'a>(
 
     log::trace!("DIFF\t{}\t{}", mec_vector[0], mec_vector[1]);
 
-    log::debug!(
+    log::trace!(
         "MEC vector {:?}, error_thresh {:?}, SNPs interval  {} {}",
         &mec_vector,
         expected_errors_ref,
@@ -284,16 +286,18 @@ fn get_local_hap_blocks<'a>(
         }
         hap_node_blocks.push(hap_node_block);
 
-        file_writer::write_all_parts_file(
-            &frag_best_part,
-            "",
-            &vec![],
-            &local_part_dir,
-            &format!("{}-{}-{}-{}", j, l, snp_range_vec[j].0, best_ploidy),
-            &snp_to_genome_pos,
-            &vec![],
-            &vec![],
-        );
+        if log_enabled!(Debug) || log_enabled!(Trace){
+            file_writer::write_all_parts_file(
+                &frag_best_part,
+                "",
+                &vec![],
+                &local_part_dir,
+                &format!("{}-{}-{}-{}", j, l, snp_range_vec[j].0, best_ploidy),
+                &snp_to_genome_pos,
+                &vec![],
+                &vec![],
+            );
+        }
     }
 
     return Some(hap_node_blocks);
@@ -532,9 +536,11 @@ pub fn get_disjoint_paths_rewrite<'a>(
         };
     }
 
-    let mut pet_graph_file =
-        File::create(format!("{}/pet_graph.dot", floria_out_dir)).expect("Can't create file");
-    write!(pet_graph_file, "{:?}", Dot::new(&hap_petgraph)).unwrap();
+    if log_enabled!(Debug) || log_enabled!(Trace){
+        let mut pet_graph_file =
+            File::create(format!("{}/pet_graph.dot", floria_out_dir)).expect("Can't create file");
+        write!(pet_graph_file, "{:?}", Dot::new(&hap_petgraph)).unwrap();
+    }
     let mut iter_count = 0;
     let mut all_joined_path_parts = vec![];
     let mut cov_of_haplogroups = vec![];

@@ -121,7 +121,7 @@ where
 {
     let mut vcf = match bcf::Reader::from_path(vcf_file) {
         Ok(vcf) => vcf,
-        Err(_) => panic!("rust_htslib had an error while reading the VCF file. Exiting."),
+        Err(_) =>{ error!("rust_htslib had an error while reading the VCF file. Exiting."); std::process::exit(1)},
     };
     let mut map_positions_vec = FxHashMap::default();
     //let mut positions_vec = Vec::new();
@@ -233,7 +233,7 @@ pub fn get_vcf_profile<'a>(vcf_file: &str, ref_chroms: &'a Vec<String>) -> VcfPr
     let mut vcf_prof = VcfProfile::default();
     let mut vcf = match bcf::Reader::from_path(vcf_file) {
         Ok(vcf) => vcf,
-        Err(_) => panic!("rust_htslib had an error reading the VCF file. Exiting."),
+        Err(_) =>{ error!("rust_htslib had an error while reading the VCF file. Exiting."); std::process::exit(1)},
     };
     let mut snp_counter = 1;
     let mut vcf_pos_allele_map = FxHashMap::default();
@@ -311,7 +311,8 @@ pub fn get_bam_readers(
         let short_bam = match bam::IndexedReader::from_path(short_bam_file) {
             Ok(short_bam) => short_bam,
             Err(_) => {
-                panic!("rust_htslib had an error while reading the short-read BAM file. Exiting")
+                error!("rust_htslib had an error while reading the short-read BAM file. Exiting");
+                std::process::exit(1)
             }
         };
         short_bam_read = Some(short_bam);
@@ -321,7 +322,7 @@ pub fn get_bam_readers(
     }
     let long_bam = match bam::IndexedReader::from_path(long_bam_file) {
         Ok(long_bam) => long_bam,
-        Err(_) => panic!("rust_htslib had an error while reading BAM file. Exiting"),
+        Err(_) =>{ error!("rust_htslib had an error while reading BAM file. Exiting");std::process::exit(1)},
     };
 
     return (long_bam, short_bam_read);
@@ -735,7 +736,7 @@ pub fn get_contigs_to_phase(bam_file: &str) -> Vec<String> {
 pub fn l_epsilon_auto_detect(bam_file: &str) -> (usize, f64){
     let main_bam_opt = IndexedReader::from_path(bam_file);
     if main_bam_opt.is_err(){
-        error!("Error opening bam file '{}'. It is either malformed or not present.", bam_file);
+        error!("Error opening bam file '{}'. It is either malformed, not present, or the index is not present.", bam_file);
         std::process::exit(1);
     }
     let mut main_bam = main_bam_opt.unwrap();
