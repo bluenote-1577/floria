@@ -1,4 +1,5 @@
 use crate::constants;
+use bio::io::fasta::{IndexedReader as FastaIndexedReader};
 use crate::part_block_manip;
 use crate::types_structs::*;
 use crate::utils_frags;
@@ -26,10 +27,15 @@ pub fn write_outputs(
     snp_pos_to_genome_pos: &Vec<usize>,
     options: &Options,
     snpless_frags: &Vec<&Frag>,
+    chrom_seqs: &mut FastaIndexedReader<std::fs::File>,
 ) {
     let trim_reads = options.trim_reads;
     let gzip = options.gzip;
     fs::create_dir_all(&out_bam_part_dir).unwrap();
+    let mut fasta_seq = vec![];
+    chrom_seqs.fetch_all(contig).unwrap();
+    chrom_seqs.read(&mut fasta_seq).unwrap();
+    let contig_len = fasta_seq.len();
 
     let (hapqs, rel_err, avg_err) =
         part_block_manip::get_hapq(&part, snp_pos_to_genome_pos, snp_range_parts_vec, options);
@@ -42,7 +48,8 @@ pub fn write_outputs(
         &hapqs,
         &rel_err,
         &options.out_dir,
-        avg_err
+        avg_err,
+        contig_len
     );
     write_all_parts_file(
         part,
@@ -699,9 +706,10 @@ fn write_haplotypes(
     rel_err: &Vec<f64>,
     top_dir: &str,
     avg_err: f64,
+    contig_len: usize,
 ) -> FxHashMap<usize, u8> {
     let vartig_file = format!("{}/{}.vartigs", out_bam_part_dir, contig);
-    let ploidy_file = format!("{}/ploidy_info.tsv", out_bam_part_dir);
+//    let ploidy_file = format!("{}/ploidy_info.tsv", out_bam_part_dir);
     let top_ploidy_file = format!("{}/contig_ploidy_info.tsv", top_dir);
     let mut longest_vartig_bases = 0;
 
@@ -809,12 +817,12 @@ fn write_haplotypes(
         }
     }
 
-    let mut ploidy_file = OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open(ploidy_file)
-        .unwrap();
+//    let mut ploidy_file = OpenOptions::new()
+//        .write(true)
+//        .truncate(true)
+//        .create(true)
+//        .open(ploidy_file)
+//        .unwrap();
 
     let mut top_ploidy_file = OpenOptions::new()
         .write(true)
@@ -842,34 +850,35 @@ fn write_haplotypes(
         snp_covered_count_g0.iter().sum::<f64>() / snp_covered_count_g0.len() as f64;
     //let avg_global_ploidy = total_bases_covered /
     let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
-    write!(
-        ploidy_file,
-        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_vartig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\tavg_err\n",
-    )
-    .unwrap();
-
-    write!(
-        ploidy_file,
-        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.4}\n",
-        contig,
-        avg_local_ploidy,
-        avg_global_ploidy,
-        rough_cvg,
-        total_bases_covered,
-        avg_local_ploidy_g0,
-        avg_global_ploidy_g0,
-        avg_err
-    )
-    .unwrap();
+//    write!(
+//        ploidy_file,
+//        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_vartig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\tavg_err\n",
+//    )
+//    .unwrap();
+//
+//    write!(
+//        ploidy_file,
+//        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.4}\n",
+//        contig,
+//        avg_local_ploidy,
+//        avg_global_ploidy,
+//        rough_cvg,
+//        total_bases_covered,
+//        avg_local_ploidy_g0,
+//        avg_global_ploidy_g0,
+//        avg_err
+//    )
+//    .unwrap();
 
     write!(
         top_ploidy_file,
-        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.4}\n",
+        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\n",
         contig,
         avg_local_ploidy,
         avg_global_ploidy,
         rough_cvg,
         total_bases_covered,
+        total_bases_covered as f64 / contig_len as f64,
         avg_local_ploidy_g0,
         avg_global_ploidy_g0,
         avg_err

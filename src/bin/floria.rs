@@ -233,7 +233,7 @@ fn main() {
         {
             if warn_first_length {
                 log::warn!(
-                    "A contig ({}) is not present has < {} variants. This warning will not be shown from now on. Make sure to change --snp-count-filter if you want to phase small contigs.",
+                    "A contig ({}) is not present or has < {} variants. This warning will not be shown from now on. Make sure to change --snp-count-filter if you want to phase small contigs.",
                     contig,
                     options.snp_count_filter,
                 );
@@ -380,6 +380,7 @@ fn main() {
                 &snp_to_genome_pos,
                 &options,
                 &snpless_frags_between_gaps,
+                &mut chrom_seqs.as_mut().unwrap()
             );
         }
     }

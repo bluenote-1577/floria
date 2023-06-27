@@ -128,7 +128,7 @@ pub fn parse_cmd_line(matches : ArgMatches) -> Options{
     let mut all_ploidy_file = File::create(format!("{}/contig_ploidy_info.tsv", out_dir)).expect("Can't create file");
     write!(
         all_ploidy_file,
-        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_haplotig_bases_covered\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\tavg_err\n",
+        "contig\taverage_local_ploidy\taverage_global_ploidy\tapproximate_coverage_ignoring_indels\ttotal_vartig_bases_covered\twhole_contig_multiplicity\taverage_local_ploidy_min1hapq\taverage_global_ploidy_min1hapq\tavg_err\n",
     )
     .unwrap();
 
