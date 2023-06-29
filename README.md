@@ -2,7 +2,7 @@
 
 ## Introduction
 
-**floria** is a software package for phasing metagenomic communities at the strain level 
+**floria** is a software package for phasing metagenomic communities at the strain level.
 
 Given 
 
