@@ -716,8 +716,16 @@ fn write_haplotypes(
     let mut snp_covered_count = vec![0.; snp_pos_to_genome_pos.len()];
     let mut coverage_count = vec![0.; snp_pos_to_genome_pos.len()];
 
-    let mut snp_covered_count_g0 = vec![0.; snp_pos_to_genome_pos.len()];
-    let mut coverage_count_g0 = vec![0.; snp_pos_to_genome_pos.len()];
+    let mut snp_covered_count_geq15 = vec![0.; snp_pos_to_genome_pos.len()];
+    let mut coverage_count_geq15= vec![0.; snp_pos_to_genome_pos.len()];
+
+    let mut snp_covered_count_geq30 = vec![0.; snp_pos_to_genome_pos.len()];
+    let mut coverage_count_geq30 = vec![0.; snp_pos_to_genome_pos.len()];
+
+    let mut snp_covered_count_geq45 = vec![0.; snp_pos_to_genome_pos.len()];
+    let mut coverage_count_geq45 = vec![0.; snp_pos_to_genome_pos.len()];
+
+
 
     let mut hapQ_scores = FxHashMap::default();
     let mut total_bases_covered = 0;
@@ -768,13 +776,26 @@ fn write_haplotypes(
                 snp_covered_count[(i - 1) as usize] += 1.;
                 coverage_count[(i - 1) as usize] += cov
             }
-            if hap_q > 0 {
+            if hap_q >= 15 {
                 for i in left_snp_pos..right_snp_pos + 1 {
-                    snp_covered_count_g0[(i - 1) as usize] += 1.;
-                    coverage_count_g0[(i - 1) as usize] += cov
+                    snp_covered_count_geq15[(i - 1) as usize] += 1.;
+                    coverage_count_geq15[(i - 1) as usize] += cov
                 }
             }
 
+            if hap_q >= 30{
+                for i in left_snp_pos..right_snp_pos + 1 {
+                    snp_covered_count_geq30[(i - 1) as usize] += 1.;
+                    coverage_count_geq30[(i - 1) as usize] += cov
+                }
+            }
+
+            if hap_q >= 45{
+                for i in left_snp_pos..right_snp_pos + 1 {
+                    snp_covered_count_geq45[(i - 1) as usize] += 1.;
+                    coverage_count_geq45[(i - 1) as usize] += cov
+                }
+            }
             hapQ_scores.insert(i, hap_q);
 
             write!(
@@ -837,17 +858,24 @@ fn write_haplotypes(
         .collect::<Vec<_>>()
         .len();
 
-    let num_nonzero_g0 = snp_covered_count_g0
+    let num_nonzero_geq15 = snp_covered_count_geq15
         .iter()
         .filter(|x| **x > 0.)
         .collect::<Vec<_>>()
         .len();
 
-    let avg_local_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
-    let avg_local_ploidy_g0 = snp_covered_count_g0.iter().sum::<f64>() / num_nonzero_g0 as f64;
+    let _avg_local_ploidy = snp_covered_count.iter().sum::<f64>() / num_nonzero as f64;
+    let _avg_local_ploidy_geq15 = snp_covered_count_geq15.iter().sum::<f64>() / num_nonzero_geq15 as f64;
     let avg_global_ploidy = snp_covered_count.iter().sum::<f64>() / snp_covered_count.len() as f64;
-    let avg_global_ploidy_g0 =
-        snp_covered_count_g0.iter().sum::<f64>() / snp_covered_count_g0.len() as f64;
+    let avg_global_ploidy_geq15 =
+        snp_covered_count_geq15.iter().sum::<f64>() / snp_covered_count_geq15.len() as f64;
+    let avg_global_ploidy_geq30 =
+        snp_covered_count_geq30.iter().sum::<f64>() / snp_covered_count_geq30.len() as f64;
+
+    let avg_global_ploidy_geq45 =
+        snp_covered_count_geq45.iter().sum::<f64>() / snp_covered_count_geq45.len() as f64;
+
+
     //let avg_global_ploidy = total_bases_covered /
     let rough_cvg = coverage_count.iter().sum::<f64>() / num_nonzero as f64;
 //    write!(
@@ -872,15 +900,15 @@ fn write_haplotypes(
 
     write!(
         top_ploidy_file,
-        "{}\t{:.3}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\n",
+        "{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\n",
         contig,
-        avg_local_ploidy,
         avg_global_ploidy,
+        total_bases_covered as f64 / contig_len as f64,
         rough_cvg,
         total_bases_covered,
-        total_bases_covered as f64 / contig_len as f64,
-        avg_local_ploidy_g0,
-        avg_global_ploidy_g0,
+        avg_global_ploidy_geq15,
+        avg_global_ploidy_geq30,
+        avg_global_ploidy_geq45,
         avg_err
     )
     .unwrap();
