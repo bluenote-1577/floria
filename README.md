@@ -64,7 +64,3 @@ wget https://github.com/bluenote-1577/floria/releases/download/latest/floria
 chmod +x floria
 ./floria -h
 ```
-
-## Using floria
-
-Documentation on using floria can be found at https://phase-doc.readthedocs.io/en/latest/index.html.
