@@ -49,10 +49,18 @@ If you're using an **ARM architecture with NEON instructions** (e.g. Mac M1):
 
 ```sh
 
-# Option 2) If using ARM architecture with NEON instructions
+# If using ARM architecture with NEON instructions
 cargo install --path . --root ~/.cargo --features=neon --no-default-features
 floria -h # binary is available in PATH
 
+```
+If you don't have AVX2 but have SSE2 instead 
+
+```sh
+
+# If using AVX2 not available
+cargo install --path . --root ~/.cargo --features=sse2 --no-default-features
+floria -h # binary is available in PATH
 ```
 
 #### Option 2 - precompiled static binary on **x86-64-linux**
