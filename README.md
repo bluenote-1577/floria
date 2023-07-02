@@ -41,8 +41,8 @@ floria -h # binary is available in PATH
 
 # OR IF ~/.cargo is unavailable for some reason
 
-cargo build --release
-./target/release/floria -h # binary built in ./target/release instead.
+#cargo build --release
+#./target/release/floria -h # binary built in ./target/release instead.
 ```
 
 If you're using an **ARM architecture with NEON instructions** (e.g. Mac M1): 
