@@ -229,6 +229,7 @@ pub fn stable_binom_cdf_p_rev(n: usize, k: usize, p: f64, div_factor: f64) -> f6
         //Get a NaN error if we only have errors -- which can happen if we use polishing.
         a = 0.0000001;
     }
+    
 
     let mut rel_ent = a * (a / p).ln() + (1.0 - a) * ((1.0 - a) / (1.0 - p)).ln();
 

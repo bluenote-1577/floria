@@ -258,6 +258,7 @@ fn main() {
             &mut chrom_seqs,
             &contig,
         );
+        log::info!("Number of reads passing filtering: {}", all_frags.len());
         if all_frags.len() == 0 {
             log::debug!("Contig {} has no fragments", contig);
             continue;

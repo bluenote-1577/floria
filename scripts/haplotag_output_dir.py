@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(description='Generate a new bam which contains 
 parser.add_argument("-d", "--result-directory", help="the haploset file to haplotag.", type=str, required=True)
 parser.add_argument("-b", "--bam", help="bam file to haplotag.", type=str, required=True)
 parser.add_argument("-o", "--output-name", help="output name of the bam file. '.bam' is appended as a file extension. ", type=str,required=True)
-parser.add_argument("-q", "--min-hapq", help = "minimum HAPQ threshold for haplotagging (default = 0)", type = int, default = 0) 
+parser.add_argument("-q", "--min-hapq", help = "minimum HAPQ threshold for haplotagging (default = 0)", type = int, default = 1) 
 args = parser.parse_args()
 
 

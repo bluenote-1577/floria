@@ -51,6 +51,8 @@ pub fn beam_search_phasing<'a>(
         if i < 25 {
             max_num_soln_mut = ploidy * max_number_solns;
         }
+        else{
+        }
         //        let mut search_node_list_next = vec![];
         let mut search_node_heap_next: BinaryHeap<(Rc<SearchNode>, HapBlock)> = BinaryHeap::new();
         let frag = &all_reads[i];

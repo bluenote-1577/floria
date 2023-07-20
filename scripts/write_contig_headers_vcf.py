@@ -15,7 +15,7 @@ refs = list(refs)
 refs.sort()
 print(refs)
 
-new_vcf =  open(vcf_file+"c_header",'w')
+new_vcf =  open(vcf_file+".with_header",'w')
 count = 0
 for line in open(vcf_file,'r'):
     if count != 2:

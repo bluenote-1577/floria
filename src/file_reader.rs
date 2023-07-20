@@ -372,6 +372,7 @@ pub fn get_frags_from_bamvcf_rewrite(
 
     let ref_id_to_frag_map: Mutex<FxHashMap<_, _>> = Mutex::new(FxHashMap::default());
     let rec_vecs = vec![record_vec_short, record_vec_long];
+    log::info!("Number of records in BAM file for contig: {}", rec_vecs[0].len() + rec_vecs[1].len());
     for record_vec in rec_vecs {
         record_vec
             .into_par_iter()

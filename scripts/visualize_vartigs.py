@@ -6,7 +6,7 @@ parser = argparse.ArgumentParser(description='Visualize vartigs in a vartig-cove
 parser.add_argument("vartig_file", help="the vartig file to visualize.", type=str)
 parser.add_argument("-q", "--min-hapq", help = "minimum HAPQ threshold (default = 1)", type = int, default = 1) 
 parser.add_argument("-c", "--min-cov", help = "minimum COV threshold (default = 1.5)", type = int, default = 1.5) 
-parser.add_argument("-l", "--min-len", help = "minimum HAPQ threshold (default = 1)", type = int, default = 1000) 
+parser.add_argument("-l", "--min-len", help = "minimum vartig length threshold (default = 1000)", type = int, default = 1000) 
 args = parser.parse_args()
 
 hapq_cut = int(args.min_hapq)
