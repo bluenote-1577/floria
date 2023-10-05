@@ -9,9 +9,7 @@ Given
 1. a list of variants in .vcf format
 2. a set of reads mapped to contigs/references in .bam format
 
-**floria** performs strain/haplotype phasing on short-read or long-read whole genome metagenomic samples. 
-
-Importantly, floria was built with useability in mind. It is easy to install (a static binary is also available) and gives plenty of output information. We also provide scripts for visualizing its outputs. 
+**floria** performs strain/haplotype phasing on short-read or long-read whole genome metagenomic samples. For more an introduction to floria and its inputs/outputs, see the documentation below. 
 
 ## Full documentation
 
