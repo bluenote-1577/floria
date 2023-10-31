@@ -34,7 +34,7 @@ If you're using an **x86-64 architecture with avx2 instructions (e.g. most linux
 git clone https://github.com/bluenote-1577/floria
 cd floria
 
-cargo install --path . --root ~/.cargo 
+cargo install --path . 
 floria -h # binary is available in PATH
 
 # OR IF ~/.cargo is unavailable for some reason
