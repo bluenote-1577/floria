@@ -1,4 +1,4 @@
-# floria
+# floria - metagenomic long or short-read strain phasing
 
 ## Introduction
 
@@ -9,7 +9,7 @@ Given
 1. a list of variants in .vcf format
 2. a set of reads mapped to contigs/references in .bam format
 
-**floria** performs strain/haplotype phasing on short-read or long-read whole genome metagenomic samples. For more an introduction to floria and its inputs/outputs, see the documentation below. 
+**floria** performs strain/haplotype phasing on short-read or long-read shotgun metagenomic samples. For more an introduction to floria and its inputs/outputs, see the documentation below. 
 
 ## Full documentation
 
@@ -17,7 +17,7 @@ See https://phase-doc.readthedocs.io/en/latest/index.html for more information.
 
 ## Install 
 
-Compiling floria from scratch should be relatively simple. Otherwise, a static binary is provided. Conda install is forthcoming.
+Compiling floria from scratch should be relatively simple. Otherwise, a static binary is provided. 
 
 #### Option 1 - compile from scratch
 
