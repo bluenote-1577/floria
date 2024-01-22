@@ -2,9 +2,9 @@
 
 ## Introduction
 
-**floria** is a software package for recovering microbial haplotypes and clustering reads at the strain level from metagenomic sequencing data. 
+**floria** is a software package for recovering microbial haplotypes and clustering reads at the strain level from metagenomic sequencing data. See [the introduction here](https://phase-doc.readthedocs.io/en/latest/introduction.html) for more information. 
 
-After calling SNPs against reference genomes/a metagenomic assembly, floria produce strain-level clusters of reads and their haplotypes **in minutes**. 
+After calling SNPs against reference genomes __or__ a metagenomic assembly, floria produce strain-level clusters of short or long reads and their haplotypes **in minutes**. 
 
 <p align="center">
   <img width="460" height="400" src="https://github.com/bluenote-1577/vartig-utils/blob/main/visualize-vartig-example.png", caption="asdf">
@@ -15,22 +15,18 @@ After calling SNPs against reference genomes/a metagenomic assembly, floria prod
   </i>
 </p>
 
-### Inputs and outputs
+### Inputs
 
-Given 
+Floria requires: 
 
 1. a list of variants in .vcf format
-2. a set of reads mapped to contigs/references in .bam format
-
-**floria** performs strain/haplotype phasing on short-read or long-read shotgun metagenomic samples. For more an introduction to floria and its inputs/outputs, see the documentation below. 
-
-## Full documentation
-
-See https://phase-doc.readthedocs.io/en/latest/index.html for more information.
-
-## End-to-end phasing pipeline
+2. a set of reads mapped to assembled contigs/references in .bam format
 
 See the **"Production"** pipeline [here](https://github.com/jsgounot/Floria_analysis_workflow) for reads-to-haplotype pipelines if you do not know how to get started with generating VCFs or BAMs. 
+
+## Outputs, tutorials, and manuals (full documentation)
+
+See https://phase-doc.readthedocs.io/en/latest/index.html for more information on tutorials, outputs, and extra manuals for usage. 
 
 ## Install 
 
