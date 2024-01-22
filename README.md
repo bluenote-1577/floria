@@ -28,7 +28,7 @@ See the **"Production"** pipeline [here](https://github.com/jsgounot/Floria_anal
 
 See https://phase-doc.readthedocs.io/en/latest/index.html for more information on tutorials, outputs, and extra manuals for usage. 
 
-## Install 
+## Quick start 
 
 Compiling floria from scratch should be relatively simple. Otherwise, a static binary is provided. 
 
