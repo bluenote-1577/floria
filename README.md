@@ -11,7 +11,7 @@ After calling SNPs against reference genomes __or__ a metagenomic assembly, flor
 </p>
 <p align="center">
   <i>
-    A 1Mbp contig (Brevefilum fermentans) was automatically phased into two strains by floria in minutes. Only two strains are present with high HAPQ; spurious "haplosets" are given low HAPQ.
+    A 1Mbp contig (Brevefilum fermentans) was automatically phased into two strains (top: y-axis is coverage). Only two strains are present with high HAPQ; spurious "haplosets" are given low HAPQ.
   </i>
 </p>
 
