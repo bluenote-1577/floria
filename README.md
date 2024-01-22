@@ -1,8 +1,21 @@
-# floria - metagenomic long or short-read strain phasing
+# floria - metagenomic long or short-read strain haplotype phasing
 
 ## Introduction
 
-**floria** is a software package for phasing metagenomic communities at the strain level.
+**floria** is a software package for recovering microbial haplotypes and clustering reads at the strain level from metagenomic sequencing data. 
+
+After calling SNPs against reference genomes/a metagenomic assembly, floria produce strain-level clusters of reads and their haplotypes **in minutes**. 
+
+<p align="center">
+  <img width="460" height="400" src="https://github.com/bluenote-1577/vartig-utils/blob/main/visualize-vartig-example.png", caption="asdf">
+</p>
+<p align="center">
+  <i>
+    A 1Mbp contig (Brevefilum fermentans) was automatically phased into two strains by floria in minutes. Only two strains are present with high HAPQ; spurious "haplosets" are given low HAPQ.
+  </i>
+</p>
+
+### Inputs and outputs
 
 Given 
 
@@ -14,6 +27,10 @@ Given
 ## Full documentation
 
 See https://phase-doc.readthedocs.io/en/latest/index.html for more information.
+
+## End-to-end phasing pipeline
+
+See the **"Production"** pipeline [here](https://github.com/jsgounot/Floria_analysis_workflow) for reads-to-haplotype pipelines if you do not know how to get started with generating VCFs or BAMs. 
 
 ## Install 
 
