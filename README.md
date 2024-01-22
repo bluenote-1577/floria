@@ -50,10 +50,9 @@ cd floria
 cargo install --path . 
 floria -h # binary is available in PATH
 
-# OR IF ~/.cargo is unavailable for some reason
-
-#cargo build --release
-#./target/release/floria -h # binary built in ./target/release instead.
+# run floria on mock data
+floria -b tests/test_long.bam  -v tests/test.vcf  -r tests/MN-03.fa -o 3_klebsiella_strains
+ls 3_klebsiella_strains
 ```
 
 If you're using an **ARM architecture with NEON instructions** (e.g. Mac M1): 
