@@ -28,7 +28,7 @@ A relatively recent standard toolchain is needed.
 3. make 
 4. GCC 
 
-If you're using an **x86-64 architecture with avx2 instructions (e.g. most linux systems)**: 
+If you're using an **x86-64 architecture with SSE instructions (most linux systems)**: 
 
 ```sh
 git clone https://github.com/bluenote-1577/floria
@@ -52,18 +52,10 @@ cargo install --path . --root ~/.cargo --features=neon --no-default-features
 floria -h # binary is available in PATH
 
 ```
-If you don't have AVX2 but have **SSE2 only instead (e.g. older systems)** 
-
-```sh
-
-# If using AVX2 not available
-cargo install --path . --root ~/.cargo --features=sse2 --no-default-features
-floria -h # binary is available in PATH
-```
 
 #### Option 2 - precompiled static binary on **x86-64-linux**
 
-The static binary only for x86-64 linux with AVX2 instructions currently. 
+The static binary only for x86-64 linux with SSE instructions currently. 
 
 ```sh
 wget https://github.com/bluenote-1577/floria/releases/download/latest/floria
