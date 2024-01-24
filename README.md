@@ -68,6 +68,12 @@ floria -h # binary is available in PATH
 
 ```
 
+#### Option 2 - bioconda
+
+```sh
+conda install -c bioconda floria
+```
+
 #### Option 2 - precompiled static binary on **x86-64-linux**
 
 The static binary only for x86-64 linux with SSE instructions currently. 
