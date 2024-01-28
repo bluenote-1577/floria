@@ -30,8 +30,6 @@ See https://phase-doc.readthedocs.io/en/latest/index.html for more information o
 
 ## Install + Quick start 
 
-Compiling floria from scratch should be relatively simple. Otherwise, a static binary is provided. 
-
 #### Option 1 - compile from scratch
 
 A relatively recent standard toolchain is needed.
