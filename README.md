@@ -74,9 +74,9 @@ floria -h # binary is available in PATH
 conda install -c bioconda floria
 ```
 
-#### Option 2 - precompiled static binary on **x86-64-linux**
+#### Option 3 - precompiled static binary on **x86-64-linux**
 
-The static binary only for x86-64 linux with SSE instructions currently. 
+The static binary is only for x86-64 linux with SSE instructions currently. 
 
 ```sh
 wget https://github.com/bluenote-1577/floria/releases/download/latest/floria
