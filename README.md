@@ -49,13 +49,6 @@ cd floria
 
 cargo install --path . 
 floria -h # binary is available in PATH
-
-# run floria on mock data
-floria -b tests/test_long.bam  -v tests/test.vcf  -r tests/MN-03.fa -o 3_klebsiella_strains
-ls 3_klebsiella_strains
-
-# visualize strain "vartigs" if you have matplotlib
-python scripts/visualize_vartigs.py 3_klebsiella_strains/NZ_CP081897.1/NZ_CP081897.1.vartigs
 ```
 
 If you're using an **ARM architecture with NEON instructions** (e.g. Mac M1): 
@@ -82,4 +75,18 @@ The static binary is only for x86-64 linux with SSE instructions currently.
 wget https://github.com/bluenote-1577/floria/releases/download/latest/floria
 chmod +x floria
 ./floria -h
+```
+
+### Quick Start after install 
+
+```sh
+git clone https://github.com/bluenote-1577/floria
+cd floria
+
+# run floria on mock data
+floria -b tests/test_long.bam  -v tests/test.vcf  -r tests/MN-03.fa -o 3_klebsiella_strains
+ls 3_klebsiella_strains
+
+# visualize strain "vartigs" if you have matplotlib
+python scripts/visualize_vartigs.py 3_klebsiella_strains/NZ_CP081897.1/NZ_CP081897.1.vartigs
 ```
