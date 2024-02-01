@@ -88,3 +88,8 @@ ls 3_klebsiella_strains
 # visualize strain "vartigs" if you have matplotlib
 python scripts/visualize_vartigs.py 3_klebsiella_strains/NZ_CP081897.1/NZ_CP081897.1.vartigs
 ```
+
+## Citation
+\*Co-lead authors
+
+Jim Shaw\*, Jean-Sebastien Gounot\*, Hanrong Chen, Niranjan Nagarajan, Yun William Yu. Floria: Fast and accurate strain haplotyping in metagenomes (2024). bioRxiv.
