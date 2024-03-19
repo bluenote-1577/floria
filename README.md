@@ -1,23 +1,34 @@
-# floria - metagenomic long or short-read strain phasing
+# floria - metagenomic long or short-read strain haplotype phasing
 
 ## Introduction
 
-**floria** is a software package for phasing metagenomic communities at the strain level.
+**Floria** is a software package for recovering microbial haplotypes and clustering reads at the strain level from metagenomic sequencing data. See [the introduction here](https://phase-doc.readthedocs.io/en/latest/introduction.html) for more information. 
 
-Given 
+After calling SNPs against reference genomes __or__ a metagenomic assembly, floria produce strain-level clusters of short or long reads and their haplotypes **in minutes**. 
+
+<p align="center">
+  <img width="460" height="400" src="https://github.com/bluenote-1577/vartig-utils/blob/main/visualize-vartig-example.png", caption="asdf">
+</p>
+<p align="center">
+  <i>
+    A 1Mbp contig (Brevefilum fermentans) was automatically phased into two strains (top: y-axis is coverage). Only two strains are present with high HAPQ; spurious "haplosets" are given low HAPQ.
+  </i>
+</p>
+
+### Inputs
+
+Floria requires: 
 
 1. a list of variants in .vcf format
-2. a set of reads mapped to contigs/references in .bam format
+2. a set of reads mapped to assembled contigs/references in .bam format
 
-**floria** performs strain/haplotype phasing on short-read or long-read shotgun metagenomic samples. For more an introduction to floria and its inputs/outputs, see the documentation below. 
+See the **"Floria-PL"** pipeline [here](https://github.com/jsgounot/Floria_analysis_workflow) for reads-to-haplotype pipelines if you do not know how to get started with generating VCFs or BAMs. 
 
-## Full documentation
+## Outputs, tutorials, and manuals (full documentation)
 
-See https://phase-doc.readthedocs.io/en/latest/index.html for more information.
+See https://phase-doc.readthedocs.io/en/latest/index.html for more information on tutorials, outputs, and extra manuals for usage. 
 
-## Install 
-
-Compiling floria from scratch should be relatively simple. Otherwise, a static binary is provided. 
+## Install + Quick start 
 
 #### Option 1 - compile from scratch
 
@@ -28,7 +39,7 @@ A relatively recent standard toolchain is needed.
 3. make 
 4. GCC 
 
-If you're using an **x86-64 architecture with avx2 instructions (e.g. most linux systems)**: 
+If you're using an **x86-64 architecture with SSE instructions (most linux systems)**: 
 
 ```sh
 git clone https://github.com/bluenote-1577/floria
@@ -36,11 +47,6 @@ cd floria
 
 cargo install --path . 
 floria -h # binary is available in PATH
-
-# OR IF ~/.cargo is unavailable for some reason
-
-#cargo build --release
-#./target/release/floria -h # binary built in ./target/release instead.
 ```
 
 If you're using an **ARM architecture with NEON instructions** (e.g. Mac M1): 
@@ -52,21 +58,38 @@ cargo install --path . --root ~/.cargo --features=neon --no-default-features
 floria -h # binary is available in PATH
 
 ```
-If you don't have AVX2 but have **SSE2 only instead (e.g. older systems)** 
+
+#### Option 2 - bioconda
 
 ```sh
-
-# If using AVX2 not available
-cargo install --path . --root ~/.cargo --features=sse2 --no-default-features
-floria -h # binary is available in PATH
+conda install -c bioconda floria
 ```
 
-#### Option 2 - precompiled static binary on **x86-64-linux**
+#### Option 3 - precompiled static binary on **x86-64-linux**
 
-The static binary only for x86-64 linux with AVX2 instructions currently. 
+The static binary is only for x86-64 linux with SSE instructions currently. 
 
 ```sh
 wget https://github.com/bluenote-1577/floria/releases/download/latest/floria
 chmod +x floria
 ./floria -h
 ```
+
+### Quick Start after install 
+
+```sh
+git clone https://github.com/bluenote-1577/floria
+cd floria
+
+# run floria on mock data
+floria -b tests/test_long.bam  -v tests/test.vcf  -r tests/MN-03.fa -o 3_klebsiella_strains
+ls 3_klebsiella_strains
+
+# visualize strain "vartigs" if you have matplotlib
+python scripts/visualize_vartigs.py 3_klebsiella_strains/NZ_CP081897.1/NZ_CP081897.1.vartigs
+```
+
+## Citation
+\*Co-lead authors
+
+Jim Shaw\*, Jean-Sebastien Gounot\*, Hanrong Chen, Niranjan Nagarajan, Yun William Yu. Floria: Fast and accurate strain haplotyping in metagenomes (2024). bioRxiv.
