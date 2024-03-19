@@ -1,61 +1,75 @@
+import argparse
+import re
 import pysam
-import subprocess
-import sys
 
-if len(sys.argv) < 2:
-    print("USAGE: read_part.txt bamfile.bam prefix_name contig_name")
-    exit()
+p = re.compile('COV:(\d*\.?\d+)')
+snp_p = re.compile('BASERANGE:(\d+)-(\d+)')
+hapq_p = re.compile('HAPQ:(\d+)')
+index_p = re.compile('HAP(\d+)')
 
-print(sys.argv)
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Partition a BAM file into multiple files based on a partition file.')
+    parser.add_argument('-t','--haplosets', help='1 or more haploset files', required=True, type=str, nargs='+')
+    parser.add_argument('-b','--bam_file', help='Input BAM file',required=True, type=str)
+    parser.add_argument('-p', '--prefix_name', help='Prefix for output BAM files', default='split-bam', type=str)
+    parser.add_argument("-q", "--min-hapq", help = "minimum HAPQ threshold for haplotagging (default = 0)", type = int, default = 0) 
+    return parser.parse_args()
 
-read_part_file = sys.argv[1]
-bam_file = sys.argv[2]
-pref_nam = sys.argv[3]
-bam = pysam.AlignmentFile(bam_file)
+hapq_good = True
+def read_partitions(read_part_file, min_hapq):
+    read_parts = []
+    with open(read_part_file, 'r') as file:
+        for line in file:
+            if '>' in line:
+                hapq = int(hapq_p.findall(line)[0])
+                index = int(index_p.findall(line)[0])
+                if hapq >= min_hapq:
+                    hapq_good = True
+                    read_parts.append({'index':index,'hapq':hapq,'set':set()})
+                else:
+                    hapq_good = False
+            else:
+                if hapq_good:
+                    read_parts[-1]['set'].add(line.split()[0])
+    return read_parts
 
-read_part = []
+def create_output_files(prefix_name, indices, template_bam):
+    obam_files = [(i,pysam.AlignmentFile(f"{prefix_name}{i}.bam", "wb", template=template_bam)) for i in indices]
+    #create dictionary from this tuple
+    obam_files = dict(obam_files)
+    return obam_files
 
-count_i = -1 
-for line in open(read_part_file,'r'):
-    if '#' in line:
-        read_part.append(set())
-        count_i += 1
-    else:
-        read_part[count_i].add(line.split()[0])
+def partition_bam(read_parts, bam_file, obam_files, haploset_file):
+    with pysam.AlignmentFile(bam_file) as bam:
+        #get contig name EXAMPLE.test.test from haploset file folder/EXAMPLE.test.test.haploset
+        #contig_name = haploset_file.split('/')[-1].split('.')[0:-1].join('.')
+        contig_name = '.'.join(haploset_file.split('/')[-1].split('.')[0:-1])
+        fetch = bam.fetch(contig_name) if contig_name else bam.fetch(until_eof=True)
+        for b in fetch:
+            not_frag = True
+            for d in read_parts:
+                qnames = d['set']
+                i = d['index']
+                if b.query_name in qnames:
+                    obam_files[i].write(b)
+                    not_frag = False
+                    break
 
-ploidy = len(read_part)
+def main():
+    args = parse_arguments()
+    for haploset in args.haplosets:
+        print("Splitting bam file for", haploset, "with", args.bam_file)
+        read_parts = read_partitions(haploset,args.min_hapq)
+        obam_files = create_output_files(args.prefix_name, [x['index'] for x in read_parts], pysam.AlignmentFile(args.bam_file))
 
-obam_files = []
-file_names = []
+        partition_bam(read_parts, args.bam_file, obam_files, haploset)
 
-for i in range(ploidy):
-    file_name = pref_nam+str(i)+".bam"
-    file_names.append(file_name)
-    obam_files.append(pysam.AlignmentFile(file_name, "wb", template=bam))
+        for obam in obam_files.values():
+            obam.close()
+            pysam.index(obam.filename.decode())  # Indexing using pysam
 
-file_names.append(pref_nam+"-not_mapped.bam")
-obam_files.append(pysam.AlignmentFile(pref_nam+"-not_mapped.bam", "wb", template=bam))
+        print("Splitting complete")
 
-if len(sys.argv) < 5:
-    fetch = bam.fetch(until_eof=True)
-else:
-    contig_name = sys.argv[4]
-    fetch = bam.fetch(contig_name)
-for b in fetch:
-    not_frag = True;
-    for i in range(ploidy):
-        qnames = read_part[i]
-        if b.query_name in qnames:
-            obam_files[i].write(b)
-            not_frag=False
-    if not_frag:
-        obam_files[-1].write(b);
+if __name__ == '__main__':
+    main()
 
-
-for obam in obam_files:
-    obam.close()
-
-for file_name in file_names:
-    subprocess.run("samtools index " + file_name, shell=True, check=True)
-
-bam.close()
