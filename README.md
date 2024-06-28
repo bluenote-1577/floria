@@ -92,4 +92,4 @@ python scripts/visualize_vartigs.py 3_klebsiella_strains/NZ_CP081897.1/NZ_CP0818
 ## Citation
 \*Co-lead authors
 
-Jim Shaw\*, Jean-Sebastien Gounot\*, Hanrong Chen, Niranjan Nagarajan, Yun William Yu. Floria: Fast and accurate strain haplotyping in metagenomes (2024). bioRxiv.
+Jim Shaw\*, Jean-Sebastien Gounot\*, Hanrong Chen, Niranjan Nagarajan, Yun William Yu. [Floria: Fast and accurate strain haplotyping in metagenomes](https://doi.org/10.1093/bioinformatics/btae252) (2024). Bioinformatics.
