@@ -4,7 +4,7 @@
 
 **Floria** is a software package for recovering microbial haplotypes and clustering reads at the strain level from metagenomic sequencing data. See [the introduction here](https://phase-doc.readthedocs.io/en/latest/introduction.html) for more information. 
 
-After calling SNPs against reference genomes __or__ a metagenomic assembly, floria produce strain-level clusters of short or long reads and their haplotypes **in minutes**. 
+After calling SNPs against reference genomes __or__ a metagenomic assembly, floria produces 1) strain-level clusters of short or long reads and 2) their haplotypes **in minutes**. 
 
 <p align="center">
   <img width="460" height="400" src="https://github.com/bluenote-1577/vartig-utils/blob/main/visualize-vartig-example.png", caption="asdf">
