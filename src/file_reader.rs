@@ -119,6 +119,7 @@ pub fn get_genotypes_from_vcf_hts<P>(
 where
     P: AsRef<Path>,
 {
+    let acgt_upper = [b'A', b'C', b'G', b'T'];
     let mut vcf = match bcf::Reader::from_path(vcf_file) {
         Ok(vcf) => vcf,
         Err(_) =>{ error!("rust_htslib had an error while reading the VCF file. Exiting."); std::process::exit(1)},
@@ -153,6 +154,12 @@ where
                 is_snp = false;
                 break;
             }
+            else if acgt_upper.iter().all(|x| *x != allele[0].to_ascii_uppercase()){
+                log::warn!("Non A/C/G/T character '{}' detected in VCF. This may cause problems. Skipping...", allele[0] as char);
+                is_snp = false;
+                break;
+            }
+
         }
 
         if !is_snp {
@@ -230,6 +237,7 @@ fn alignment_passed_check(
 
 
 pub fn get_vcf_profile<'a>(vcf_file: &str, ref_chroms: &'a Vec<String>) -> VcfProfile<'a> {
+    let acgt_upper = [b'A', b'C', b'G', b'T'];
     let mut vcf_prof = VcfProfile::default();
     let mut vcf = match bcf::Reader::from_path(vcf_file) {
         Ok(vcf) => vcf,
@@ -279,6 +287,10 @@ pub fn get_vcf_profile<'a>(vcf_file: &str, ref_chroms: &'a Vec<String>) -> VcfPr
 
         for allele in alleles.iter() {
             if allele.len() > 1 {
+                is_snp = false;
+                break;
+            }
+            else if acgt_upper.iter().all(|x| *x != allele[0].to_ascii_uppercase()){
                 is_snp = false;
                 break;
             }

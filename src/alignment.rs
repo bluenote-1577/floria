@@ -35,6 +35,10 @@ pub fn realign(
             );
             for i in 0..alleles.len() {
                 ref_str[flank] = alleles[i] as u8;
+                if ref_str.iter().any(|x| x.to_ascii_uppercase() < b'A' || x.to_ascii_uppercase() > b'Z'){
+                    dbg!(&ref_str);
+                    panic!();
+                }
                 let r = PaddedBytes::from_bytes::<NucMatrix>(&ref_str, block_size);
 
                 //let a = Block::<false, false>::align(&q, &r, &NW1, gaps, block_size..=block_size, 0);
