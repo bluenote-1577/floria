@@ -132,7 +132,7 @@ dependencies = [
  "lazy_static",
  "regex",
  "strum_macros 0.24.3",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "floria"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "assert_cmd",
  "bio",
@@ -674,7 +674,7 @@ version = "1.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84793ab0a88a3afe0148d042677634c24c90a0303205666cc88970a1073a77ef"
 dependencies = [
- "bindgen",
+ "bindgen 0.70.1",
  "cmake",
 ]
 
@@ -684,6 +684,7 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e38d7f1c121cd22aa214cb4dadd4277dc5447391eac518b899b29ba6356fbbb2"
 dependencies = [
+ "bindgen 0.69.5",
  "cc",
  "fs-utils",
  "glob",
@@ -1436,9 +1437,9 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "rust-htslib"
-version = "0.44.1"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c7eb0f29fce64a4e22578905efef3d72389058016023279a58b282eb5c0c467"
+checksum = "115ae57b89deb942275566eca8c31da053d8df0d8bda12e50c4c4aa994877068"
 dependencies = [
  "bio-types 1.0.4",
  "byteorder",
@@ -1448,10 +1449,11 @@ dependencies = [
  "ieee754",
  "lazy_static",
  "libc",
+ "libz-sys",
  "linear-map",
  "newtype_derive",
  "regex",
- "thiserror",
+ "thiserror 2.0.12",
  "url",
 ]
 
@@ -1716,7 +1718,16 @@ version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
+dependencies = [
+ "thiserror-impl 2.0.12",
 ]
 
 [[package]]

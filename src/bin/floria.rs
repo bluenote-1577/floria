@@ -24,7 +24,7 @@ fn main() {
     let alg_options = "ALGORITHM";
     let mandatory_options = "REQUIRED";
     let matches = Command::new("floria")
-                          .version("0.0.1")
+                          .version("0.0.2")
                           .setting(AppSettings::ArgRequiredElseHelp)
                           .about("floria - strain phasing for short or long-read shotgun metagenomic sequencing.\n\nExample usage :\nfloria -b bamfile.bam -v vcffile.vcf -r reference.fa -o results -t 10\n")
                           .arg(Arg::new("bam")
